@@ -16,38 +16,46 @@ class _SignupState extends State<Signup> {
   final TextEditingController _passwordController = TextEditingController();
   bool _obscurePassword = true;
 
-  void _signUp() async {
-    final email = _emailController.text.trim();
-    final password = _passwordController.text.trim();
+ void _signUp() async {
+  final email = _emailController.text.trim();
+  final password = _passwordController.text.trim();
 
-    if (email.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Email dan password wajib diisi')),
-      );
-      return;
-    }
+  if (email.isEmpty || password.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Email dan password wajib diisi')),
+    );
+    return;
+  }
 
-    try {
-      final AuthResponse res = await supabase.auth.signUp(
+  try {
+    final AuthResponse res = await supabase.auth.signUp(
+      email: email,
+      password: password,
+    );
+
+    if (res.user != null) {
+      // 🚀 Langsung login tanpa nunggu verifikasi email
+      await supabase.auth.signInWithPassword(
         email: email,
         password: password,
       );
 
-      if (res.user != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Berhasil daftar')),
-        );
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => Login()),
-        );
-      }
-    } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Gagal daftar: ${e.toString()}')),
+        const SnackBar(content: Text('Berhasil daftar & login')),
+      );
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const Login()),
       );
     }
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Gagal daftar: ${e.toString()}')),
+    );
   }
+}
+
 
   @override
   Widget build(BuildContext context) {
