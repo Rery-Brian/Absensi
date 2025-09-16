@@ -5,8 +5,8 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Supabase.initialize(
-    url: 'https://cvjthneasudfzzgberim.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN2anRobmVhc3VkZnp6Z2JlcmltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTU3NTAzNjUsImV4cCI6MjA3MTMyNjM2NX0.1YxJmHdXxyphPKtoM84SNCJrs906-323fUd8BG64c6I',
+    url: 'https://gzicdonompgsowiermqj.supabase.co',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd6aWNkb25vbXBnc293aWVybXFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc5OTMwNjcsImV4cCI6MjA3MzU2OTA2N30.qVMAeTGed6Xc43Er_UvbyBxJrN4l5R46mlbJpq4U25I',
   );
   runApp(MyApp());
 }
