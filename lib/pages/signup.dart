@@ -69,7 +69,8 @@ class _SignupState extends State<Signup> {
               width: MediaQuery.of(context).size.width,
               height: MediaQuery.of(context).size.height * 0.4,
               decoration: BoxDecoration(
-                color: const Color(0xff3a57e8),
+                color: Colors.white,
+
                 borderRadius: const BorderRadius.only(
                   bottomLeft: Radius.circular(60.0),
                 ),
@@ -78,18 +79,18 @@ class _SignupState extends State<Signup> {
                 children: const [
                   SizedBox(height: 44),
                   Image(
-                    image: AssetImage("images/Logoputih.png"),
-                    height: 100,
-                    width: 140,
+                    image: AssetImage("images/logo.png"),
+                    height: 150,
+                    width: 150,
                     fit: BoxFit.contain,
                   ),
                   SizedBox(height: 16),
                   Text(
-                    "SMK UBIG",
+                    "Absensi",
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
                       fontSize: 26,
-                      color: Colors.white,
+                      color: Color(0xFF009688),
                     ),
                   ),
                 ],
@@ -163,7 +164,7 @@ class _SignupState extends State<Signup> {
                   // Tombol Buat Akun
                   MaterialButton(
                     onPressed: _signUp,
-                    color: const Color(0xff3a57e8),
+                    color: const Color(0xFF009688),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12.0),
                     ),
