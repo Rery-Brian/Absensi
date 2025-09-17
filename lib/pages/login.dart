@@ -19,7 +19,7 @@ class _LoginState extends State<Login> {
   final TextEditingController _passwordController = TextEditingController();
   bool _obscurePassword = true;
 
-  void signIn() async {
+ void signIn() async {
   try {
     final res = await supabase.auth.signInWithPassword(
       email: _emailController.text.trim(),
@@ -32,34 +32,60 @@ class _LoginState extends State<Login> {
       await prefs.setString('user_email', user.email!);
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Login berhasil'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-
-      // Navigasi ke halaman Dashboard
+      // langsung redirect tanpa notif
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => UserDashboard()),
+        MaterialPageRoute(builder: (context) => const UserDashboard()),
       );
     } else {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Login gagal: Email atau password salah'),
-          duration: Duration(seconds: 2),
-        ),
+      _showDialog(
+        title: "Login Gagal ❌",
+        message: "Email atau password salah.",
+        isSuccess: false,
       );
     }
   } catch (e) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Login gagal: ${e.toString()}')),
+    _showDialog(
+      title: "Error 🚨",
+      message: e.toString(),
+      isSuccess: false,
     );
   }
 }
+
+
+void _showDialog({required String title, required String message, required bool isSuccess}) {
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) {
+      return AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Icon(
+              isSuccess ? Icons.check_circle : Icons.error,
+              color: isSuccess ? Colors.green : Colors.red,
+            ),
+            const SizedBox(width: 8),
+            Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Text(message),
+      );
+    },
+  );
+
+  // auto close setelah 2 detik
+  Future.delayed(const Duration(seconds: 2), () {
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context);
+    }
+  });
+}
+
 
  @override
 Widget build(BuildContext context) {

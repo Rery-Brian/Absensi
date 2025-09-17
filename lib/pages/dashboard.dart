@@ -7,8 +7,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:intl/intl.dart';
 import 'login.dart';
-import 'attendance_history.dart'; // Import halaman riwayat
-import '../helpers/timezone_helper.dart'; // Import timezone helper
+import 'attendance_history.dart';
+import '../helpers/timezone_helper.dart';
 
 class UserDashboard extends StatefulWidget {
   const UserDashboard({super.key});
@@ -80,7 +80,6 @@ class _UserDashboardState extends State<UserDashboard> {
     try {
       final user = supabase.auth.currentUser;
       if (user != null) {
-        // Menggunakan timezone Jakarta
         final today = TimezoneHelper.getTodayDateString();
         final response = await supabase
             .from('attendance')
@@ -208,7 +207,6 @@ class _UserDashboardState extends State<UserDashboard> {
       final user = supabase.auth.currentUser;
       if (user == null) return null;
 
-      // Menggunakan timestamp Jakarta
       final jakartaTime = TimezoneHelper.nowInJakarta();
       final fileName = '${user.id}_${jakartaTime.millisecondsSinceEpoch}.jpg';
       final file = File(imagePath);
@@ -226,6 +224,278 @@ class _UserDashboardState extends State<UserDashboard> {
       _showSnackBar('Gagal upload foto: $e', isError: true);
       return null;
     }
+  }
+
+  // 🎉 Pop-up Notification yang Menarik untuk Absen Berhasil
+  Future<void> _showSuccessAttendancePopup(String type) async {
+    final isCheckIn = type == 'check_in';
+    final jakartaTime = TimezoneHelper.nowInJakarta();
+    
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          child: Container(
+            width: MediaQuery.of(context).size.width * 0.85,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  isCheckIn ? primaryColor : Colors.orange,
+                  isCheckIn ? primaryColor.withOpacity(0.8) : Colors.orange.withOpacity(0.8),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.3),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header dengan animasi icon
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 20),
+                  child: Column(
+                    children: [
+                      // Animated Icon
+                      TweenAnimationBuilder<double>(
+                        duration: const Duration(milliseconds: 800),
+                        tween: Tween(begin: 0.0, end: 1.0),
+                        builder: (context, value, child) {
+                          return Transform.scale(
+                            scale: value,
+                            child: Container(
+                              width: 80,
+                              height: 80,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.2),
+                                    blurRadius: 15,
+                                    offset: const Offset(0, 5),
+                                  ),
+                                ],
+                              ),
+                              child: Icon(
+                                isCheckIn ? Icons.login : Icons.logout,
+                                size: 40,
+                                color: isCheckIn ? primaryColor : Colors.orange,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 20),
+                      
+                      // Title dengan animasi
+                      TweenAnimationBuilder<double>(
+                        duration: const Duration(milliseconds: 600),
+                        tween: Tween(begin: 0.0, end: 1.0),
+                        builder: (context, value, child) {
+                          return Opacity(
+                            opacity: value,
+                            child: Text(
+                              ' ${isCheckIn ? 'Check In' : 'Check Out'} Berhasil!',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      
+                      // Subtitle
+                      Text(
+                        isCheckIn ? 'Selamat bekerja hari ini!' : 'Terima kasih atas kerja keras Anda!',
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 16,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+
+                // Detail Information
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 20),
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: Column(
+                    children: [
+                      // Time Info
+                      Row(
+                        children: [
+                          Icon(Icons.access_time, color: primaryColor, size: 20),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Waktu',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                Text(
+                                  TimezoneHelper.formatJakartaTime(jakartaTime, 'HH:mm:ss'),
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 16),
+                      const Divider(height: 1),
+                      const SizedBox(height: 16),
+                      
+                      // Date Info
+                      Row(
+                        children: [
+                          Icon(Icons.calendar_today, color: primaryColor, size: 20),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Tanggal',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                Text(
+                                  TimezoneHelper.formatJakartaTime(jakartaTime, 'EEEE, dd MMMM yyyy'),
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      
+                      const SizedBox(height: 16),
+                      const Divider(height: 1),
+                      const SizedBox(height: 16),
+                      
+                      // Location Info
+                      Row(
+                        children: [
+                          Icon(Icons.location_on, color: primaryColor, size: 20),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Lokasi',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                Text(
+                                  'PT Universal Big Data',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                                Text(
+                                  'Dalam radius kantor ✓',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.green,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+                
+                // Action Button
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 20),
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: isCheckIn ? primaryColor : Colors.orange,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.check_circle_outline, size: 20),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'OK, Mengerti',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _performAttendance(String type) async {
@@ -283,7 +553,8 @@ class _UserDashboardState extends State<UserDashboard> {
         'is_within_radius': withinRadius,
       });
 
-      _showSnackBar('${type == "check_in" ? "Check In" : "Check Out"} berhasil!');
+      // 🎉 Tampilkan pop-up success yang menarik
+      await _showSuccessAttendancePopup(type);
 
       // Refresh data
       await _loadTodayAttendance();
@@ -334,12 +605,11 @@ class _UserDashboardState extends State<UserDashboard> {
               onPressed: () async {
                 Navigator.of(context).pop();
                 await supabase.auth.signOut();
-if (!mounted) return;
-Navigator.pushReplacement(
-  context,
-  MaterialPageRoute(builder: (_) => const Login()),
-);
-
+                if (!mounted) return;
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => const Login()),
+                );
               },
             ),
           ],
@@ -670,7 +940,6 @@ Navigator.pushReplacement(
                   style: const TextStyle(fontWeight: FontWeight.w500),
                 ),
                 subtitle: Text(
-                  // Menggunakan TimezoneHelper untuk format tanggal
                   TimezoneHelper.formatAttendanceDateTime(date),
                   style: const TextStyle(fontSize: 12),
                 ),
@@ -776,7 +1045,6 @@ Navigator.pushReplacement(
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      // Menggunakan TimezoneHelper untuk format tanggal
                       TimezoneHelper.formatJakartaTime(
                         TimezoneHelper.nowInJakarta(),
                         'EEEE, dd MMMM yyyy'
@@ -893,35 +1161,52 @@ class _CameraSelfieScreenState extends State<CameraSelfieScreen> {
   CameraController? _controller;
   bool _isInitialized = false;
   bool _isCapturing = false;
+  int _selectedCameraIndex = 0;
   static const Color primaryColor = Color(0xFF009688);
 
   @override
   void initState() {
     super.initState();
-    _initializeCamera();
+    // pilih kamera depan jika ada
+    _selectedCameraIndex = widget.cameras.indexWhere((c) => c.lensDirection == CameraLensDirection.front);
+    if (_selectedCameraIndex < 0) _selectedCameraIndex = 0;
+    _initializeController();
   }
 
-  Future<void> _initializeCamera() async {
+  Future<void> _initializeController() async {
     try {
-      CameraDescription camera = widget.cameras.first;
-      for (var cam in widget.cameras) {
-        if (cam.lensDirection == CameraLensDirection.front) {
-          camera = cam;
-          break;
-        }
-      }
+      final camera = widget.cameras[_selectedCameraIndex];
+      await _controller?.dispose();
 
-      _controller = CameraController(camera, ResolutionPreset.medium);
+      _controller = CameraController(
+        camera,
+        ResolutionPreset.medium,
+        enableAudio: false,
+      );
+
       await _controller!.initialize();
 
-      if (mounted) {
-        setState(() {
-          _isInitialized = true;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _isInitialized = true;
+      });
     } catch (e) {
       print('Error initializing selfie camera: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal menginisialisasi kamera: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
+  }
+
+  Future<void> _switchCamera() async {
+    if (widget.cameras.length < 2) return;
+    setState(() {
+      _isInitialized = false;
+    });
+    _selectedCameraIndex = (_selectedCameraIndex + 1) % widget.cameras.length;
+    await _initializeController();
   }
 
   Future<void> _takePicture() async {
@@ -938,16 +1223,17 @@ class _CameraSelfieScreenState extends State<CameraSelfieScreen> {
       Navigator.pop(context, photo.path);
     } catch (e) {
       print('Error take picture: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Gagal mengambil foto: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal mengambil foto: $e'), backgroundColor: Colors.red),
+        );
+      }
     } finally {
-      setState(() {
-        _isCapturing = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isCapturing = false;
+        });
+      }
     }
   }
 
@@ -967,39 +1253,60 @@ class _CameraSelfieScreenState extends State<CameraSelfieScreen> {
         ),
       );
     }
-    
+
+    final media = MediaQuery.of(context);
+    final overlayWidth = media.size.width * 0.7;
+    final overlayHeight = media.size.height * 0.45;
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
         title: const Text('Ambil Selfie untuk Absensi'),
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.flip_camera_ios),
+            onPressed: widget.cameras.length > 1 ? _switchCamera : null,
+            tooltip: 'Ganti kamera',
+          ),
+        ],
       ),
       body: Stack(
         children: [
-          Positioned.fill(child: CameraPreview(_controller!)),
-          
-          // Overlay guide
+          // Kamera full screen tanpa gepeng
+          SizedBox.expand(
+            child: FittedBox(
+              fit: BoxFit.cover,
+              child: SizedBox(
+                width: _controller!.value.previewSize!.height,
+                height: _controller!.value.previewSize!.width,
+                child: CameraPreview(_controller!),
+              ),
+            ),
+          ),
+
+          // Overlay guide (atas)
           Positioned(
-            top: 80,
-            left: 30,
-            right: 30,
+            top: 40,
+            left: 20,
+            right: 20,
             child: Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.7),
+                color: Colors.black.withOpacity(0.6),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Column(
                 children: [
-                  Icon(Icons.face, color: primaryColor, size: 32),
-                  const SizedBox(height: 8),
+                  Icon(Icons.face, color: primaryColor, size: 28),
+                  const SizedBox(height: 6),
                   const Text(
                     'Posisikan wajah Anda di dalam frame',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Colors.white,
-                      fontSize: 16,
+                      fontSize: 15,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -1009,64 +1316,63 @@ class _CameraSelfieScreenState extends State<CameraSelfieScreen> {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Colors.white70,
-                      fontSize: 14,
+                      fontSize: 13,
                     ),
                   ),
                 ],
               ),
             ),
           ),
-          
-          // Face detection frame
-          Positioned(
-            top: 200,
-            left: 50,
-            right: 50,
+
+          // Frame wajah
+          Center(
             child: Container(
-              height: 300,
+              width: overlayWidth,
+              height: overlayHeight,
               decoration: BoxDecoration(
                 border: Border.all(color: primaryColor, width: 3),
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(18),
+                color: Colors.transparent,
               ),
               child: Container(
-                margin: const EdgeInsets.all(20),
+                margin: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
-                  border: Border.all(color: primaryColor.withOpacity(0.5), width: 2),
-                  borderRadius: BorderRadius.circular(15),
+                  border: Border.all(color: primaryColor.withOpacity(0.4), width: 2),
+                  borderRadius: BorderRadius.circular(14),
                 ),
               ),
             ),
           ),
-          
-          // Camera button
+
+          // Tombol bawah
           Positioned(
-            bottom: 50,
+            bottom: 36,
             left: 0,
             right: 0,
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                // Cancel button
+                // Cancel
                 GestureDetector(
                   onTap: () => Navigator.pop(context),
                   child: Container(
                     width: 60,
                     height: 60,
                     decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.8),
+                      color: Colors.red.withOpacity(0.85),
                       shape: BoxShape.circle,
                       border: Border.all(color: Colors.white, width: 3),
                     ),
                     child: const Icon(Icons.close, size: 30, color: Colors.white),
                   ),
                 ),
-                
-                // Take photo button
+
+                // Capture
                 GestureDetector(
                   onTap: _isCapturing ? null : _takePicture,
                   child: Container(
-                    width: 80,
-                    height: 80,
+                    width: 84,
+                    height: 84,
                     decoration: BoxDecoration(
                       color: _isCapturing ? Colors.grey : Colors.white,
                       shape: BoxShape.circle,
@@ -1080,19 +1386,15 @@ class _CameraSelfieScreenState extends State<CameraSelfieScreen> {
                         : Icon(Icons.camera_alt, size: 40, color: primaryColor),
                   ),
                 ),
-                
-                // Switch camera button (if available)
+
+                // Switch camera
                 GestureDetector(
-                  onTap: widget.cameras.length > 1 ? () {
-                    // Switch camera logic could be implemented here
-                  } : null,
+                  onTap: widget.cameras.length > 1 ? _switchCamera : null,
                   child: Container(
                     width: 60,
                     height: 60,
                     decoration: BoxDecoration(
-                      color: widget.cameras.length > 1 
-                          ? primaryColor.withOpacity(0.8) 
-                          : Colors.grey.withOpacity(0.5),
+                      color: widget.cameras.length > 1 ? primaryColor.withOpacity(0.85) : Colors.grey.withOpacity(0.5),
                       shape: BoxShape.circle,
                       border: Border.all(color: Colors.white, width: 3),
                     ),
@@ -1102,30 +1404,27 @@ class _CameraSelfieScreenState extends State<CameraSelfieScreen> {
               ],
             ),
           ),
-          
-          // Instructions at bottom
+
+          // Info text
           Positioned(
             bottom: 140,
-            left: 20,
-            right: 20,
+            left: 24,
+            right: 24,
             child: Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.7),
+                color: Colors.black.withOpacity(0.6),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.info_outline, color: primaryColor, size: 20),
+                  Icon(Icons.info_outline, color: primaryColor, size: 18),
                   const SizedBox(width: 8),
                   const Expanded(
                     child: Text(
                       'Pastikan wajah terlihat jelas dan dalam pencahayaan yang baik',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                      ),
+                      style: TextStyle(color: Colors.white, fontSize: 12),
                       textAlign: TextAlign.center,
                     ),
                   ),
