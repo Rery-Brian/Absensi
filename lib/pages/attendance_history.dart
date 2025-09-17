@@ -4,6 +4,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../helpers/timezone_helper.dart'; // Import timezone helper
+import 'login.dart';
 
 class AttendanceHistoryPage extends StatefulWidget {
   const AttendanceHistoryPage({super.key});
@@ -30,7 +32,9 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
   @override
   void initState() {
     super.initState();
-    _selectedDay = DateTime.now();
+    // Menggunakan waktu Jakarta saat ini
+    _selectedDay = TimezoneHelper.nowInJakarta();
+    _focusedDay = _selectedDay!;
     _loadUserProfile();
     _loadAllAttendance();
   }
@@ -70,14 +74,16 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
         
         final attendanceList = List<Map<String, dynamic>>.from(response);
         
-        // Group attendance by date for calendar
+        // Group attendance by date for calendar menggunakan timezone Jakarta
         final Map<DateTime, List<Map<String, dynamic>>> groupedAttendance = {};
         int checkIns = 0;
         int checkOuts = 0;
         
         for (final attendance in attendanceList) {
           final date = DateTime.parse(attendance['created_at']);
-          final dateOnly = DateTime(date.year, date.month, date.day);
+          // Konversi ke timezone Jakarta
+          final jakartaDate = TimezoneHelper.toJakartaTime(date);
+          final dateOnly = DateTime(jakartaDate.year, jakartaDate.month, jakartaDate.day);
           
           if (groupedAttendance[dateOnly] == null) {
             groupedAttendance[dateOnly] = [];
@@ -122,6 +128,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
 
   Future<void> _showPhotoDialog(String photoUrl, Map<String, dynamic> attendance) async {
     final date = DateTime.parse(attendance['created_at']);
+    final jakartaDate = TimezoneHelper.toJakartaTime(date);
     final isCheckIn = attendance['type'] == 'check_in';
     
     showDialog(
@@ -197,7 +204,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
                           Icon(Icons.calendar_today, size: 16, color: primaryColor),
                           const SizedBox(width: 8),
                           Text(
-                            DateFormat('EEEE, dd MMMM yyyy', 'id_ID').format(date),
+                            TimezoneHelper.formatJakartaTime(jakartaDate, 'EEEE, dd MMMM yyyy'),
                             style: const TextStyle(fontWeight: FontWeight.w500),
                           ),
                         ],
@@ -208,7 +215,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
                           Icon(Icons.access_time, size: 16, color: primaryColor),
                           const SizedBox(width: 8),
                           Text(
-                            DateFormat('HH:mm:ss WIB').format(date),
+                            TimezoneHelper.formatJakartaTime(jakartaDate, 'HH:mm:ss') + ' WIB',
                             style: const TextStyle(fontWeight: FontWeight.w500),
                           ),
                         ],
@@ -245,19 +252,25 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
   }
 
   Future<void> _logout() async {
-    try {
-      await supabase.auth.signOut();
-      if (!mounted) return;
-      Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error logout: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
+  try {
+    await supabase.auth.signOut();
+    if (!mounted) return;
+
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const Login()), // langsung ke halaman Login
+      (route) => false, // hapus semua route biar gak bisa back
+    );
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Error logout: $e'),
+        backgroundColor: Colors.red,
+      ),
+    );
   }
+}
+
 
   Future<void> _showLogoutConfirmation() async {
     return showDialog<void>(
@@ -565,7 +578,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
                                   Icon(Icons.event, color: primaryColor),
                                   const SizedBox(width: 8),
                                   Text(
-                                    'Absensi ${DateFormat('dd MMM yyyy', 'id_ID').format(_selectedDay!)}',
+                                    'Absensi ${TimezoneHelper.formatJakartaTime(_selectedDay!, 'dd MMM yyyy')}',
                                     style: const TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.bold,
@@ -583,6 +596,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
                                 final attendance = _filteredAttendance[index];
                                 final isCheckIn = attendance['type'] == 'check_in';
                                 final date = DateTime.parse(attendance['created_at']);
+                                final jakartaDate = TimezoneHelper.toJakartaTime(date);
                                 
                                 return ListTile(
                                   leading: GestureDetector(
@@ -626,7 +640,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        DateFormat('HH:mm:ss WIB').format(date),
+                                        TimezoneHelper.formatJakartaTime(jakartaDate, 'HH:mm:ss') + ' WIB',
                                         style: const TextStyle(fontSize: 12),
                                       ),
                                       Row(
@@ -689,7 +703,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
                               Icon(Icons.event_busy, color: Colors.grey, size: 48),
                               const SizedBox(height: 8),
                               Text(
-                                'Tidak ada absensi pada tanggal ${DateFormat('dd MMM yyyy', 'id_ID').format(_selectedDay!)}',
+                                'Tidak ada absensi pada tanggal ${TimezoneHelper.formatJakartaTime(_selectedDay!, 'dd MMM yyyy')}',
                                 style: const TextStyle(color: Colors.grey),
                                 textAlign: TextAlign.center,
                               ),

@@ -6,7 +6,9 @@ import 'package:camera/camera.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:intl/intl.dart';
+import 'login.dart';
 import 'attendance_history.dart'; // Import halaman riwayat
+import '../helpers/timezone_helper.dart'; // Import timezone helper
 
 class UserDashboard extends StatefulWidget {
   const UserDashboard({super.key});
@@ -78,13 +80,14 @@ class _UserDashboardState extends State<UserDashboard> {
     try {
       final user = supabase.auth.currentUser;
       if (user != null) {
-        final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+        // Menggunakan timezone Jakarta
+        final today = TimezoneHelper.getTodayDateString();
         final response = await supabase
             .from('attendance')
             .select()
             .eq('user_id', user.id)
-            .gte('created_at', '${today}T00:00:00')
-            .lt('created_at', '${today}T23:59:59')
+            .gte('created_at', '${today}T00:00:00+07:00')
+            .lt('created_at', '${today}T23:59:59+07:00')
             .order('created_at');
         
         setState(() {
@@ -205,7 +208,9 @@ class _UserDashboardState extends State<UserDashboard> {
       final user = supabase.auth.currentUser;
       if (user == null) return null;
 
-      final fileName = '${user.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      // Menggunakan timestamp Jakarta
+      final jakartaTime = TimezoneHelper.nowInJakarta();
+      final fileName = '${user.id}_${jakartaTime.millisecondsSinceEpoch}.jpg';
       final file = File(imagePath);
       
       await supabase.storage
@@ -329,8 +334,12 @@ class _UserDashboardState extends State<UserDashboard> {
               onPressed: () async {
                 Navigator.of(context).pop();
                 await supabase.auth.signOut();
-                if (!mounted) return;
-                Navigator.pushReplacementNamed(context, '/login');
+if (!mounted) return;
+Navigator.pushReplacement(
+  context,
+  MaterialPageRoute(builder: (_) => const Login()),
+);
+
               },
             ),
           ],
@@ -661,7 +670,8 @@ class _UserDashboardState extends State<UserDashboard> {
                   style: const TextStyle(fontWeight: FontWeight.w500),
                 ),
                 subtitle: Text(
-                  DateFormat('dd MMM yyyy, HH:mm WIB', 'id_ID').format(date),
+                  // Menggunakan TimezoneHelper untuk format tanggal
+                  TimezoneHelper.formatAttendanceDateTime(date),
                   style: const TextStyle(fontSize: 12),
                 ),
                 trailing: Icon(
@@ -766,7 +776,11 @@ class _UserDashboardState extends State<UserDashboard> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      DateFormat('EEEE, dd MMMM yyyy', 'id_ID').format(DateTime.now()),
+                      // Menggunakan TimezoneHelper untuk format tanggal
+                      TimezoneHelper.formatJakartaTime(
+                        TimezoneHelper.nowInJakarta(),
+                        'EEEE, dd MMMM yyyy'
+                      ),
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 14,
