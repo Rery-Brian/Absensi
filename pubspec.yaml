@@ -31,6 +31,8 @@ dependencies:
   flutter:
     sdk: flutter
   supabase_flutter: ^2.10.1
+  google_sign_in: ^6.1.5  # Tambahkan ini
+  shared_preferences: ^2.2.2
   geolocator: ^10.1.0
   camera: ^0.10.5+9
   path_provider: ^2.1.1
