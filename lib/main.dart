@@ -11,8 +11,8 @@ Future<void> main() async {
   TimezoneHelper.initialize();
 
   await Supabase.initialize(
-    url: 'https://gzicdonompgsowiermqj.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd6aWNkb25vbXBnc293aWVybXFqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc5OTMwNjcsImV4cCI6MjA3MzU2OTA2N30.qVMAeTGed6Xc43Er_UvbyBxJrN4l5R46mlbJpq4U25I',
+    url: 'https://mgidfodeiedfyaczqjng.supabase.co',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1naWRmb2RlaWVkZnlhY3pxam5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyNTEyNjcsImV4cCI6MjA3MzgyNzI2N30.yAhh8dXILji3OZqXdBHaZJmoJ4z316U-jfCNhMDi7c8',
   );
 
   await initializeDateFormatting('id_ID', null);

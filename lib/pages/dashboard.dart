@@ -1,11 +1,13 @@
+// screens/user_dashboard.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:camera/camera.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:intl/intl.dart';
+import '../models/attendance_model.dart' hide Position;
+import '../services/attendance_service.dart';
+import '../services/camera_service.dart';
+import '../pages/camera_selfie_screen.dart';
 import 'login.dart';
 import 'attendance_history.dart';
 import '../helpers/timezone_helper.dart';
@@ -18,172 +20,138 @@ class UserDashboard extends StatefulWidget {
 }
 
 class _UserDashboardState extends State<UserDashboard> {
-  final supabase = Supabase.instance.client;
+  final AttendanceService _attendanceService = AttendanceService();
   bool _isLoading = false;
   Position? _currentPosition;
-  late List<CameraDescription> _cameras;
-  bool _cameraInitialized = false;
-  Map<String, dynamic>? _userProfile;
-  List<Map<String, dynamic>> _todayAttendance = [];
-  List<Map<String, dynamic>> _recentAttendance = [];
+
+  // Data from services
+  UserProfile? _userProfile;
+  OrganizationMember? _organizationMember;
+  List<AttendanceRecord> _todayAttendanceRecords = [];
+  List<AttendanceRecord> _recentAttendanceRecords = [];
+  MemberSchedule? _currentSchedule;
+  AttendanceDevice? _attendanceDevice;
 
   // Theme color
   static const Color primaryColor = Color(0xFF009688);
-  
-  // Koordinat PT Universal Big Data Malang
-  static const double officeLatitude = -7.9207989;
-  static const double officeLongitude = 112.6187022;
-  static const double radiusInMeters = 100.0;
 
   @override
   void initState() {
     super.initState();
-    _initializeCamera();
-    _getCurrentLocation();
-    _loadUserProfile();
-    _loadTodayAttendance();
-    _loadRecentAttendance();
+    _initializeServices();
+    _loadUserData();
   }
 
-  Future<void> _initializeCamera() async {
+  Future<void> _initializeServices() async {
     try {
-      _cameras = await availableCameras();
+      await CameraService.initializeCameras();
+    } catch (e) {
+      print('Error initializing services: $e');
+      _showSnackBar('Error inisialisasi layanan: $e', isError: true);
+    }
+  }
+
+  Future<void> _loadUserData() async {
+  setState(() {
+    _isLoading = true;
+  });
+
+  try {
+    print('=== Starting _loadUserData ===');
+    
+    _userProfile = await _attendanceService.loadUserProfile();
+    print('User profile loaded: ${_userProfile?.fullName}');
+    
+    if (_userProfile != null) {
+      _organizationMember = await _attendanceService.loadOrganizationMember();
+      print('Organization member loaded: ${_organizationMember?.id}');
+      
+      if (_organizationMember != null) {
+        await _loadOrganizationData();
+        print('Organization data loaded');
+      } else {
+        print('⚠️ No organization member found');
+      }
+    } else {
+      print('❌ User profile is null');
+    }
+  } catch (e) {
+    print('❌ Error in _loadUserData: $e');
+    _showSnackBar('Error loading user data: $e', isError: true);
+  } finally {
+    setState(() {
+      _isLoading = false;
+    });
+  }
+}
+
+
+  Future<void> _loadOrganizationData() async {
+    if (_organizationMember == null) return;
+
+    try {
+      final futures = await Future.wait([
+        _attendanceService.loadAttendanceDevice(_organizationMember!.organizationId),
+        _attendanceService.loadTodayAttendanceRecords(_organizationMember!.id),
+        _attendanceService.loadRecentAttendanceRecords(_organizationMember!.id),
+        _attendanceService.loadCurrentSchedule(_organizationMember!.id),
+        _attendanceService.getCurrentLocation(),
+      ]);
+
       setState(() {
-        _cameraInitialized = true;
+        _attendanceDevice = futures[0] as AttendanceDevice?;
+        _todayAttendanceRecords = futures[1] as List<AttendanceRecord>;
+        _recentAttendanceRecords = futures[2] as List<AttendanceRecord>;
+        _currentSchedule = futures[3] as MemberSchedule?;
+        _currentPosition = futures[4] as Position?;
       });
     } catch (e) {
-      print('Error initializing camera: $e');
-      _showSnackBar('Error inisialisasi kamera: $e', isError: true);
-    }
-  }
-
-  Future<void> _loadUserProfile() async {
-    try {
-      final user = supabase.auth.currentUser;
-      if (user != null) {
-        final response = await supabase
-            .from('profiles')
-            .select()
-            .eq('id', user.id)
-            .single();
-        
-        setState(() {
-          _userProfile = response;
-        });
+      print('Error loading organization data: $e');
+      if (e.toString().contains('location')) {
+        _showSnackBar('Gagal mendapatkan lokasi. Pastikan GPS aktif.', isError: true);
       }
-    } catch (e) {
-      print('Error loading profile: $e');
-    }
-  }
-
-  Future<void> _loadTodayAttendance() async {
-    try {
-      final user = supabase.auth.currentUser;
-      if (user != null) {
-        final today = TimezoneHelper.getTodayDateString();
-        final response = await supabase
-            .from('attendance')
-            .select()
-            .eq('user_id', user.id)
-            .gte('created_at', '${today}T00:00:00+07:00')
-            .lt('created_at', '${today}T23:59:59+07:00')
-            .order('created_at');
-        
-        setState(() {
-          _todayAttendance = List<Map<String, dynamic>>.from(response);
-        });
-      }
-    } catch (e) {
-      print('Error loading today attendance: $e');
-    }
-  }
-
-  Future<void> _loadRecentAttendance() async {
-    try {
-      final user = supabase.auth.currentUser;
-      if (user != null) {
-        final response = await supabase
-            .from('attendance')
-            .select()
-            .eq('user_id', user.id)
-            .order('created_at', ascending: false)
-            .limit(5);
-        
-        setState(() {
-          _recentAttendance = List<Map<String, dynamic>>.from(response);
-        });
-      }
-    } catch (e) {
-      print('Error loading recent attendance: $e');
     }
   }
 
   Future<void> _getCurrentLocation() async {
     try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        _showSnackBar('Layanan lokasi tidak aktif', isError: true);
-        return;
-      }
-
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          _showSnackBar('Izin lokasi ditolak', isError: true);
-          return;
-        }
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        _showSnackBar('Lokasi ditolak permanen, buka setelan', isError: true);
-        return;
-      }
-
-      Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-      setState(() {
-        _currentPosition = position;
-      });
+      _currentPosition = await _attendanceService.getCurrentLocation();
+      setState(() {});
     } catch (e) {
       _showSnackBar('Gagal mendapatkan lokasi: $e', isError: true);
     }
   }
 
-  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    return Geolocator.distanceBetween(lat1, lon1, lat2, lon2);
-  }
-
   bool _isWithinRadius() {
-    if (_currentPosition == null) return false;
-    double distance = _calculateDistance(
-      _currentPosition!.latitude,
-      _currentPosition!.longitude,
-      officeLatitude,
-      officeLongitude,
-    );
-    return distance <= radiusInMeters;
+    if (_currentPosition == null || _attendanceDevice == null) return false;
+    return _attendanceService.isWithinRadius(_currentPosition!, _attendanceDevice!);
   }
 
   bool _canCheckIn() {
-    return _todayAttendance.where((a) => a['type'] == 'check_in').isEmpty;
+    return _todayAttendanceRecords
+        .where((record) => record.hasCheckedIn)
+        .isEmpty;
   }
 
   bool _canCheckOut() {
-    final checkIns = _todayAttendance.where((a) => a['type'] == 'check_in');
-    final checkOuts = _todayAttendance.where((a) => a['type'] == 'check_out');
-    return checkIns.isNotEmpty && checkOuts.length < checkIns.length;
+    final hasCheckedIn = _todayAttendanceRecords
+        .where((record) => record.hasCheckedIn)
+        .isNotEmpty;
+    final hasCheckedOut = _todayAttendanceRecords
+        .where((record) => record.hasCheckedOut)
+        .isNotEmpty;
+
+    return hasCheckedIn && !hasCheckedOut;
   }
 
   Future<String?> _takeSelfie() async {
-    if (!_cameraInitialized || _cameras.isEmpty) {
+    if (!CameraService.isInitialized) {
       _showSnackBar('Kamera tidak tersedia', isError: true);
       return null;
     }
 
-    final status = await Permission.camera.request();
-    if (status != PermissionStatus.granted) {
+    final hasPermission = await CameraService.requestCameraPermission();
+    if (!hasPermission) {
       _showSnackBar('Izin kamera diperlukan', isError: true);
       return null;
     }
@@ -192,7 +160,7 @@ class _UserDashboardState extends State<UserDashboard> {
       final result = await Navigator.push<String>(
         context,
         MaterialPageRoute(
-          builder: (context) => CameraSelfieScreen(cameras: _cameras),
+          builder: (context) => CameraSelfieScreen(cameras: CameraService.cameras),
         ),
       );
       return result;
@@ -202,35 +170,103 @@ class _UserDashboardState extends State<UserDashboard> {
     }
   }
 
-  Future<String?> _uploadPhoto(String imagePath) async {
+  Future<void> _performAttendance(String type) async {
+    setState(() {
+      _isLoading = true;
+    });
+
     try {
-      final user = supabase.auth.currentUser;
-      if (user == null) return null;
+      // Validation checks
+      if (_organizationMember == null) {
+        _showSnackBar(
+          'Data member organisasi tidak ditemukan. Hubungi admin.',
+          isError: true,
+        );
+        return;
+      }
 
-      final jakartaTime = TimezoneHelper.nowInJakarta();
-      final fileName = '${user.id}_${jakartaTime.millisecondsSinceEpoch}.jpg';
-      final file = File(imagePath);
-      
-      await supabase.storage
-          .from('attendance_photos')
-          .upload(fileName, file);
+      if (_attendanceDevice == null || !_attendanceDevice!.hasValidCoordinates) {
+        _showSnackBar(
+          'Lokasi kantor belum dikonfigurasi. Hubungi administrator.',
+          isError: true,
+        );
+        return;
+      }
 
-      final publicUrl = supabase.storage
-          .from('attendance_photos')
-          .getPublicUrl(fileName);
+      await _getCurrentLocation();
+      if (_currentPosition == null) {
+        _showSnackBar('Lokasi tidak ditemukan. Pastikan GPS aktif.', isError: true);
+        return;
+      }
 
-      return publicUrl;
+      if (!_isWithinRadius()) {
+        final distance = _attendanceService.calculateDistance(
+          _currentPosition!.latitude,
+          _currentPosition!.longitude,
+          _attendanceDevice!.latitude,
+          _attendanceDevice!.longitude,
+        );
+        
+        _showSnackBar(
+          distance != null
+              ? 'Anda berada di luar radius kantor (${distance.toStringAsFixed(0)}m dari ${_attendanceDevice!.radiusMeters.toInt()}m)'
+              : 'Tidak dapat menghitung jarak ke kantor',
+          isError: true,
+        );
+        return;
+      }
+
+      // Take selfie
+      String? imagePath = await _takeSelfie();
+      if (imagePath == null) {
+        _showSnackBar('Foto diperlukan untuk absensi', isError: true);
+        return;
+      }
+
+      // Upload photo
+      String? photoUrl = await _attendanceService.uploadPhoto(imagePath);
+      if (photoUrl == null) {
+        _showSnackBar('Gagal upload foto', isError: true);
+        return;
+      }
+
+      // Perform attendance
+      final success = await _attendanceService.performAttendance(
+        type: type,
+        organizationMemberId: _organizationMember!.id,
+        currentPosition: _currentPosition!,
+        photoUrl: photoUrl,
+        device: _attendanceDevice,
+        schedule: _currentSchedule,
+        todayRecords: _todayAttendanceRecords,
+      );
+
+      if (success) {
+        await _showSuccessAttendancePopup(type);
+        await _loadOrganizationData();
+      }
+
+      // Clean up temporary file
+      try {
+        await File(imagePath).delete();
+      } catch (e) {
+        print('Gagal menghapus file sementara: $e');
+      }
+
     } catch (e) {
-      _showSnackBar('Gagal upload foto: $e', isError: true);
-      return null;
+      print('Error performing attendance: $e');
+      _showSnackBar('Gagal melakukan absensi: $e', isError: true);
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 
-  // 🎉 Pop-up Notification yang Menarik untuk Absen Berhasil
   Future<void> _showSuccessAttendancePopup(String type) async {
     final isCheckIn = type == 'check_in';
     final jakartaTime = TimezoneHelper.nowInJakarta();
-    
+
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -243,7 +279,9 @@ class _UserDashboardState extends State<UserDashboard> {
               gradient: LinearGradient(
                 colors: [
                   isCheckIn ? primaryColor : Colors.orange,
-                  isCheckIn ? primaryColor.withOpacity(0.8) : Colors.orange.withOpacity(0.8),
+                  isCheckIn
+                      ? primaryColor.withOpacity(0.8)
+                      : Colors.orange.withOpacity(0.8),
                 ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
@@ -260,12 +298,11 @@ class _UserDashboardState extends State<UserDashboard> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Header dengan animasi icon
+                // Header with animation
                 Container(
                   padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 20),
                   child: Column(
                     children: [
-                      // Animated Icon
                       TweenAnimationBuilder<double>(
                         duration: const Duration(milliseconds: 800),
                         tween: Tween(begin: 0.0, end: 1.0),
@@ -296,31 +333,20 @@ class _UserDashboardState extends State<UserDashboard> {
                         },
                       ),
                       const SizedBox(height: 20),
-                      
-                      // Title dengan animasi
-                      TweenAnimationBuilder<double>(
-                        duration: const Duration(milliseconds: 600),
-                        tween: Tween(begin: 0.0, end: 1.0),
-                        builder: (context, value, child) {
-                          return Opacity(
-                            opacity: value,
-                            child: Text(
-                              ' ${isCheckIn ? 'Check In' : 'Check Out'} Berhasil!',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          );
-                        },
+                      Text(
+                        '${isCheckIn ? 'Check In' : 'Check Out'} Berhasil!',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 8),
-                      
-                      // Subtitle
                       Text(
-                        isCheckIn ? 'Selamat bekerja hari ini!' : 'Terima kasih atas kerja keras Anda!',
+                        isCheckIn
+                            ? 'Selamat bekerja hari ini!'
+                            : 'Terima kasih atas kerja keras Anda!',
                         style: const TextStyle(
                           color: Colors.white70,
                           fontSize: 16,
@@ -331,7 +357,7 @@ class _UserDashboardState extends State<UserDashboard> {
                   ),
                 ),
 
-                // Detail Information
+                // Details container
                 Container(
                   margin: const EdgeInsets.symmetric(horizontal: 20),
                   padding: const EdgeInsets.all(20),
@@ -341,128 +367,42 @@ class _UserDashboardState extends State<UserDashboard> {
                   ),
                   child: Column(
                     children: [
-                      // Time Info
-                      Row(
-                        children: [
-                          Icon(Icons.access_time, color: primaryColor, size: 20),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Waktu',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                                Text(
-                                  TimezoneHelper.formatJakartaTime(jakartaTime, 'HH:mm:ss'),
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.black87,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                      _buildDetailRow(
+                        icon: Icons.access_time,
+                        title: 'Waktu',
+                        value: TimezoneHelper.formatJakartaTime(jakartaTime, 'HH:mm:ss'),
                       ),
-                      
                       const SizedBox(height: 16),
                       const Divider(height: 1),
                       const SizedBox(height: 16),
-                      
-                      // Date Info
-                      Row(
-                        children: [
-                          Icon(Icons.calendar_today, color: primaryColor, size: 20),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Tanggal',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                                Text(
-                                  TimezoneHelper.formatJakartaTime(jakartaTime, 'EEEE, dd MMMM yyyy'),
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.black87,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                      _buildDetailRow(
+                        icon: Icons.calendar_today,
+                        title: 'Tanggal',
+                        value: TimezoneHelper.formatJakartaTime(jakartaTime, 'EEEE, dd MMMM yyyy'),
                       ),
-                      
                       const SizedBox(height: 16),
                       const Divider(height: 1),
                       const SizedBox(height: 16),
-                      
-                      // Location Info
-                      Row(
-                        children: [
-                          Icon(Icons.location_on, color: primaryColor, size: 20),
-                          const SizedBox(width: 12),
-                          const Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Lokasi',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                                Text(
-                                  'PT Universal Big Data',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.black87,
-                                  ),
-                                ),
-                                Text(
-                                  'Dalam radius kantor ✓',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.green,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+                      _buildDetailRow(
+                        icon: Icons.location_on,
+                        title: 'Lokasi',
+                        value: _attendanceDevice?.location ??
+                               _organizationMember?.organization?.name ??
+                               'Kantor',
+                        subtitle: 'Dalam radius kantor ✓',
                       ),
                     ],
                   ),
                 ),
 
                 const SizedBox(height: 20),
-                
-                // Action Button
+
+                // OK Button
                 Container(
                   margin: const EdgeInsets.symmetric(horizontal: 20),
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.of(context).pop();
-                    },
+                    onPressed: () => Navigator.of(context).pop(),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.white,
                       foregroundColor: isCheckIn ? primaryColor : Colors.orange,
@@ -472,23 +412,20 @@ class _UserDashboardState extends State<UserDashboard> {
                       ),
                       elevation: 0,
                     ),
-                    child: Row(
+                    child: const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(Icons.check_circle_outline, size: 20),
-                        const SizedBox(width: 8),
-                        const Text(
+                        SizedBox(width: 8),
+                        Text(
                           'OK, Mengerti',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                         ),
                       ],
                     ),
                   ),
                 ),
-                
+
                 const SizedBox(height: 20),
               ],
             ),
@@ -498,80 +435,50 @@ class _UserDashboardState extends State<UserDashboard> {
     );
   }
 
-  Future<void> _performAttendance(String type) async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      final user = supabase.auth.currentUser;
-      if (user == null) {
-        _showSnackBar('User tidak ditemukan', isError: true);
-        return;
-      }
-
-      await _getCurrentLocation();
-      if (_currentPosition == null) {
-        _showSnackBar('Lokasi tidak ditemukan', isError: true);
-        return;
-      }
-
-      bool withinRadius = _isWithinRadius();
-      double distance = _calculateDistance(
-        _currentPosition!.latitude,
-        _currentPosition!.longitude,
-        officeLatitude,
-        officeLongitude,
-      );
-
-      if (!withinRadius) {
-        _showSnackBar(
-          'Anda berada di luar radius kantor (${distance.toStringAsFixed(0)}m)',
-          isError: true,
-        );
-        return;
-      }
-
-      String? imagePath = await _takeSelfie();
-      if (imagePath == null) {
-        _showSnackBar('Foto diperlukan untuk absensi', isError: true);
-        return;
-      }
-
-      String? photoUrl = await _uploadPhoto(imagePath);
-      if (photoUrl == null) {
-        _showSnackBar('Gagal upload foto', isError: true);
-        return;
-      }
-
-      await supabase.from('attendance').insert({
-        'user_id': user.id,
-        'type': type,
-        'photo_url': photoUrl,
-        'latitude': _currentPosition!.latitude,
-        'longitude': _currentPosition!.longitude,
-        'is_within_radius': withinRadius,
-      });
-
-      // 🎉 Tampilkan pop-up success yang menarik
-      await _showSuccessAttendancePopup(type);
-
-      // Refresh data
-      await _loadTodayAttendance();
-      await _loadRecentAttendance();
-
-      try {
-        await File(imagePath).delete();
-      } catch (e) {
-        print('Gagal menghapus file sementara: $e');
-      }
-    } catch (e) {
-      _showSnackBar('Gagal melakukan absensi: $e', isError: true);
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
-    }
+  Widget _buildDetailRow({
+    required IconData icon,
+    required String title,
+    required String value,
+    String? subtitle,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, color: primaryColor, size: 20),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                ),
+              ),
+              if (subtitle != null)
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.green,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   Future<void> _showLogoutConfirmation() async {
@@ -592,9 +499,7 @@ class _UserDashboardState extends State<UserDashboard> {
           actions: <Widget>[
             TextButton(
               child: const Text('Batal'),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
+              onPressed: () => Navigator.of(context).pop(),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
@@ -604,7 +509,7 @@ class _UserDashboardState extends State<UserDashboard> {
               child: const Text('Logout', style: TextStyle(color: Colors.white)),
               onPressed: () async {
                 Navigator.of(context).pop();
-                await supabase.auth.signOut();
+                await _attendanceService.signOut();
                 if (!mounted) return;
                 Navigator.pushReplacement(
                   context,
@@ -631,6 +536,191 @@ class _UserDashboardState extends State<UserDashboard> {
           textColor: Colors.white,
           onPressed: () {},
         ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = Supabase.instance.client.auth.currentUser;
+    final displayName = _userProfile?.fullName ?? user?.email ?? 'User';
+
+    return Scaffold(
+      backgroundColor: Colors.grey.shade100,
+      appBar: AppBar(
+        title: Text(
+          "Dashboard - ${_organizationMember?.organization?.name ?? 'PT Universal Big Data'}",
+        ),
+        backgroundColor: primaryColor,
+        foregroundColor: Colors.white,
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _isLoading ? null : _loadUserData,
+          ),
+          IconButton(
+            icon: const Icon(Icons.history),
+            tooltip: 'Riwayat Absensi',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const AttendanceHistoryPage()),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: _showLogoutConfirmation,
+          ),
+        ],
+      ),
+      body: _organizationMember == null
+          ? _buildNotRegisteredView()
+          : _buildMainContent(displayName, user),
+    );
+  }
+
+  Widget _buildNotRegisteredView() {
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.business, size: 64, color: primaryColor),
+            const SizedBox(height: 16),
+            const Text(
+              'Belum Terdaftar',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Anda belum terdaftar sebagai member organisasi. Sistem akan mencoba mendaftarkan Anda secara otomatis atau hubungi admin untuk bantuan.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton.icon(
+              onPressed: _isLoading ? null : _loadUserData,
+              icon: _isLoading
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh),
+              label: Text(_isLoading ? 'Memproses...' : 'Coba Lagi'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primaryColor,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMainContent(String displayName, User? user) {
+    return RefreshIndicator(
+      onRefresh: _loadUserData,
+      color: primaryColor,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: Column(
+          children: [
+            _buildUserHeader(displayName, user),
+            const SizedBox(height: 20),
+            _buildLocationInfo(),
+            const SizedBox(height: 16),
+            _buildAttendanceStats(),
+            const SizedBox(height: 20),
+            _buildAttendanceButtonsCard(),
+            _buildRecentAttendance(),
+            _buildScheduleInfo(),
+            _buildDeviceInfo(),
+            _buildAttendanceRequirements(),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUserHeader(String displayName, User? user) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: primaryColor,
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(30),
+          bottomRight: Radius.circular(30),
+        ),
+      ),
+      child: Column(
+        children: [
+          CircleAvatar(
+            radius: 40,
+            backgroundColor: Colors.white,
+            backgroundImage: _userProfile?.profilePhotoUrl != null
+                ? NetworkImage(_userProfile!.profilePhotoUrl!)
+                : null,
+            child: _userProfile?.profilePhotoUrl == null
+                ? Icon(Icons.person, size: 50, color: primaryColor)
+                : null,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            displayName,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            user?.email ?? '',
+            style: const TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+          if (_organizationMember != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'ID: ${_organizationMember!.employeeId ?? 'N/A'}',
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${_organizationMember!.department?.name ?? ''} - ${_organizationMember!.position?.title ?? ''}'
+                  .replaceAll(' - ', ''),
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Text(
+            TimezoneHelper.formatJakartaTime(
+              TimezoneHelper.nowInJakarta(),
+              'EEEE, dd MMMM yyyy',
+            ),
+            style: const TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+        ],
       ),
     );
   }
@@ -668,20 +758,63 @@ class _UserDashboardState extends State<UserDashboard> {
       );
     }
 
-    double distance = _calculateDistance(
+    if (_attendanceDevice == null || !_attendanceDevice!.hasValidCoordinates) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        margin: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.red.shade200),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.location_off, color: Colors.red.shade600, size: 28),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Lokasi kantor belum dikonfigurasi',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.red.shade800,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Hubungi administrator untuk mengatur koordinat kantor pada perangkat absensi',
+                    style: TextStyle(fontSize: 12, color: Colors.red),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    double? distance = _attendanceService.calculateDistance(
       _currentPosition!.latitude,
       _currentPosition!.longitude,
-      officeLatitude,
-      officeLongitude,
+      _attendanceDevice!.latitude,
+      _attendanceDevice!.longitude,
     );
-    
-    bool withinRadius = distance <= radiusInMeters;
+
+    bool withinRadius = distance != null && distance <= _attendanceDevice!.radiusMeters;
+    String locationName = _attendanceDevice!.location ??
+        _organizationMember?.organization?.name ??
+        'Kantor';
 
     return Container(
       padding: const EdgeInsets.all(16),
       margin: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: withinRadius ? primaryColor.withOpacity(0.1) : Colors.red.shade50,
+        color: withinRadius
+            ? primaryColor.withOpacity(0.1)
+            : Colors.red.shade50,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: withinRadius ? primaryColor : Colors.red.shade200,
@@ -700,7 +833,9 @@ class _UserDashboardState extends State<UserDashboard> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  withinRadius ? 'Di dalam radius kantor' : 'Di luar radius kantor',
+                  withinRadius
+                      ? 'Di dalam radius kantor'
+                      : 'Di luar radius kantor',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     color: withinRadius ? primaryColor : Colors.red.shade800,
@@ -709,10 +844,24 @@ class _UserDashboardState extends State<UserDashboard> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Jarak: ${distance.toStringAsFixed(0)}m dari PT Universal Big Data',
+                  distance != null
+                      ? 'Jarak: ${distance.toStringAsFixed(0)}m dari $locationName'
+                      : 'Tidak dapat menghitung jarak',
                   style: TextStyle(
                     fontSize: 12,
-                    color: withinRadius ? primaryColor.withOpacity(0.8) : Colors.red.shade600,
+                    color: withinRadius
+                        ? primaryColor.withOpacity(0.8)
+                        : Colors.red.shade600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Radius: ${_attendanceDevice!.radiusMeters.toInt()}m',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: withinRadius
+                        ? primaryColor.withOpacity(0.7)
+                        : Colors.red.shade500,
                   ),
                 ),
               ],
@@ -724,9 +873,22 @@ class _UserDashboardState extends State<UserDashboard> {
   }
 
   Widget _buildAttendanceStats() {
-    final checkIns = _todayAttendance.where((a) => a['type'] == 'check_in').length;
-    final checkOuts = _todayAttendance.where((a) => a['type'] == 'check_out').length;
-    
+    int checkInCount = 0;
+    int checkOutCount = 0;
+    String status = 'BELUM MASUK';
+
+    if (_todayAttendanceRecords.isNotEmpty) {
+      final record = _todayAttendanceRecords.first;
+      if (record.hasCheckedIn) {
+        checkInCount = 1;
+        status = 'MASUK';
+      }
+      if (record.hasCheckedOut) {
+        checkOutCount = 1;
+        status = 'KELUAR';
+      }
+    }
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(16),
@@ -748,7 +910,7 @@ class _UserDashboardState extends State<UserDashboard> {
                   style: TextStyle(color: Colors.white70, fontSize: 12),
                 ),
                 Text(
-                  '$checkIns',
+                  '$checkInCount',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 24,
@@ -758,11 +920,7 @@ class _UserDashboardState extends State<UserDashboard> {
               ],
             ),
           ),
-          Container(
-            width: 1,
-            height: 40,
-            color: Colors.white30,
-          ),
+          Container(width: 1, height: 40, color: Colors.white30),
           Expanded(
             child: Column(
               children: [
@@ -771,7 +929,7 @@ class _UserDashboardState extends State<UserDashboard> {
                   style: TextStyle(color: Colors.white70, fontSize: 12),
                 ),
                 Text(
-                  '$checkOuts',
+                  '$checkOutCount',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 24,
@@ -781,11 +939,7 @@ class _UserDashboardState extends State<UserDashboard> {
               ],
             ),
           ),
-          Container(
-            width: 1,
-            height: 40,
-            color: Colors.white30,
-          ),
+          Container(width: 1, height: 40, color: Colors.white30),
           Expanded(
             child: Column(
               children: [
@@ -794,7 +948,7 @@ class _UserDashboardState extends State<UserDashboard> {
                   style: TextStyle(color: Colors.white70, fontSize: 12),
                 ),
                 Text(
-                  checkIns > checkOuts ? 'MASUK' : 'KELUAR',
+                  status,
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 16,
@@ -809,17 +963,55 @@ class _UserDashboardState extends State<UserDashboard> {
     );
   }
 
+  Widget _buildAttendanceButtonsCard() {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.access_time, color: primaryColor),
+              const SizedBox(width: 8),
+              const Text(
+                'Absensi Hari Ini',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _buildAttendanceButton('check_in', Icons.login, primaryColor),
+          _buildAttendanceButton('check_out', Icons.logout, Colors.orange),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAttendanceButton(String type, IconData icon, Color color) {
     String label = type == 'check_in' ? 'Check In' : 'Check Out';
-    bool canAttend = !_isLoading && 
-        _currentPosition != null && 
+    bool canAttend = !_isLoading &&
+        _currentPosition != null &&
+        _attendanceDevice != null &&
+        _attendanceDevice!.hasValidCoordinates &&
         _isWithinRadius() &&
         (type == 'check_in' ? _canCheckIn() : _canCheckOut());
 
     return Container(
       width: double.infinity,
       height: 60,
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      margin: const EdgeInsets.symmetric(vertical: 8),
       child: ElevatedButton.icon(
         onPressed: canAttend ? () => _performAttendance(type) : null,
         icon: _isLoading
@@ -844,7 +1036,7 @@ class _UserDashboardState extends State<UserDashboard> {
   }
 
   Widget _buildRecentAttendance() {
-    if (_recentAttendance.isEmpty) {
+    if (_recentAttendanceRecords.isEmpty) {
       return Container(
         margin: const EdgeInsets.all(16),
         padding: const EdgeInsets.all(20),
@@ -860,10 +1052,7 @@ class _UserDashboardState extends State<UserDashboard> {
           ],
         ),
         child: const Center(
-          child: Text(
-            'Belum ada riwayat absensi',
-            style: TextStyle(color: Colors.grey),
-          ),
+          child: Text('Belum ada riwayat absensi', style: TextStyle(color: Colors.grey)),
         ),
       );
     }
@@ -892,26 +1081,18 @@ class _UserDashboardState extends State<UserDashboard> {
                 const SizedBox(width: 8),
                 const Text(
                   'Riwayat Absensi',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
                 const Spacer(),
                 TextButton.icon(
                   onPressed: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        builder: (context) => const AttendanceHistoryPage(),
-                      ),
+                      MaterialPageRoute(builder: (context) => const AttendanceHistoryPage()),
                     );
                   },
                   icon: Icon(Icons.arrow_forward, size: 16, color: primaryColor),
-                  label: Text(
-                    'Lihat Semua',
-                    style: TextStyle(color: primaryColor, fontSize: 12),
-                  ),
+                  label: Text('Lihat Semua', style: TextStyle(color: primaryColor, fontSize: 12)),
                 ),
               ],
             ),
@@ -919,33 +1100,57 @@ class _UserDashboardState extends State<UserDashboard> {
           ListView.separated(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
-            itemCount: _recentAttendance.length,
+            itemCount: _recentAttendanceRecords.length,
             separatorBuilder: (context, index) => const Divider(height: 1),
             itemBuilder: (context, index) {
-              final attendance = _recentAttendance[index];
-              final isCheckIn = attendance['type'] == 'check_in';
-              final date = DateTime.parse(attendance['created_at']);
-              
+              final record = _recentAttendanceRecords[index];
+              final hasCheckIn = record.hasCheckedIn;
+              final hasCheckOut = record.hasCheckedOut;
+              final attendanceDate = DateTime.parse(record.attendanceDate);
+
               return ListTile(
                 leading: CircleAvatar(
-                  backgroundColor: isCheckIn ? primaryColor : Colors.orange,
+                  backgroundColor: hasCheckIn && hasCheckOut
+                      ? primaryColor
+                      : hasCheckIn
+                      ? Colors.orange
+                      : Colors.grey,
                   child: Icon(
-                    isCheckIn ? Icons.login : Icons.logout,
+                    hasCheckIn && hasCheckOut
+                        ? Icons.check_circle
+                        : hasCheckIn
+                        ? Icons.access_time
+                        : Icons.pending,
                     color: Colors.white,
                     size: 18,
                   ),
                 ),
                 title: Text(
-                  isCheckIn ? 'Check In' : 'Check Out',
+                  record.status.toUpperCase(),
                   style: const TextStyle(fontWeight: FontWeight.w500),
                 ),
-                subtitle: Text(
-                  TimezoneHelper.formatAttendanceDateTime(date),
-                  style: const TextStyle(fontSize: 12),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      DateFormat('EEEE, dd MMM yyyy').format(attendanceDate),
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    if (hasCheckIn && hasCheckOut)
+                      Text(
+                        '${_formatTime(record.actualCheckIn)} - ${_formatTime(record.actualCheckOut)}',
+                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                      )
+                    else if (hasCheckIn)
+                      Text(
+                        'Masuk: ${_formatTime(record.actualCheckIn)}',
+                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                      ),
+                  ],
                 ),
                 trailing: Icon(
-                  attendance['is_within_radius'] ? Icons.check_circle : Icons.error,
-                  color: attendance['is_within_radius'] ? primaryColor : Colors.red,
+                  record.status == 'present' ? Icons.check_circle : Icons.warning,
+                  color: record.status == 'present' ? primaryColor : Colors.orange,
                   size: 20,
                 ),
               );
@@ -956,481 +1161,135 @@ class _UserDashboardState extends State<UserDashboard> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final user = supabase.auth.currentUser;
+  String _formatTime(DateTime? dateTime) {
+    if (dateTime == null) return '-';
+    return DateFormat('HH:mm').format(dateTime);
+  }
 
-    return Scaffold(
-      backgroundColor: Colors.grey.shade100,
-      appBar: AppBar(
-        title: const Text("Dashboard - PT Universal Big Data"),
-        backgroundColor: primaryColor,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () async {
-              await _getCurrentLocation();
-              await _loadTodayAttendance();
-              await _loadRecentAttendance();
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.history),
-            tooltip: 'Riwayat Absensi',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const AttendanceHistoryPage()),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: _showLogoutConfirmation,
-          ),
-        ],
+  Widget _buildScheduleInfo() {
+    if (_currentSchedule == null) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: primaryColor.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: primaryColor.withOpacity(0.2)),
       ),
-      body: RefreshIndicator(
-        onRefresh: () async {
-          await _getCurrentLocation();
-          await _loadUserProfile();
-          await _loadTodayAttendance();
-          await _loadRecentAttendance();
-        },
-        color: primaryColor,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: Column(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              // Header user
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
+              Icon(Icons.schedule, color: primaryColor, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Jadwal Kerja',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
                   color: primaryColor,
-                  borderRadius: const BorderRadius.only(
-                    bottomLeft: Radius.circular(30),
-                    bottomRight: Radius.circular(30),
-                  ),
-                ),
-                child: Column(
-                  children: [
-                    CircleAvatar(
-                      radius: 40,
-                      backgroundColor: Colors.white,
-                      child: Icon(
-                        Icons.person,
-                        size: 50,
-                        color: primaryColor,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      _userProfile?['name'] ?? user?.email ?? 'User',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      user?.email ?? '',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 14,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      TimezoneHelper.formatJakartaTime(
-                        TimezoneHelper.nowInJakarta(),
-                        'EEEE, dd MMMM yyyy'
-                      ),
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ],
                 ),
               ),
-
-              const SizedBox(height: 20),
-
-              _buildLocationInfo(),
-
-              const SizedBox(height: 16),
-              
-              _buildAttendanceStats(),
-
-              const SizedBox(height: 20),
-
-              Container(
-                margin: const EdgeInsets.all(16),
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
-                      blurRadius: 10,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.access_time, color: primaryColor),
-                        const SizedBox(width: 8),
-                        const Text(
-                          'Absensi Hari Ini',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    _buildAttendanceButton('check_in', Icons.login, primaryColor),
-                    _buildAttendanceButton('check_out', Icons.logout, Colors.orange),
-                  ],
-                ),
-              ),
-
-              _buildRecentAttendance(),
-
-              const SizedBox(height: 20),
-
-              Container(
-                margin: const EdgeInsets.all(16),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: primaryColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: primaryColor.withOpacity(0.3)),
-                ),
-                child: Column(
-                  children: [
-                    Icon(Icons.info_outline, color: primaryColor, size: 30),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Syarat Absensi:',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: primaryColor,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      '• Berada dalam radius 100 meter dari kantor\n• Siapkan kamera untuk foto selfie\n• Pastikan lokasi GPS aktif\n• Check in hanya bisa dilakukan sekali per hari\n• Check out hanya bisa setelah check in\n\nLokasi: Ruko Modern Kav A16-A17, Jl Loncat Indah, Tasikmadu, Lowokwaru, Malang',
-                      textAlign: TextAlign.left,
-                      style: TextStyle(fontSize: 12),
-                    ),
-                  ],
-                ),
-              ),
-
-              const SizedBox(height: 20),
             ],
           ),
-        ),
+          const SizedBox(height: 8),
+          if (_currentSchedule!.shift != null) ...[
+            Text('Shift: ${_currentSchedule!.shift!.name}', style: const TextStyle(fontSize: 12)),
+            Text(
+              'Waktu: ${_currentSchedule!.shift!.startTime} - ${_currentSchedule!.shift!.endTime}',
+              style: const TextStyle(fontSize: 12),
+            ),
+          ],
+          if (_currentSchedule!.workSchedule != null)
+            Text(
+              'Jadwal: ${_currentSchedule!.workSchedule!.name}',
+              style: const TextStyle(fontSize: 12),
+            ),
+        ],
       ),
     );
   }
-}
 
-class CameraSelfieScreen extends StatefulWidget {
-  final List<CameraDescription> cameras;
+  Widget _buildDeviceInfo() {
+    if (_attendanceDevice == null) return const SizedBox.shrink();
 
-  const CameraSelfieScreen({super.key, required this.cameras});
-
-  @override
-  State<CameraSelfieScreen> createState() => _CameraSelfieScreenState();
-}
-
-class _CameraSelfieScreenState extends State<CameraSelfieScreen> {
-  CameraController? _controller;
-  bool _isInitialized = false;
-  bool _isCapturing = false;
-  int _selectedCameraIndex = 0;
-  static const Color primaryColor = Color(0xFF009688);
-
-  @override
-  void initState() {
-    super.initState();
-    // pilih kamera depan jika ada
-    _selectedCameraIndex = widget.cameras.indexWhere((c) => c.lensDirection == CameraLensDirection.front);
-    if (_selectedCameraIndex < 0) _selectedCameraIndex = 0;
-    _initializeController();
-  }
-
-  Future<void> _initializeController() async {
-    try {
-      final camera = widget.cameras[_selectedCameraIndex];
-      await _controller?.dispose();
-
-      _controller = CameraController(
-        camera,
-        ResolutionPreset.medium,
-        enableAudio: false,
-      );
-
-      await _controller!.initialize();
-
-      if (!mounted) return;
-      setState(() {
-        _isInitialized = true;
-      });
-    } catch (e) {
-      print('Error initializing selfie camera: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gagal menginisialisasi kamera: $e'), backgroundColor: Colors.red),
-        );
-      }
-    }
-  }
-
-  Future<void> _switchCamera() async {
-    if (widget.cameras.length < 2) return;
-    setState(() {
-      _isInitialized = false;
-    });
-    _selectedCameraIndex = (_selectedCameraIndex + 1) % widget.cameras.length;
-    await _initializeController();
-  }
-
-  Future<void> _takePicture() async {
-    if (_controller == null || !_controller!.value.isInitialized || _isCapturing) {
-      return;
-    }
-
-    setState(() {
-      _isCapturing = true;
-    });
-
-    try {
-      final XFile photo = await _controller!.takePicture();
-      Navigator.pop(context, photo.path);
-    } catch (e) {
-      print('Error take picture: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gagal mengambil foto: $e'), backgroundColor: Colors.red),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isCapturing = false;
-        });
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_isInitialized || _controller == null) {
-      return Scaffold(
-        backgroundColor: Colors.black,
-        body: Center(
-          child: CircularProgressIndicator(color: primaryColor),
-        ),
-      );
-    }
-
-    final media = MediaQuery.of(context);
-    final overlayWidth = media.size.width * 0.7;
-    final overlayHeight = media.size.height * 0.45;
-
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: const Text('Ambil Selfie untuk Absensi'),
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: Icon(Icons.flip_camera_ios),
-            onPressed: widget.cameras.length > 1 ? _switchCamera : null,
-            tooltip: 'Ganti kamera',
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: primaryColor.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: primaryColor.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.devices_other, color: primaryColor, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Informasi Device',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: primaryColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text('• Device: ${_attendanceDevice!.deviceName}', style: const TextStyle(fontSize: 12)),
+          Text('• Kode: ${_attendanceDevice!.deviceCode}', style: const TextStyle(fontSize: 12)),
+          if (_attendanceDevice!.location != null)
+            Text('• Lokasi: ${_attendanceDevice!.location}', style: const TextStyle(fontSize: 12)),
+          if (_attendanceDevice!.hasValidCoordinates)
+            Text(
+              '• Koordinat: ${_attendanceDevice!.latitude!.toStringAsFixed(6)}, ${_attendanceDevice!.longitude!.toStringAsFixed(6)}',
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
+            )
+          else
+            const Text(
+              '• Koordinat: Belum dikonfigurasi',
+              style: TextStyle(fontSize: 11, color: Colors.red),
+            ),
+          Text(
+            '• Radius: ${_attendanceDevice!.radiusMeters.toInt()}m',
+            style: const TextStyle(fontSize: 11, color: Colors.grey),
           ),
         ],
       ),
-      body: Stack(
+    );
+  }
+
+  Widget _buildAttendanceRequirements() {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: primaryColor.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: primaryColor.withOpacity(0.3)),
+      ),
+      child: Column(
         children: [
-          // Kamera full screen tanpa gepeng
-          SizedBox.expand(
-            child: FittedBox(
-              fit: BoxFit.cover,
-              child: SizedBox(
-                width: _controller!.value.previewSize!.height,
-                height: _controller!.value.previewSize!.width,
-                child: CameraPreview(_controller!),
-              ),
+          Icon(Icons.info_outline, color: primaryColor, size: 30),
+          const SizedBox(height: 8),
+          Text(
+            'Syarat Absensi:',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: primaryColor,
             ),
           ),
-
-          // Overlay guide (atas)
-          Positioned(
-            top: 40,
-            left: 20,
-            right: 20,
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.6),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                children: [
-                  Icon(Icons.face, color: primaryColor, size: 28),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Posisikan wajah Anda di dalam frame',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'untuk absensi PT Universal Big Data',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // Frame wajah
-          Center(
-            child: Container(
-              width: overlayWidth,
-              height: overlayHeight,
-              decoration: BoxDecoration(
-                border: Border.all(color: primaryColor, width: 3),
-                borderRadius: BorderRadius.circular(18),
-                color: Colors.transparent,
-              ),
-              child: Container(
-                margin: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  border: Border.all(color: primaryColor.withOpacity(0.4), width: 2),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-            ),
-          ),
-
-          // Tombol bawah
-          Positioned(
-            bottom: 36,
-            left: 0,
-            right: 0,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                // Cancel
-                GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.85),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 3),
-                    ),
-                    child: const Icon(Icons.close, size: 30, color: Colors.white),
-                  ),
-                ),
-
-                // Capture
-                GestureDetector(
-                  onTap: _isCapturing ? null : _takePicture,
-                  child: Container(
-                    width: 84,
-                    height: 84,
-                    decoration: BoxDecoration(
-                      color: _isCapturing ? Colors.grey : Colors.white,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: primaryColor, width: 4),
-                    ),
-                    child: _isCapturing
-                        ? CircularProgressIndicator(
-                            strokeWidth: 3,
-                            valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-                          )
-                        : Icon(Icons.camera_alt, size: 40, color: primaryColor),
-                  ),
-                ),
-
-                // Switch camera
-                GestureDetector(
-                  onTap: widget.cameras.length > 1 ? _switchCamera : null,
-                  child: Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      color: widget.cameras.length > 1 ? primaryColor.withOpacity(0.85) : Colors.grey.withOpacity(0.5),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 3),
-                    ),
-                    child: const Icon(Icons.flip_camera_ios, size: 30, color: Colors.white),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Info text
-          Positioned(
-            bottom: 140,
-            left: 24,
-            right: 24,
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.6),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.info_outline, color: primaryColor, size: 18),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      'Pastikan wajah terlihat jelas dan dalam pencahayaan yang baik',
-                      style: TextStyle(color: Colors.white, fontSize: 12),
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+          const SizedBox(height: 8),
+          const Text(
+            '• Berada dalam radius kantor yang ditentukan\n• Siapkan kamera untuk foto selfie\n• Pastikan lokasi GPS aktif\n• Check in hanya bisa dilakukan sekali per hari\n• Check out hanya bisa setelah check in',
+            textAlign: TextAlign.left,
+            style: TextStyle(fontSize: 12),
           ),
         ],
       ),

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'signup.dart'; // pastikan file ini ada
+import 'signup.dart';
 import 'dashboard.dart';
 
 class Login extends StatefulWidget {
@@ -20,50 +20,86 @@ class _LoginState extends State<Login> {
   bool _obscurePassword = true;
   bool _isLoading = false;
 
+  // Function untuk auto-register user ke organisasi
+  Future<bool> _autoRegisterUserToOrganization(String userId) async {
+    try {
+      print('Checking if user is already registered to organization...');
+      
+      // Cek apakah user sudah terdaftar di organisasi
+      final existingMember = await supabase
+          .from('organization_members')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('is_active', true)
+          .maybeSingle();
+
+      if (existingMember != null) {
+        print('User already registered to organization');
+        return true;
+      }
+
+      print('Auto-registering user to organization...');
+      
+      // Call PostgreSQL function untuk auto-register
+      final result = await supabase.rpc('add_user_to_organization', params: {
+        'p_user_id': userId,
+        'p_employee_id': null, // Will auto-generate
+        'p_organization_code': 'COMPANY001',
+        'p_department_code': 'IT',
+        'p_position_code': 'STAFF',
+      });
+
+      if (result != null) {
+        print('User auto-registered successfully with member ID: $result');
+        return true;
+      } else {
+        print('Auto-registration returned null');
+        return false;
+      }
+    } catch (e) {
+      print('Auto-registration failed: $e');
+      return false;
+    }
+  }
+
   Future<void> _nativeGoogleSignIn() async {
     if (_isLoading) return;
-    
+
     setState(() {
       _isLoading = true;
     });
 
     try {
-      // Web Client ID dari konfigurasi Google Console Anda
-      const webClientId = '210380129521-4qnge4hlqjphmjahj79d4tv5h67gjc5s.apps.googleusercontent.com';
-      
-      // Android Client ID dari konfigurasi Google Console Anda
-      const androidClientId = '210380129521-9qcqse1mqa96aqo6liereotg82bquv8d.apps.googleusercontent.com';
-      
-      final scopes = ['email', 'profile'];
+      const webClientId =
+          '210380129521-4qnge4hlqjphmjahj79d4tv5h67gjc5s.apps.googleusercontent.com';
+
+      const androidClientId =
+          '210380129521-9qcqse1mqa96aqo6liereotg82bquv8d.apps.googleusercontent.com';
+
       final googleSignIn = GoogleSignIn(
         serverClientId: webClientId,
         clientId: androidClientId,
-        scopes: scopes,
+        scopes: ['email', 'profile'],
       );
 
-      // Inisialisasi Google Sign-In
       await googleSignIn.signOut(); // Clear previous session
-      
+
       final googleUser = await googleSignIn.signIn();
-      
+
       if (googleUser == null) {
-        // User membatalkan login
         setState(() {
           _isLoading = false;
         });
         return;
       }
 
-      // Dapatkan authentication details
       final googleAuth = await googleUser.authentication;
-      
+
       if (googleAuth.idToken == null) {
         throw Exception('No ID Token found.');
       }
 
       print('Google User: ${googleUser.email}');
-      print('Google ID Token: ${googleAuth.idToken}');
-      print('Google Access Token: ${googleAuth.accessToken}');
 
       // Sign in ke Supabase dengan ID token
       final response = await supabase.auth.signInWithIdToken(
@@ -73,12 +109,27 @@ class _LoginState extends State<Login> {
       );
 
       if (response.user != null) {
+        print('Google login successful, user ID: ${response.user!.id}');
+        
+        // Auto-register user ke organisasi
+        final registrationSuccess = await _autoRegisterUserToOrganization(response.user!.id);
+        
+        if (!registrationSuccess) {
+          print('Warning: Auto-registration failed, but continuing to dashboard');
+          // Bisa tetap lanjut ke dashboard atau tampilkan peringatan
+          _showDialog(
+            title: "Info",
+            message: "Login berhasil, tetapi pendaftaran organisasi gagal. Hubungi admin jika diperlukan.",
+            isSuccess: true,
+          );
+        }
+
         // Simpan email user ke SharedPreferences
         SharedPreferences prefs = await SharedPreferences.getInstance();
         await prefs.setString('user_email', response.user!.email!);
 
         if (!mounted) return;
-        
+
         // Navigasi ke dashboard
         Navigator.pushReplacement(
           context,
@@ -91,7 +142,7 @@ class _LoginState extends State<Login> {
       print('Google Sign-in Error: $e');
       if (!mounted) return;
       _showDialog(
-        title: "Error Google Sign-in 🚨",
+        title: "Error Google Sign-in",
         message: "Gagal login dengan Google: ${e.toString()}",
         isSuccess: false,
       );
@@ -106,7 +157,7 @@ class _LoginState extends State<Login> {
 
   void signIn() async {
     if (_isLoading) return;
-    
+
     setState(() {
       _isLoading = true;
     });
@@ -119,6 +170,21 @@ class _LoginState extends State<Login> {
 
       final user = res.user;
       if (user != null) {
+        print('Email login successful, user ID: ${user.id}');
+        
+        // Auto-register user ke organisasi
+        final registrationSuccess = await _autoRegisterUserToOrganization(user.id);
+        
+        if (!registrationSuccess) {
+          print('Warning: Auto-registration failed, but continuing to dashboard');
+          // Tetap lanjut ke dashboard tapi beri peringatan
+          _showDialog(
+            title: "Info",
+            message: "Login berhasil, tetapi pendaftaran organisasi gagal. Hubungi admin jika diperlukan.",
+            isSuccess: true,
+          );
+        }
+
         SharedPreferences prefs = await SharedPreferences.getInstance();
         await prefs.setString('user_email', user.email!);
 
@@ -130,7 +196,7 @@ class _LoginState extends State<Login> {
       } else {
         if (!mounted) return;
         _showDialog(
-          title: "Login Gagal ❌",
+          title: "Login Gagal",
           message: "Email atau password salah.",
           isSuccess: false,
         );
@@ -138,9 +204,9 @@ class _LoginState extends State<Login> {
     } catch (e) {
       if (!mounted) return;
       _showDialog(
-        title: "Error 🚨",
-        message: e.toString(),
-        isSuccess: false,
+        title: "Error", 
+        message: e.toString(), 
+        isSuccess: false
       );
     } finally {
       if (mounted) {
@@ -151,15 +217,21 @@ class _LoginState extends State<Login> {
     }
   }
 
-  void _showDialog({required String title, required String message, required bool isSuccess}) {
+  void _showDialog({
+    required String title,
+    required String message,
+    required bool isSuccess,
+  }) {
     if (!mounted) return;
-    
+
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           title: Row(
             children: [
               Icon(
@@ -167,7 +239,12 @@ class _LoginState extends State<Login> {
                 color: isSuccess ? Colors.green : Colors.red,
               ),
               const SizedBox(width: 8),
-              Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+              Expanded(
+                child: Text(
+                  title, 
+                  style: const TextStyle(fontWeight: FontWeight.bold)
+                ),
+              ),
             ],
           ),
           content: Text(message),
@@ -231,6 +308,7 @@ class _LoginState extends State<Login> {
                   TextField(
                     controller: _emailController,
                     enabled: !_isLoading,
+                    keyboardType: TextInputType.emailAddress,
                     decoration: const InputDecoration(
                       hintText: "Email",
                       filled: true,
@@ -261,11 +339,13 @@ class _LoginState extends State<Login> {
                               : Icons.visibility,
                           color: Colors.black,
                         ),
-                        onPressed: _isLoading ? null : () {
-                          setState(() {
-                            _obscurePassword = !_obscurePassword;
-                          });
-                        },
+                        onPressed: _isLoading
+                            ? null
+                            : () {
+                                setState(() {
+                                  _obscurePassword = !_obscurePassword;
+                                });
+                              },
                       ),
                       border: const OutlineInputBorder(
                         borderRadius: BorderRadius.all(Radius.circular(12.0)),
@@ -358,6 +438,44 @@ class _LoginState extends State<Login> {
                       ],
                     ),
                   ),
+
+                  if (_isLoading) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF009688).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: const Color(0xFF009688).withOpacity(0.3),
+                        ),
+                      ),
+                      child: Row(
+                        children: const [
+                          SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Color(0xFF009688),
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Sedang memproses login dan mendaftarkan ke organisasi...',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF009688),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -368,12 +486,14 @@ class _LoginState extends State<Login> {
               children: [
                 const Text("Belum punya akun?"),
                 TextButton(
-                  onPressed: _isLoading ? null : () {
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(builder: (_) => Signup()),
-                    );
-                  },
+                  onPressed: _isLoading
+                      ? null
+                      : () {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(builder: (_) => Signup()),
+                          );
+                        },
                   child: const Text(
                     "Daftar Disini!",
                     style: TextStyle(
@@ -384,6 +504,8 @@ class _LoginState extends State<Login> {
                 ),
               ],
             ),
+
+            const SizedBox(height: 20),
           ],
         ),
       ),
