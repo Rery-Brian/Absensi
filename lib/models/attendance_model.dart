@@ -36,11 +36,7 @@ class Organization {
   final String name;
   final String code;
 
-  Organization({
-    required this.id,
-    required this.name,
-    required this.code,
-  });
+  Organization({required this.id, required this.name, required this.code});
 
   factory Organization.fromJson(Map<String, dynamic> json) {
     return Organization(
@@ -56,11 +52,7 @@ class Department {
   final String name;
   final String code;
 
-  Department({
-    required this.id,
-    required this.name,
-    required this.code,
-  });
+  Department({required this.id, required this.name, required this.code});
 
   factory Department.fromJson(Map<String, dynamic> json) {
     return Department(
@@ -76,11 +68,7 @@ class Position {
   final String title;
   final String code;
 
-  Position({
-    required this.id,
-    required this.title,
-    required this.code,
-  });
+  Position({required this.id, required this.title, required this.code});
 
   factory Position.fromJson(Map<String, dynamic> json) {
     return Position(
