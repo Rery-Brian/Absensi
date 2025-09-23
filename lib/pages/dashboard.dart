@@ -32,8 +32,13 @@ class _UserDashboardState extends State<UserDashboard> {
   MemberSchedule? _currentSchedule;
   AttendanceDevice? _attendanceDevice;
 
-  // Theme color
-  static const Color primaryColor = Color(0xFF009688);
+  // Timeline data structure for multiple check-ins/check-outs
+  List<TimelineItem> _timelineItems = [];
+
+  // Theme colors
+  static const Color primaryColor = Color(0xFF6366F1); // Purple
+  static const Color secondaryColor = Color(0xFFEC4899); // Pink
+  static const Color backgroundColor = Color(0xFF1F2937); // Dark gray
 
   @override
   void initState() {
@@ -52,39 +57,39 @@ class _UserDashboardState extends State<UserDashboard> {
   }
 
   Future<void> _loadUserData() async {
-  setState(() {
-    _isLoading = true;
-  });
-
-  try {
-    print('=== Starting _loadUserData ===');
-    
-    _userProfile = await _attendanceService.loadUserProfile();
-    print('User profile loaded: ${_userProfile?.fullName}');
-    
-    if (_userProfile != null) {
-      _organizationMember = await _attendanceService.loadOrganizationMember();
-      print('Organization member loaded: ${_organizationMember?.id}');
-      
-      if (_organizationMember != null) {
-        await _loadOrganizationData();
-        print('Organization data loaded');
-      } else {
-        print('⚠️ No organization member found');
-      }
-    } else {
-      print('❌ User profile is null');
-    }
-  } catch (e) {
-    print('❌ Error in _loadUserData: $e');
-    _showSnackBar('Error loading user data: $e', isError: true);
-  } finally {
     setState(() {
-      _isLoading = false;
+      _isLoading = true;
     });
-  }
-}
 
+    try {
+      print('=== Starting _loadUserData ===');
+      
+      _userProfile = await _attendanceService.loadUserProfile();
+      print('User profile loaded: ${_userProfile?.fullName}');
+      
+      if (_userProfile != null) {
+        _organizationMember = await _attendanceService.loadOrganizationMember();
+        print('Organization member loaded: ${_organizationMember?.id}');
+        
+        if (_organizationMember != null) {
+          await _loadOrganizationData();
+          _buildTimelineItems();
+          print('Organization data loaded');
+        } else {
+          print('⚠️ No organization member found');
+        }
+      } else {
+        print('❌ User profile is null');
+      }
+    } catch (e) {
+      print('❌ Error in _loadUserData: $e');
+      _showSnackBar('Error loading user data: $e', isError: true);
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
 
   Future<void> _loadOrganizationData() async {
     if (_organizationMember == null) return;
@@ -113,64 +118,119 @@ class _UserDashboardState extends State<UserDashboard> {
     }
   }
 
-  Future<void> _getCurrentLocation() async {
-    try {
-      _currentPosition = await _attendanceService.getCurrentLocation();
-      setState(() {});
-    } catch (e) {
-      _showSnackBar('Gagal mendapatkan lokasi: $e', isError: true);
+  void _buildTimelineItems() {
+    _timelineItems.clear();
+    
+    final now = DateTime.now();
+    final currentTime = TimeOfDay.now();
+    
+    // Define schedule based on UBIG working hours with prayer breaks
+    final schedules = [
+      ScheduleItem(
+        time: '09:38',
+        label: 'Check In',
+        type: TimelineItemType.checkIn,
+        subtitle: 'Morning arrival',
+      ),
+      ScheduleItem(
+        time: '12:00',
+        label: 'Dzuhur Break',
+        type: TimelineItemType.breakOut,
+        subtitle: 'Prayer & lunch break',
+      ),
+      ScheduleItem(
+        time: '13:00',
+        label: 'After Break',
+        type: TimelineItemType.breakIn,
+        subtitle: 'Resume work',
+      ),
+      ScheduleItem(
+        time: '15:00',
+        label: 'Ashar Break',
+        type: TimelineItemType.breakOut,
+        subtitle: 'Prayer break',
+      ),
+      ScheduleItem(
+        time: '15:30',
+        label: 'After Break',
+        type: TimelineItemType.breakIn,
+        subtitle: 'Resume work',
+      ),
+      ScheduleItem(
+        time: '17:00',
+        label: 'Check Out',
+        type: TimelineItemType.checkOut,
+        subtitle: 'End of work day',
+      ),
+    ];
+
+    for (var schedule in schedules) {
+      final scheduleTime = _parseTime(schedule.time);
+      TimelineStatus status;
+      
+      // Check if this schedule item has been completed today
+      bool isCompleted = _isScheduleCompleted(schedule, scheduleTime);
+      bool isActive = _isScheduleActive(schedule, scheduleTime, currentTime);
+      
+      if (isCompleted) {
+        status = TimelineStatus.completed;
+      } else if (isActive) {
+        status = TimelineStatus.active;
+      } else {
+        status = TimelineStatus.upcoming;
+      }
+
+      _timelineItems.add(TimelineItem(
+        time: schedule.time,
+        label: schedule.label,
+        subtitle: schedule.subtitle,
+        type: schedule.type,
+        status: status,
+      ));
     }
   }
 
-  bool _isWithinRadius() {
-    if (_currentPosition == null || _attendanceDevice == null) return false;
-    return _attendanceService.isWithinRadius(_currentPosition!, _attendanceDevice!);
+  TimeOfDay _parseTime(String time) {
+    final parts = time.split(':');
+    return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
   }
 
-  bool _canCheckIn() {
-    return _todayAttendanceRecords
-        .where((record) => record.hasCheckedIn)
-        .isEmpty;
+  bool _isScheduleCompleted(ScheduleItem schedule, TimeOfDay scheduleTime) {
+    // This would check against actual attendance records
+    // For now, simplified logic based on current time
+    final now = TimeOfDay.now();
+    final nowMinutes = now.hour * 60 + now.minute;
+    final scheduleMinutes = scheduleTime.hour * 60 + scheduleTime.minute;
+    
+    // If current time is past schedule time, consider it completed
+    // In real implementation, check against attendance records
+    return nowMinutes > scheduleMinutes;
   }
 
-  bool _canCheckOut() {
-    final hasCheckedIn = _todayAttendanceRecords
-        .where((record) => record.hasCheckedIn)
-        .isNotEmpty;
-    final hasCheckedOut = _todayAttendanceRecords
-        .where((record) => record.hasCheckedOut)
-        .isNotEmpty;
-
-    return hasCheckedIn && !hasCheckedOut;
+  bool _isScheduleActive(ScheduleItem schedule, TimeOfDay scheduleTime, TimeOfDay currentTime) {
+    final nowMinutes = currentTime.hour * 60 + currentTime.minute;
+    final scheduleMinutes = scheduleTime.hour * 60 + scheduleTime.minute;
+    
+    // Active if within 30 minutes window
+    return (nowMinutes >= scheduleMinutes - 15) && (nowMinutes <= scheduleMinutes + 15);
   }
 
-  Future<String?> _takeSelfie() async {
-    if (!CameraService.isInitialized) {
-      _showSnackBar('Kamera tidak tersedia', isError: true);
-      return null;
-    }
-
-    final hasPermission = await CameraService.requestCameraPermission();
-    if (!hasPermission) {
-      _showSnackBar('Izin kamera diperlukan', isError: true);
-      return null;
-    }
-
-    try {
-      final result = await Navigator.push<String>(
-        context,
-        MaterialPageRoute(
-          builder: (context) => CameraSelfieScreen(cameras: CameraService.cameras),
-        ),
-      );
-      return result;
-    } catch (e) {
-      _showSnackBar('Gagal mengambil foto: $e', isError: true);
-      return null;
-    }
+  int _getPresenceDays() {
+    // Calculate from recent attendance records
+    return _recentAttendanceRecords.where((r) => r.status == 'present').length;
   }
 
-  Future<void> _performAttendance(String type) async {
+  int _getAbsenceDays() {
+    // Calculate from recent attendance records
+    return _recentAttendanceRecords.where((r) => r.status == 'absent').length;
+  }
+
+  String _getLateness() {
+    // Calculate total lateness from records
+    return '1.5h'; // Placeholder
+  }
+
+  Future<void> _performAttendance(TimelineItemType type) async {
     setState(() {
       _isLoading = true;
     });
@@ -178,18 +238,12 @@ class _UserDashboardState extends State<UserDashboard> {
     try {
       // Validation checks
       if (_organizationMember == null) {
-        _showSnackBar(
-          'Data member organisasi tidak ditemukan. Hubungi admin.',
-          isError: true,
-        );
+        _showSnackBar('Data member organisasi tidak ditemukan. Hubungi admin.', isError: true);
         return;
       }
 
       if (_attendanceDevice == null || !_attendanceDevice!.hasValidCoordinates) {
-        _showSnackBar(
-          'Lokasi kantor belum dikonfigurasi. Hubungi administrator.',
-          isError: true,
-        );
+        _showSnackBar('Lokasi kantor belum dikonfigurasi. Hubungi administrator.', isError: true);
         return;
       }
 
@@ -230,9 +284,12 @@ class _UserDashboardState extends State<UserDashboard> {
         return;
       }
 
+      // Convert timeline type to string
+      String attendanceType = _getAttendanceTypeString(type);
+
       // Perform attendance
       final success = await _attendanceService.performAttendance(
-        type: type,
+        type: attendanceType,
         organizationMemberId: _organizationMember!.id,
         currentPosition: _currentPosition!,
         photoUrl: photoUrl,
@@ -242,8 +299,9 @@ class _UserDashboardState extends State<UserDashboard> {
       );
 
       if (success) {
-        await _showSuccessAttendancePopup(type);
+        await _showSuccessAttendancePopup(attendanceType);
         await _loadOrganizationData();
+        _buildTimelineItems();
       }
 
       // Clean up temporary file
@@ -263,8 +321,60 @@ class _UserDashboardState extends State<UserDashboard> {
     }
   }
 
+  String _getAttendanceTypeString(TimelineItemType type) {
+    switch (type) {
+      case TimelineItemType.checkIn:
+        return 'check_in';
+      case TimelineItemType.checkOut:
+        return 'check_out';
+      case TimelineItemType.breakOut:
+        return 'break_out';
+      case TimelineItemType.breakIn:
+        return 'break_in';
+    }
+  }
+
+  Future<void> _getCurrentLocation() async {
+    try {
+      _currentPosition = await _attendanceService.getCurrentLocation();
+      setState(() {});
+    } catch (e) {
+      _showSnackBar('Gagal mendapatkan lokasi: $e', isError: true);
+    }
+  }
+
+  bool _isWithinRadius() {
+    if (_currentPosition == null || _attendanceDevice == null) return false;
+    return _attendanceService.isWithinRadius(_currentPosition!, _attendanceDevice!);
+  }
+
+  Future<String?> _takeSelfie() async {
+    if (!CameraService.isInitialized) {
+      _showSnackBar('Kamera tidak tersedia', isError: true);
+      return null;
+    }
+
+    final hasPermission = await CameraService.requestCameraPermission();
+    if (!hasPermission) {
+      _showSnackBar('Izin kamera diperlukan', isError: true);
+      return null;
+    }
+
+    try {
+      final result = await Navigator.push<String>(
+        context,
+        MaterialPageRoute(
+          builder: (context) => CameraSelfieScreen(cameras: CameraService.cameras),
+        ),
+      );
+      return result;
+    } catch (e) {
+      _showSnackBar('Gagal mengambil foto: $e', isError: true);
+      return null;
+    }
+  }
+
   Future<void> _showSuccessAttendancePopup(String type) async {
-    final isCheckIn = type == 'check_in';
     final jakartaTime = TimezoneHelper.nowInJakarta();
 
     return showDialog<void>(
@@ -277,12 +387,7 @@ class _UserDashboardState extends State<UserDashboard> {
             width: MediaQuery.of(context).size.width * 0.85,
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [
-                  isCheckIn ? primaryColor : Colors.orange,
-                  isCheckIn
-                      ? primaryColor.withOpacity(0.8)
-                      : Colors.orange.withOpacity(0.8),
-                ],
+                colors: [primaryColor, primaryColor.withOpacity(0.8)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
@@ -298,106 +403,43 @@ class _UserDashboardState extends State<UserDashboard> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Header with animation
                 Container(
                   padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 20),
                   child: Column(
                     children: [
-                      TweenAnimationBuilder<double>(
-                        duration: const Duration(milliseconds: 800),
-                        tween: Tween(begin: 0.0, end: 1.0),
-                        builder: (context, value, child) {
-                          return Transform.scale(
-                            scale: value,
-                            child: Container(
-                              width: 80,
-                              height: 80,
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.2),
-                                    blurRadius: 15,
-                                    offset: const Offset(0, 5),
-                                  ),
-                                ],
-                              ),
-                              child: Icon(
-                                isCheckIn ? Icons.login : Icons.logout,
-                                size: 40,
-                                color: isCheckIn ? primaryColor : Colors.orange,
-                              ),
+                      Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.2),
+                              blurRadius: 15,
+                              offset: const Offset(0, 5),
                             ),
-                          );
-                        },
+                          ],
+                        ),
+                        child: Icon(
+                          Icons.check_circle,
+                          size: 40,
+                          color: primaryColor,
+                        ),
                       ),
                       const SizedBox(height: 20),
-                      Text(
-                        '${isCheckIn ? 'Check In' : 'Check Out'} Berhasil!',
-                        style: const TextStyle(
+                      const Text(
+                        'Absensi Berhasil!',
+                        style: TextStyle(
                           color: Colors.white,
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
                         ),
                         textAlign: TextAlign.center,
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        isCheckIn
-                            ? 'Selamat bekerja hari ini!'
-                            : 'Terima kasih atas kerja keras Anda!',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 16,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
                     ],
                   ),
                 ),
-
-                // Details container
-                Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 20),
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(15),
-                  ),
-                  child: Column(
-                    children: [
-                      _buildDetailRow(
-                        icon: Icons.access_time,
-                        title: 'Waktu',
-                        value: TimezoneHelper.formatJakartaTime(jakartaTime, 'HH:mm:ss'),
-                      ),
-                      const SizedBox(height: 16),
-                      const Divider(height: 1),
-                      const SizedBox(height: 16),
-                      _buildDetailRow(
-                        icon: Icons.calendar_today,
-                        title: 'Tanggal',
-                        value: TimezoneHelper.formatJakartaTime(jakartaTime, 'EEEE, dd MMMM yyyy'),
-                      ),
-                      const SizedBox(height: 16),
-                      const Divider(height: 1),
-                      const SizedBox(height: 16),
-                      _buildDetailRow(
-                        icon: Icons.location_on,
-                        title: 'Lokasi',
-                        value: _attendanceDevice?.location ??
-                               _organizationMember?.organization?.name ??
-                               'Kantor',
-                        subtitle: 'Dalam radius kantor ✓',
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 20),
-
-                // OK Button
                 Container(
                   margin: const EdgeInsets.symmetric(horizontal: 20),
                   width: double.infinity,
@@ -405,79 +447,24 @@ class _UserDashboardState extends State<UserDashboard> {
                     onPressed: () => Navigator.of(context).pop(),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.white,
-                      foregroundColor: isCheckIn ? primaryColor : Colors.orange,
+                      foregroundColor: primaryColor,
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      elevation: 0,
                     ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.check_circle_outline, size: 20),
-                        SizedBox(width: 8),
-                        Text(
-                          'OK, Mengerti',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                        ),
-                      ],
+                    child: const Text(
+                      'OK',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 20),
               ],
             ),
           ),
         );
       },
-    );
-  }
-
-  Widget _buildDetailRow({
-    required IconData icon,
-    required String title,
-    required String value,
-    String? subtitle,
-  }) {
-    return Row(
-      children: [
-        Icon(icon, color: primaryColor, size: 20),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black87,
-                ),
-              ),
-              if (subtitle != null)
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.green,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 
@@ -488,13 +475,7 @@ class _UserDashboardState extends State<UserDashboard> {
       builder: (BuildContext context) {
         return AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          title: Row(
-            children: [
-              Icon(Icons.logout, color: primaryColor),
-              const SizedBox(width: 8),
-              const Text('Konfirmasi Logout'),
-            ],
-          ),
+          title: const Text('Konfirmasi Logout'),
           content: const Text('Apakah Anda yakin ingin keluar dari aplikasi?'),
           actions: <Widget>[
             TextButton(
@@ -531,11 +512,6 @@ class _UserDashboardState extends State<UserDashboard> {
         backgroundColor: isError ? Colors.red : primaryColor,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        action: SnackBarAction(
-          label: 'OK',
-          textColor: Colors.white,
-          onPressed: () {},
-        ),
       ),
     );
   }
@@ -543,41 +519,13 @@ class _UserDashboardState extends State<UserDashboard> {
   @override
   Widget build(BuildContext context) {
     final user = Supabase.instance.client.auth.currentUser;
-    final displayName = _userProfile?.fullName ?? user?.email ?? 'User';
+    final displayName = _userProfile?.fullName ?? user?.email?.split('@')[0] ?? 'User';
 
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
-      appBar: AppBar(
-        title: Text(
-          "Dashboard - ${_organizationMember?.organization?.name ?? 'PT Universal Big Data'}",
-        ),
-        backgroundColor: primaryColor,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _isLoading ? null : _loadUserData,
-          ),
-          IconButton(
-            icon: const Icon(Icons.history),
-            tooltip: 'Riwayat Absensi',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const AttendanceHistoryPage()),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: _showLogoutConfirmation,
-          ),
-        ],
-      ),
       body: _organizationMember == null
           ? _buildNotRegisteredView()
-          : _buildMainContent(displayName, user),
+          : _buildMainContent(displayName),
     );
   }
 
@@ -608,27 +556,19 @@ class _UserDashboardState extends State<UserDashboard> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Anda belum terdaftar sebagai member organisasi. Sistem akan mencoba mendaftarkan Anda secara otomatis atau hubungi admin untuk bantuan.',
+              'Anda belum terdaftar sebagai member organisasi.',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.grey),
             ),
             const SizedBox(height: 24),
-            ElevatedButton.icon(
+            ElevatedButton(
               onPressed: _isLoading ? null : _loadUserData,
-              icon: _isLoading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.refresh),
-              label: Text(_isLoading ? 'Memproses...' : 'Coba Lagi'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: primaryColor,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
+              child: Text(_isLoading ? 'Loading...' : 'Coba Lagi'),
             ),
           ],
         ),
@@ -636,663 +576,466 @@ class _UserDashboardState extends State<UserDashboard> {
     );
   }
 
-  Widget _buildMainContent(String displayName, User? user) {
-    return RefreshIndicator(
-      onRefresh: _loadUserData,
-      color: primaryColor,
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        child: Column(
-          children: [
-            _buildUserHeader(displayName, user),
-            const SizedBox(height: 20),
-            _buildLocationInfo(),
-            const SizedBox(height: 16),
-            _buildAttendanceStats(),
-            const SizedBox(height: 20),
-            _buildAttendanceButtonsCard(),
-            _buildRecentAttendance(),
-            _buildScheduleInfo(),
-            _buildDeviceInfo(),
-            _buildAttendanceRequirements(),
-            const SizedBox(height: 20),
-          ],
-        ),
+  Widget _buildMainContent(String displayName) {
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          _buildHeader(displayName),
+          _buildOverviewCard(),
+          _buildTimelineCard(),
+          const SizedBox(height: 20),
+        ],
       ),
     );
   }
 
-  Widget _buildUserHeader(String displayName, User? user) {
+  Widget _buildHeader(String displayName) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 50, 20, 30),
       decoration: BoxDecoration(
-        color: primaryColor,
+        gradient: LinearGradient(
+          colors: [backgroundColor, backgroundColor.withOpacity(0.8)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
         borderRadius: const BorderRadius.only(
           bottomLeft: Radius.circular(30),
           bottomRight: Radius.circular(30),
         ),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CircleAvatar(
-            radius: 40,
-            backgroundColor: Colors.white,
-            backgroundImage: _userProfile?.profilePhotoUrl != null
-                ? NetworkImage(_userProfile!.profilePhotoUrl!)
-                : null,
-            child: _userProfile?.profilePhotoUrl == null
-                ? Icon(Icons.person, size: 50, color: primaryColor)
-                : null,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            displayName,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            user?.email ?? '',
-            style: const TextStyle(color: Colors.white70, fontSize: 14),
-          ),
-          if (_organizationMember != null) ...[
-            const SizedBox(height: 4),
-            Text(
-              'ID: ${_organizationMember!.employeeId ?? 'N/A'}',
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '${_organizationMember!.department?.name ?? ''} - ${_organizationMember!.position?.title ?? ''}'
-                  .replaceAll(' - ', ''),
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
-            ),
-          ],
-          const SizedBox(height: 8),
-          Text(
-            TimezoneHelper.formatJakartaTime(
-              TimezoneHelper.nowInJakarta(),
-              'EEEE, dd MMMM yyyy',
-            ),
-            style: const TextStyle(color: Colors.white70, fontSize: 14),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLocationInfo() {
-    if (_currentPosition == null) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        margin: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.orange.shade50,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.orange.shade200),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.location_searching, color: Colors.orange.shade600),
-            const SizedBox(width: 12),
-            const Expanded(
-              child: Text(
-                'Mencari lokasi...',
-                style: TextStyle(fontWeight: FontWeight.w500),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Icon(
+                Icons.apps,
+                color: primaryColor,
+                size: 28,
               ),
-            ),
-            SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (_attendanceDevice == null || !_attendanceDevice!.hasValidCoordinates) {
-      return Container(
-        padding: const EdgeInsets.all(16),
-        margin: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.red.shade50,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.red.shade200),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.location_off, color: Colors.red.shade600, size: 28),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              Row(
                 children: [
-                  Text(
-                    'Lokasi kantor belum dikonfigurasi',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Colors.red.shade800,
-                      fontSize: 16,
-                    ),
+                  IconButton(
+                    icon: const Icon(Icons.history, color: Colors.white),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const AttendanceHistoryPage()),
+                      );
+                    },
                   ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Hubungi administrator untuk mengatur koordinat kantor pada perangkat absensi',
-                    style: TextStyle(fontSize: 12, color: Colors.red),
+                  IconButton(
+                    icon: const Icon(Icons.logout, color: Colors.white),
+                    onPressed: _showLogoutConfirmation,
                   ),
                 ],
               ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    double? distance = _attendanceService.calculateDistance(
-      _currentPosition!.latitude,
-      _currentPosition!.longitude,
-      _attendanceDevice!.latitude,
-      _attendanceDevice!.longitude,
-    );
-
-    bool withinRadius = distance != null && distance <= _attendanceDevice!.radiusMeters;
-    String locationName = _attendanceDevice!.location ??
-        _organizationMember?.organization?.name ??
-        'Kantor';
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      margin: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: withinRadius
-            ? primaryColor.withOpacity(0.1)
-            : Colors.red.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: withinRadius ? primaryColor : Colors.red.shade200,
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            withinRadius ? Icons.location_on : Icons.location_off,
-            color: withinRadius ? primaryColor : Colors.red.shade600,
-            size: 28,
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  withinRadius
-                      ? 'Di dalam radius kantor'
-                      : 'Di luar radius kantor',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: withinRadius ? primaryColor : Colors.red.shade800,
-                    fontSize: 16,
-                  ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 25,
+                backgroundColor: Colors.orange.shade400,
+                backgroundImage: _userProfile?.profilePhotoUrl != null
+                    ? NetworkImage(_userProfile!.profilePhotoUrl!)
+                    : null,
+                child: _userProfile?.profilePhotoUrl == null
+                    ? const Icon(Icons.person, color: Colors.white, size: 28)
+                    : null,
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Morning, $displayName',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const Text(
+                      "Let's be productive today!",
+                      style: TextStyle(
+                        color: Colors.grey,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  distance != null
-                      ? 'Jarak: ${distance.toStringAsFixed(0)}m dari $locationName'
-                      : 'Tidak dapat menghitung jarak',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: withinRadius
-                        ? primaryColor.withOpacity(0.8)
-                        : Colors.red.shade600,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Radius: ${_attendanceDevice!.radiusMeters.toInt()}m',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: withinRadius
-                        ? primaryColor.withOpacity(0.7)
-                        : Colors.red.shade500,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _buildAttendanceStats() {
-    int checkInCount = 0;
-    int checkOutCount = 0;
-    String status = 'BELUM MASUK';
-
-    if (_todayAttendanceRecords.isNotEmpty) {
-      final record = _todayAttendanceRecords.first;
-      if (record.hasCheckedIn) {
-        checkInCount = 1;
-        status = 'MASUK';
-      }
-      if (record.hasCheckedOut) {
-        checkOutCount = 1;
-        status = 'KELUAR';
-      }
-    }
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      padding: const EdgeInsets.all(16),
+  Widget _buildOverviewCard() {
+    return Transform.translate(
+      offset: const Offset(0, -20),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [primaryColor, primaryColor.withOpacity(0.8)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(12),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 15,
+            offset: const Offset(0, 5),
+          ),
+        ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              children: [
-                const Text(
-                  'Check In',
-                  style: TextStyle(color: Colors.white70, fontSize: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Overview',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w500,
                 ),
-                Text(
-                  '$checkInCount',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
+              ),
+              Row(
+                children: [
+                  Text(
+                    DateFormat('MMM yyyy').format(DateTime.now()),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey,
+                    ),
                   ),
-                ),
-              ],
-            ),
+                  const Icon(Icons.keyboard_arrow_down, color: Colors.grey),
+                ],
+              ),
+            ],
           ),
-          Container(width: 1, height: 40, color: Colors.white30),
-          Expanded(
-            child: Column(
-              children: [
-                const Text(
-                  'Check Out',
-                  style: TextStyle(color: Colors.white70, fontSize: 12),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  children: [
+                    const Text(
+                      'Presence',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${_getPresenceDays()}',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
                 ),
-                Text(
-                  '$checkOutCount',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
+              ),
+              Expanded(
+                child: Column(
+                  children: [
+                    const Text(
+                      'Absence',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${_getAbsenceDays()}',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+              Expanded(
+                child: Column(
+                  children: [
+                    const Text(
+                      'Lateness',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _getLateness(),
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          Container(width: 1, height: 40, color: Colors.white30),
-          Expanded(
-            child: Column(
-              children: [
-                const Text(
-                  'Status',
-                  style: TextStyle(color: Colors.white70, fontSize: 12),
-                ),
-                Text(
-                  status,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
+          const SizedBox(height: 20),
+          Center(
+            child: Text(
+              DateFormat('EEEE dd MMMM yyyy').format(DateTime.now()),
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         ],
       ),
+    ),
     );
   }
 
-  Widget _buildAttendanceButtonsCard() {
+  Widget _buildTimelineCard() {
     return Container(
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: Colors.black.withOpacity(0.05),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
         ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(Icons.access_time, color: primaryColor),
-              const SizedBox(width: 8),
-              const Text(
-                'Absensi Hari Ini',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _buildAttendanceButton('check_in', Icons.login, primaryColor),
-          _buildAttendanceButton('check_out', Icons.logout, Colors.orange),
+          ..._timelineItems.map((item) => _buildTimelineItem(item)),
+          const Divider(height: 30),
+          _buildOvertimeItem(),
         ],
       ),
     );
   }
 
-  Widget _buildAttendanceButton(String type, IconData icon, Color color) {
-    String label = type == 'check_in' ? 'Check In' : 'Check Out';
-    bool canAttend = !_isLoading &&
-        _currentPosition != null &&
-        _attendanceDevice != null &&
-        _attendanceDevice!.hasValidCoordinates &&
-        _isWithinRadius() &&
-        (type == 'check_in' ? _canCheckIn() : _canCheckOut());
-
-    return Container(
-      width: double.infinity,
-      height: 60,
-      margin: const EdgeInsets.symmetric(vertical: 8),
-      child: ElevatedButton.icon(
-        onPressed: canAttend ? () => _performAttendance(type) : null,
-        icon: _isLoading
-            ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-              )
-            : Icon(icon, size: 24),
-        label: Text(
-          _isLoading ? 'Memproses...' : label,
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: canAttend ? color : Colors.grey,
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          elevation: canAttend ? 4 : 0,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRecentAttendance() {
-    if (_recentAttendanceRecords.isEmpty) {
-      return Container(
-        margin: const EdgeInsets.all(16),
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, 2),
+  Widget _buildTimelineItem(TimelineItem item) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: _getStatusColor(item.status),
+              shape: BoxShape.circle,
             ),
-          ],
-        ),
-        child: const Center(
-          child: Text('Belum ada riwayat absensi', style: TextStyle(color: Colors.grey)),
-        ),
-      );
-    }
-
-    return Container(
-      margin: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
+            child: Icon(
+              _getStatusIcon(item.type),
+              color: item.status == TimelineStatus.active ? Colors.white : 
+                     item.status == TimelineStatus.completed ? Colors.white : Colors.grey,
+              size: 20,
+            ),
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.history, color: primaryColor),
-                const SizedBox(width: 8),
-                const Text(
-                  'Riwayat Absensi',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      item.time,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    _buildActionButton(item),
+                  ],
                 ),
-                const Spacer(),
-                TextButton.icon(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const AttendanceHistoryPage()),
-                    );
-                  },
-                  icon: Icon(Icons.arrow_forward, size: 16, color: primaryColor),
-                  label: Text('Lihat Semua', style: TextStyle(color: primaryColor, fontSize: 12)),
+                Text(
+                  item.subtitle,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey,
+                  ),
                 ),
               ],
             ),
           ),
-          ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _recentAttendanceRecords.length,
-            separatorBuilder: (context, index) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final record = _recentAttendanceRecords[index];
-              final hasCheckIn = record.hasCheckedIn;
-              final hasCheckOut = record.hasCheckedOut;
-              final attendanceDate = DateTime.parse(record.attendanceDate);
-
-              return ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: hasCheckIn && hasCheckOut
-                      ? primaryColor
-                      : hasCheckIn
-                      ? Colors.orange
-                      : Colors.grey,
-                  child: Icon(
-                    hasCheckIn && hasCheckOut
-                        ? Icons.check_circle
-                        : hasCheckIn
-                        ? Icons.access_time
-                        : Icons.pending,
-                    color: Colors.white,
-                    size: 18,
-                  ),
-                ),
-                title: Text(
-                  record.status.toUpperCase(),
-                  style: const TextStyle(fontWeight: FontWeight.w500),
-                ),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      DateFormat('EEEE, dd MMM yyyy').format(attendanceDate),
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    if (hasCheckIn && hasCheckOut)
-                      Text(
-                        '${_formatTime(record.actualCheckIn)} - ${_formatTime(record.actualCheckOut)}',
-                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                      )
-                    else if (hasCheckIn)
-                      Text(
-                        'Masuk: ${_formatTime(record.actualCheckIn)}',
-                        style: TextStyle(fontSize: 11, color: Colors.grey[600]),
-                      ),
-                  ],
-                ),
-                trailing: Icon(
-                  record.status == 'present' ? Icons.check_circle : Icons.warning,
-                  color: record.status == 'present' ? primaryColor : Colors.orange,
-                  size: 20,
-                ),
-              );
-            },
-          ),
         ],
       ),
     );
   }
 
-  String _formatTime(DateTime? dateTime) {
-    if (dateTime == null) return '-';
-    return DateFormat('HH:mm').format(dateTime);
+  Widget _buildActionButton(TimelineItem item) {
+    if (item.status == TimelineStatus.completed && item.type == TimelineItemType.checkIn) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        decoration: BoxDecoration(
+          color: Colors.orange.shade100,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          'Last Check-in',
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.orange.shade700,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      );
+    }
+    
+    if (item.status == TimelineStatus.active) {
+      return ElevatedButton.icon(
+        onPressed: () => _performAttendance(item.type),
+        icon: Icon(_getStatusIcon(item.type), size: 16),
+        label: Text(item.label),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: primaryColor,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
+    
+    if (item.type == TimelineItemType.checkOut) {
+      return ElevatedButton.icon(
+        onPressed: item.status == TimelineStatus.upcoming ? null : () => _performAttendance(item.type),
+        icon: const Icon(Icons.logout, size: 16),
+        label: Text(item.label),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: item.status == TimelineStatus.upcoming ? Colors.grey.shade200 : Colors.red.shade400,
+          foregroundColor: item.status == TimelineStatus.upcoming ? Colors.grey : Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
+    
+    return Text(
+      item.label,
+      style: const TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.w500,
+      ),
+    );
   }
 
-  Widget _buildScheduleInfo() {
-    if (_currentSchedule == null) return const SizedBox.shrink();
-
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: primaryColor.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: primaryColor.withOpacity(0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+  Widget _buildOvertimeItem() {
+    return Row(
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: Colors.grey.shade100,
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.access_time,
+            color: Colors.grey,
+            size: 20,
+          ),
+        ),
+        const SizedBox(width: 16),
+        const Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.schedule, color: primaryColor, size: 20),
-              const SizedBox(width: 8),
               Text(
-                'Jadwal Kerja',
+                'Overtime',
                 style: TextStyle(
                   fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: primaryColor,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              Text(
+                'Less 10 Plus Minimum',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
-          if (_currentSchedule!.shift != null) ...[
-            Text('Shift: ${_currentSchedule!.shift!.name}', style: const TextStyle(fontSize: 12)),
-            Text(
-              'Waktu: ${_currentSchedule!.shift!.startTime} - ${_currentSchedule!.shift!.endTime}',
-              style: const TextStyle(fontSize: 12),
-            ),
-          ],
-          if (_currentSchedule!.workSchedule != null)
-            Text(
-              'Jadwal: ${_currentSchedule!.workSchedule!.name}',
-              style: const TextStyle(fontSize: 12),
-            ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
-  Widget _buildDeviceInfo() {
-    if (_attendanceDevice == null) return const SizedBox.shrink();
-
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: primaryColor.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: primaryColor.withOpacity(0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.devices_other, color: primaryColor, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                'Informasi Device',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: primaryColor,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text('• Device: ${_attendanceDevice!.deviceName}', style: const TextStyle(fontSize: 12)),
-          Text('• Kode: ${_attendanceDevice!.deviceCode}', style: const TextStyle(fontSize: 12)),
-          if (_attendanceDevice!.location != null)
-            Text('• Lokasi: ${_attendanceDevice!.location}', style: const TextStyle(fontSize: 12)),
-          if (_attendanceDevice!.hasValidCoordinates)
-            Text(
-              '• Koordinat: ${_attendanceDevice!.latitude!.toStringAsFixed(6)}, ${_attendanceDevice!.longitude!.toStringAsFixed(6)}',
-              style: const TextStyle(fontSize: 11, color: Colors.grey),
-            )
-          else
-            const Text(
-              '• Koordinat: Belum dikonfigurasi',
-              style: TextStyle(fontSize: 11, color: Colors.red),
-            ),
-          Text(
-            '• Radius: ${_attendanceDevice!.radiusMeters.toInt()}m',
-            style: const TextStyle(fontSize: 11, color: Colors.grey),
-          ),
-        ],
-      ),
-    );
+  Color _getStatusColor(TimelineStatus status) {
+    switch (status) {
+      case TimelineStatus.completed:
+        return Colors.green.shade400;
+      case TimelineStatus.active:
+        return primaryColor;
+      case TimelineStatus.upcoming:
+        return Colors.grey.shade200;
+    }
   }
 
-  Widget _buildAttendanceRequirements() {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: primaryColor.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: primaryColor.withOpacity(0.3)),
-      ),
-      child: Column(
-        children: [
-          Icon(Icons.info_outline, color: primaryColor, size: 30),
-          const SizedBox(height: 8),
-          Text(
-            'Syarat Absensi:',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-              color: primaryColor,
-            ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            '• Berada dalam radius kantor yang ditentukan\n• Siapkan kamera untuk foto selfie\n• Pastikan lokasi GPS aktif\n• Check in hanya bisa dilakukan sekali per hari\n• Check out hanya bisa setelah check in',
-            textAlign: TextAlign.left,
-            style: TextStyle(fontSize: 12),
-          ),
-        ],
-      ),
-    );
+  IconData _getStatusIcon(TimelineItemType type) {
+    switch (type) {
+      case TimelineItemType.checkIn:
+        return Icons.login;
+      case TimelineItemType.checkOut:
+        return Icons.logout;
+      case TimelineItemType.breakOut:
+        return Icons.coffee;
+      case TimelineItemType.breakIn:
+        return Icons.work;
+    }
   }
+}
+
+// Data classes for timeline
+class TimelineItem {
+  final String time;
+  final String label;
+  final String subtitle;
+  final TimelineItemType type;
+  final TimelineStatus status;
+
+  TimelineItem({
+    required this.time,
+    required this.label,
+    required this.subtitle,
+    required this.type,
+    required this.status,
+  });
+}
+
+class ScheduleItem {
+  final String time;
+  final String label;
+  final TimelineItemType type;
+  final String subtitle;
+
+  ScheduleItem({
+    required this.time,
+    required this.label,
+    required this.type,
+    required this.subtitle,
+  });
+}
+
+enum TimelineItemType {
+  checkIn,
+  checkOut,
+  breakOut,
+  breakIn,
+}
+
+enum TimelineStatus {
+  completed,
+  active,
+  upcoming,
 }
