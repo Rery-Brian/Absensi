@@ -1,4 +1,5 @@
-// screens/camera_selfie_screen.dart
+// pages/camera_selfie_screen.dart
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import '../services/camera_service.dart';
@@ -12,22 +13,52 @@ class CameraSelfieScreen extends StatefulWidget {
   State<CameraSelfieScreen> createState() => _CameraSelfieScreenState();
 }
 
-class _CameraSelfieScreenState extends State<CameraSelfieScreen> {
+class _CameraSelfieScreenState extends State<CameraSelfieScreen>
+    with WidgetsBindingObserver {
   CameraController? _controller;
   bool _isInitialized = false;
   bool _isCapturing = false;
   int _selectedCameraIndex = 0;
-  static const Color primaryColor = Color(0xFF009688);
+
+  // Theme colors matching dashboard
+  static const Color primaryColor = Color(0xFF6366F1); // Purple
+  static const Color backgroundColor = Color(0xFF1F2937); // Dark gray
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _selectedCameraIndex = CameraService.getPreferredCameraIndex();
     _initializeController();
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_controller == null || !_controller!.value.isInitialized) {
+      return;
+    }
+
+    if (state == AppLifecycleState.inactive) {
+      _controller?.dispose();
+    } else if (state == AppLifecycleState.resumed) {
+      _initializeController();
+    }
+  }
+
   Future<void> _initializeController() async {
     try {
+      if (widget.cameras.isEmpty) {
+        _showSnackBar('No cameras available');
+        return;
+      }
+
       final camera = widget.cameras[_selectedCameraIndex];
       await _controller?.dispose();
 
@@ -35,35 +66,26 @@ class _CameraSelfieScreenState extends State<CameraSelfieScreen> {
         camera,
         ResolutionPreset.medium,
         enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.jpeg,
       );
 
       await _controller!.initialize();
 
-      if (!mounted) return;
-      setState(() {
-        _isInitialized = true;
-      });
-    } catch (e) {
-      print('Error initializing selfie camera: $e');
       if (mounted) {
-        _showSnackBar('Gagal menginisialisasi kamera: $e');
+        setState(() {
+          _isInitialized = true;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error initializing selfie camera: $e');
+      if (mounted) {
+        _showSnackBar('Failed to initialize camera: $e');
       }
     }
   }
 
-  Future<void> _switchCamera() async {
-    if (widget.cameras.length < 2) return;
-    setState(() {
-      _isInitialized = false;
-    });
-    _selectedCameraIndex = (_selectedCameraIndex + 1) % widget.cameras.length;
-    await _initializeController();
-  }
-
   Future<void> _takePicture() async {
-    if (_controller == null ||
-        !_controller!.value.isInitialized ||
-        _isCapturing) {
+    if (_controller == null || !_controller!.value.isInitialized || _isCapturing) {
       return;
     }
 
@@ -73,13 +95,21 @@ class _CameraSelfieScreenState extends State<CameraSelfieScreen> {
 
     try {
       final XFile photo = await _controller!.takePicture();
+      
+      // Generate filename for attendance photo
+      final userId = 'user_${DateTime.now().millisecondsSinceEpoch}';
+      final fileName = CameraService.generateAttendancePhotoName(userId, 'selfie');
+      
+      // Save to specific path
+      final savedPath = await CameraService.takePictureToPath(_controller!, fileName);
+      
       if (mounted) {
-        Navigator.pop(context, photo.path);
+        Navigator.pop(context, savedPath);
       }
     } catch (e) {
-      print('Error take picture: $e');
+      debugPrint('Error taking picture: $e');
       if (mounted) {
-        _showSnackBar('Gagal mengambil foto: $e');
+        _showSnackBar('Failed to take picture: $e');
       }
     } finally {
       if (mounted) {
@@ -96,118 +126,82 @@ class _CameraSelfieScreenState extends State<CameraSelfieScreen> {
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
   }
 
   @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    if (!_isInitialized || _controller == null) {
-      return Scaffold(
-        backgroundColor: Colors.black,
-        body: Center(child: CircularProgressIndicator(color: primaryColor)),
-      );
-    }
-
-    final media = MediaQuery.of(context);
-    final overlayWidth = media.size.width * 0.7;
-    final overlayHeight = media.size.height * 0.45;
-
     return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: const Text('Ambil Selfie untuk Absensi'),
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.flip_camera_ios),
-            onPressed: widget.cameras.length > 1 ? _switchCamera : null,
-            tooltip: 'Ganti kamera',
-          ),
-        ],
-      ),
+      backgroundColor: backgroundColor,
       body: Stack(
         children: [
           // Camera Preview
-          SizedBox.expand(
-            child: FittedBox(
-              fit: BoxFit.cover,
-              child: SizedBox(
-                width: _controller!.value.previewSize!.height,
-                height: _controller!.value.previewSize!.width,
-                child: CameraPreview(_controller!),
+          if (_isInitialized && _controller != null)
+            Positioned.fill(
+              child: SizedBox.expand(
+                child: FittedBox(
+                  fit: BoxFit.cover,
+                  child: SizedBox(
+                    width: _controller!.value.previewSize!.height,
+                    height: _controller!.value.previewSize!.width,
+                    child: CameraPreview(_controller!),
+                  ),
+                ),
               ),
-            ),
-          ),
-
-          // Top Instructions
-          Positioned(
-            top: 40,
-            left: 20,
-            right: 20,
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.6),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Column(
-                children: [
-                  Icon(Icons.face, color: primaryColor, size: 28),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Posisikan wajah Anda di dalam frame',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
+            )
+          else
+            Container(
+              width: double.infinity,
+              height: double.infinity,
+              color: backgroundColor,
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'untuk absensi',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.white70, fontSize: 13),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // Face Frame Overlay
-          Center(
-            child: Container(
-              width: overlayWidth,
-              height: overlayHeight,
-              decoration: BoxDecoration(
-                border: Border.all(color: primaryColor, width: 3),
-                borderRadius: BorderRadius.circular(18),
-                color: Colors.transparent,
-              ),
-              child: Container(
-                margin: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  border: Border.all(
-                    color: primaryColor.withOpacity(0.4),
-                    width: 2,
-                  ),
-                  borderRadius: BorderRadius.circular(14),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Initializing camera...',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
+
+          // Top Back Button Only
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 16,
+            left: 16,
+            child: Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.5),
+                shape: BoxShape.circle,
+              ),
+              child: IconButton(
+                icon: const Icon(
+                  Icons.arrow_back,
+                  color: Colors.white,
+                  size: 24,
+                ),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ),
           ),
 
-          // Bottom Control Buttons
+          // Bottom Controls
           Positioned(
-            bottom: 36,
+            bottom: MediaQuery.of(context).padding.bottom + 40,
             left: 0,
             right: 0,
             child: Row(
@@ -220,9 +214,16 @@ class _CameraSelfieScreenState extends State<CameraSelfieScreen> {
                     width: 60,
                     height: 60,
                     decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.85),
+                      color: Colors.red.withValues(alpha: 0.8),
                       shape: BoxShape.circle,
                       border: Border.all(color: Colors.white, width: 3),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.3),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
                     ),
                     child: const Icon(
                       Icons.close,
@@ -242,69 +243,111 @@ class _CameraSelfieScreenState extends State<CameraSelfieScreen> {
                       color: _isCapturing ? Colors.grey : Colors.white,
                       shape: BoxShape.circle,
                       border: Border.all(color: primaryColor, width: 4),
+                      boxShadow: [
+                        BoxShadow(
+                          color: primaryColor.withValues(alpha: 0.3),
+                          blurRadius: 20,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
                     ),
                     child: _isCapturing
                         ? CircularProgressIndicator(
                             strokeWidth: 3,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              primaryColor,
-                            ),
+                            valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
                           )
-                        : Icon(Icons.camera_alt, size: 40, color: primaryColor),
+                        : Icon(
+                            Icons.camera_alt,
+                            size: 40,
+                            color: primaryColor,
+                          ),
                   ),
                 ),
 
-                // Switch Camera Button
-                GestureDetector(
-                  onTap: widget.cameras.length > 1 ? _switchCamera : null,
-                  child: Container(
-                    width: 60,
-                    height: 60,
-                    decoration: BoxDecoration(
-                      color: widget.cameras.length > 1
-                          ? primaryColor.withOpacity(0.85)
-                          : Colors.grey.withOpacity(0.5),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 3),
-                    ),
-                    child: const Icon(
-                      Icons.flip_camera_ios,
-                      size: 30,
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
+                // Switch Camera Button (only if multiple cameras available)
+                widget.cameras.length > 1
+                    ? GestureDetector(
+                        onTap: () async {
+                          if (widget.cameras.length < 2) return;
+                          setState(() {
+                            _isInitialized = false;
+                          });
+                          _selectedCameraIndex = (_selectedCameraIndex + 1) % widget.cameras.length;
+                          await _initializeController();
+                        },
+                        child: Container(
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: primaryColor.withValues(alpha: 0.8),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 3),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.3),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.flip_camera_ios,
+                            size: 30,
+                            color: Colors.white,
+                          ),
+                        ),
+                      )
+                    : Container(width: 60), // Spacer to maintain layout balance
               ],
             ),
           ),
 
-          // Bottom Instructions
-          Positioned(
-            bottom: 140,
-            left: 24,
-            right: 24,
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.6),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.info_outline, color: primaryColor, size: 18),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      'Pastikan wajah terlihat jelas dan dalam pencahayaan yang baik',
-                      style: TextStyle(color: Colors.white, fontSize: 12),
-                      textAlign: TextAlign.center,
+          // Processing overlay
+          if (_isCapturing)
+            Container(
+              width: double.infinity,
+              height: double.infinity,
+              color: Colors.black.withValues(alpha: 0.7),
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.3),
+                            blurRadius: 20,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CircularProgressIndicator(
+                            strokeWidth: 3,
+                            valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Processing photo...',
+                            style: TextStyle(
+                              color: backgroundColor,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
