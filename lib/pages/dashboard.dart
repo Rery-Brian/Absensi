@@ -23,11 +23,13 @@ class UserDashboard extends StatefulWidget {
 class _UserDashboardState extends State<UserDashboard> {
   final AttendanceService _attendanceService = AttendanceService();
   bool _isLoading = false;
+  bool _isRefreshing = false;
   Position? _currentPosition;
 
   // Data from services
   UserProfile? _userProfile;
   OrganizationMember? _organizationMember;
+  Organization? _organization; // Added organization data
   List<AttendanceRecord> _todayAttendanceRecords = [];
   List<AttendanceRecord> _recentAttendanceRecords = [];
   MemberSchedule? _currentSchedule;
@@ -37,11 +39,10 @@ class _UserDashboardState extends State<UserDashboard> {
   List<AttendanceAction> _availableActions = [];
 
   // Timeline data structure for dynamic actions
-  List<TimelineItem> _timelineItems = [];
+  final List<TimelineItem> _timelineItems = [];
 
   // Theme colors
   static const Color primaryColor = Color(0xFF6366F1); // Purple
-  static const Color secondaryColor = Color(0xFFEC4899); // Pink
   static const Color backgroundColor = Color(0xFF1F2937); // Dark gray
 
   @override
@@ -56,7 +57,7 @@ class _UserDashboardState extends State<UserDashboard> {
       TimezoneHelper.initialize();
       await CameraService.initializeCameras();
     } catch (e) {
-      print('Error initializing services: $e');
+      debugPrint('Error initializing services: $e');
       _showSnackBar('Error inisialisasi layanan: $e', isError: true);
     }
   }
@@ -67,34 +68,91 @@ class _UserDashboardState extends State<UserDashboard> {
     });
 
     try {
-      print('=== Starting _loadUserData ===');
+      debugPrint('=== Starting _loadUserData ===');
       
       _userProfile = await _attendanceService.loadUserProfile();
-      print('User profile loaded: ${_userProfile?.fullName}');
+      debugPrint('User profile loaded: ${_userProfile?.fullName}');
       
       if (_userProfile != null) {
         _organizationMember = await _attendanceService.loadOrganizationMember();
-        print('Organization member loaded: ${_organizationMember?.id}');
+        debugPrint('Organization member loaded: ${_organizationMember?.id}');
         
         if (_organizationMember != null) {
+          await _loadOrganizationInfo(); // Load organization details
           await _loadOrganizationData();
           await _loadScheduleData();
           await _updateAttendanceStatus();
-          _buildDynamicTimeline();
-          print('Organization data loaded');
+          await _buildDynamicTimeline();
+          debugPrint('Organization data loaded');
         } else {
-          print('⚠️ No organization member found');
+          debugPrint('⚠️ No organization member found');
         }
       } else {
-        print('❌ User profile is null');
+        debugPrint('❌ User profile is null');
       }
     } catch (e) {
-      print('❌ Error in _loadUserData: $e');
-      _showSnackBar('Error loading user data: $e', isError: true);
+      debugPrint('❌ Error in _loadUserData: $e');
+      if (mounted) {
+        _showSnackBar('Error loading user data: $e', isError: true);
+      }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  // New method to load organization information
+  Future<void> _loadOrganizationInfo() async {
+    if (_organizationMember == null) return;
+
+    try {
+      final response = await Supabase.instance.client
+          .from('organizations')
+          .select('id, name, logo_url')
+          .eq('id', _organizationMember!.organizationId)
+          .single();
+
+      if (response != null && mounted) {
+        setState(() {
+          _organization = Organization(
+            id: response['id'],
+            name: response['name'] ?? 'Unknown Organization',
+            logoUrl: response['logo_url'],
+          );
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading organization info: $e');
+      // Don't show error to user, just log it
+    }
+  }
+
+  // Refresh method for pull-to-refresh
+  Future<void> _refreshData() async {
+    setState(() {
+      _isRefreshing = true;
+    });
+
+    try {
+      if (_organizationMember != null) {
+        await _loadOrganizationInfo(); // Refresh organization info too
+        await _loadOrganizationData();
+        await _loadScheduleData();
+        await _updateAttendanceStatus();
+        await _buildDynamicTimeline();
+      }
+    } catch (e) {
+      debugPrint('Error refreshing data: $e');
+      _showSnackBar('Error refreshing data: $e', isError: true);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRefreshing = false;
+        });
+      }
     }
   }
 
@@ -110,15 +168,17 @@ class _UserDashboardState extends State<UserDashboard> {
         _attendanceService.getCurrentLocation(),
       ]);
 
-      setState(() {
-        _attendanceDevice = futures[0] as AttendanceDevice?;
-        _todayAttendanceRecords = futures[1] as List<AttendanceRecord>;
-        _recentAttendanceRecords = futures[2] as List<AttendanceRecord>;
-        _currentSchedule = futures[3] as MemberSchedule?;
-        _currentPosition = futures[4] as Position?;
-      });
+      if (mounted) {
+        setState(() {
+          _attendanceDevice = futures[0] as AttendanceDevice?;
+          _todayAttendanceRecords = futures[1] as List<AttendanceRecord>;
+          _recentAttendanceRecords = futures[2] as List<AttendanceRecord>;
+          _currentSchedule = futures[3] as MemberSchedule?;
+          _currentPosition = futures[4] as Position?;
+        });
+      }
     } catch (e) {
-      print('Error loading organization data: $e');
+      debugPrint('Error loading organization data: $e');
       if (e.toString().contains('location')) {
         _showSnackBar('Gagal mendapatkan lokasi. Pastikan GPS aktif.', isError: true);
       }
@@ -134,9 +194,11 @@ class _UserDashboardState extends State<UserDashboard> {
         _currentSchedule!.workScheduleId!, 
         dayOfWeek
       );
-      setState(() {});
+      if (mounted) {
+        setState(() {});
+      }
     } catch (e) {
-      print('Error loading schedule details: $e');
+      debugPrint('Error loading schedule details: $e');
     }
   }
 
@@ -146,95 +208,205 @@ class _UserDashboardState extends State<UserDashboard> {
     try {
       _currentStatus = await _attendanceService.getCurrentAttendanceStatus(_organizationMember!.id);
       _availableActions = await _attendanceService.getAvailableActions(_organizationMember!.id);
-      setState(() {});
+      if (mounted) {
+        setState(() {});
+      }
     } catch (e) {
-      print('Error updating attendance status: $e');
+      debugPrint('Error updating attendance status: $e');
     }
   }
 
-  void _buildDynamicTimeline() {
-    _timelineItems.clear();
+  // Method untuk mengambil schedule items dari database
+  Future<List<ScheduleItem>> _getScheduleItemsFromDatabase() async {
+    List<ScheduleItem> items = [];
     
-    // Get base schedule times
-    final scheduleItems = _getScheduleItems();
-    final currentTime = TimeHelper.getCurrentTime();
-
-    // Build timeline based on schedule and current status
-    for (var scheduleItem in scheduleItems) {
-      final scheduleTime = TimeHelper.parseTimeString(scheduleItem.time);
-      final status = _getItemStatus(scheduleItem, scheduleTime, currentTime);
-      
-      _timelineItems.add(TimelineItem(
-        time: scheduleItem.time,
-        label: scheduleItem.label,
-        subtitle: scheduleItem.subtitle,
-        type: scheduleItem.type,
-        status: status,
-        action: _getActionForItem(scheduleItem, status),
-      ));
-    }
-  }
-
-  List<ScheduleItem> _getScheduleItems() {
-    // Use actual schedule if available, otherwise use default
-    if (_todayScheduleDetails != null) {
-      return [
-        ScheduleItem(
-          time: _todayScheduleDetails!.startTime ?? '09:00',
-          label: 'Check In',
-          type: AttendanceActionType.checkIn,
-          subtitle: 'Start work day',
-        ),
-        if (_todayScheduleDetails!.breakStart != null)
-          ScheduleItem(
-            time: _todayScheduleDetails!.breakStart!,
+    try {
+      // Jika ada schedule details dari database, gunakan itu
+      if (_todayScheduleDetails != null && _todayScheduleDetails!.isWorkingDay) {
+        
+        // Check In - selalu ada jika hari kerja
+        if (_todayScheduleDetails!.startTime != null) {
+          items.add(ScheduleItem(
+            time: _formatTimeFromDatabase(_todayScheduleDetails!.startTime!),
+            label: 'Check In',
+            type: AttendanceActionType.checkIn,
+            subtitle: 'Start work day',
+          ));
+        }
+        
+        // Break Out - jika ada jadwal istirahat
+        if (_todayScheduleDetails!.breakStart != null) {
+          items.add(ScheduleItem(
+            time: _formatTimeFromDatabase(_todayScheduleDetails!.breakStart!),
             label: 'Break',
             type: AttendanceActionType.breakOut,
             subtitle: 'Take a break',
-          ),
-        if (_todayScheduleDetails!.breakEnd != null)
-          ScheduleItem(
-            time: _todayScheduleDetails!.breakEnd!,
+          ));
+        }
+        
+        // Break In - jika ada jadwal masuk dari istirahat
+        if (_todayScheduleDetails!.breakEnd != null) {
+          items.add(ScheduleItem(
+            time: _formatTimeFromDatabase(_todayScheduleDetails!.breakEnd!),
             label: 'Resume',
             type: AttendanceActionType.breakIn,
             subtitle: 'Resume work',
-          ),
-        ScheduleItem(
-          time: _todayScheduleDetails!.endTime ?? '17:00',
+          ));
+        }
+        
+        // Check Out - selalu ada jika hari kerja
+        if (_todayScheduleDetails!.endTime != null) {
+          items.add(ScheduleItem(
+            time: _formatTimeFromDatabase(_todayScheduleDetails!.endTime!),
+            label: 'Check Out',
+            type: AttendanceActionType.checkOut,
+            subtitle: 'End work day',
+          ));
+        }
+        
+      } else {
+        // Jika tidak ada schedule details, coba ambil dari shift
+        if (_currentSchedule?.shiftId != null) {
+          items = await _getScheduleItemsFromShift();
+        } else {
+          debugPrint('No work schedule found for today');
+          // Return empty list for non-working days
+          return [];
+        }
+      }
+      
+    } catch (e) {
+      debugPrint('Error getting schedule items from database: $e');
+    }
+    
+    return items;
+  }
+
+  // Method untuk mengambil schedule dari shift jika tidak ada work_schedule_details
+  Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
+    List<ScheduleItem> items = [];
+    
+    try {
+      // Query shift details dari database
+      final shiftResponse = await Supabase.instance.client
+          .from('shifts')
+          .select('start_time, end_time, break_duration_minutes')
+          .eq('id', _currentSchedule!.shiftId!)
+          .single();
+      
+      if (shiftResponse != null) {
+        // Check In
+        items.add(ScheduleItem(
+          time: _formatTimeFromDatabase(shiftResponse['start_time']),
+          label: 'Check In',
+          type: AttendanceActionType.checkIn,
+          subtitle: 'Start work day',
+        ));
+        
+        // Break (estimasi di tengah shift jika ada break_duration)
+        if (shiftResponse['break_duration_minutes'] != null && 
+            shiftResponse['break_duration_minutes'] > 0) {
+          
+          final startTime = TimeHelper.parseTimeString(_formatTimeFromDatabase(shiftResponse['start_time']));
+          final endTime = TimeHelper.parseTimeString(_formatTimeFromDatabase(shiftResponse['end_time']));
+          
+          // Hitung waktu break di tengah shift
+          final totalMinutes = TimeHelper.timeToMinutes(endTime) - TimeHelper.timeToMinutes(startTime);
+          final breakStartMinutes = TimeHelper.timeToMinutes(startTime) + (totalMinutes ~/ 2);
+          final breakEndMinutes = breakStartMinutes + (shiftResponse['break_duration_minutes'] as int);
+          
+          items.add(ScheduleItem(
+            time: TimeHelper.formatTimeOfDay(TimeHelper.minutesToTime(breakStartMinutes)),
+            label: 'Break',
+            type: AttendanceActionType.breakOut,
+            subtitle: 'Take a break',
+          ));
+          
+          items.add(ScheduleItem(
+            time: TimeHelper.formatTimeOfDay(TimeHelper.minutesToTime(breakEndMinutes)),
+            label: 'Resume',
+            type: AttendanceActionType.breakIn,
+            subtitle: 'Resume work',
+          ));
+        }
+        
+        // Check Out
+        items.add(ScheduleItem(
+          time: _formatTimeFromDatabase(shiftResponse['end_time']),
           label: 'Check Out',
           type: AttendanceActionType.checkOut,
           subtitle: 'End work day',
-        ),
-      ];
+        ));
+      }
+      
+    } catch (e) {
+      debugPrint('Error getting schedule from shift: $e');
     }
+    
+    return items;
+  }
 
-    // Default schedule
-    return [
-      ScheduleItem(
-        time: '09:00',
-        label: 'Check In',
-        type: AttendanceActionType.checkIn,
-        subtitle: 'Start work day',
-      ),
-      ScheduleItem(
-        time: '12:00',
-        label: 'Break',
-        type: AttendanceActionType.breakOut,
-        subtitle: 'Lunch break',
-      ),
-      ScheduleItem(
-        time: '13:00',
-        label: 'Resume',
-        type: AttendanceActionType.breakIn,
-        subtitle: 'Resume work',
-      ),
-      ScheduleItem(
-        time: '17:00',
-        label: 'Check Out',
-        type: AttendanceActionType.checkOut,
-        subtitle: 'End work day',
-      ),
-    ];
+  // Method untuk format waktu dari database (menangani format TIME database)
+  String _formatTimeFromDatabase(String timeString) {
+    try {
+      // Database TIME format: "08:00:00" atau "08:00"
+      // Kita perlu convert ke "08:00" untuk UI
+      if (timeString.contains(':')) {
+        final parts = timeString.split(':');
+        if (parts.length >= 2) {
+          return '${parts[0]}:${parts[1]}';
+        }
+      }
+      return timeString;
+    } catch (e) {
+      debugPrint('Error formatting time from database: $e');
+      return timeString;
+    }
+  }
+
+  // Method yang sudah diperbaiki untuk build timeline dinamis
+  Future<void> _buildDynamicTimeline() async {
+    _timelineItems.clear();
+    
+    try {
+      // Ambil schedule items dari database
+      final scheduleItems = await _getScheduleItemsFromDatabase();
+      
+      if (scheduleItems.isEmpty) {
+        debugPrint('No schedule items found for today');
+        if (mounted) {
+          setState(() {});
+        }
+        return;
+      }
+      
+      final currentTime = TimeHelper.getCurrentTime();
+
+      // Build timeline berdasarkan data database
+      for (var scheduleItem in scheduleItems) {
+        final scheduleTime = TimeHelper.parseTimeString(scheduleItem.time);
+        final status = _getItemStatus(scheduleItem, scheduleTime, currentTime);
+        
+        _timelineItems.add(TimelineItem(
+          time: scheduleItem.time,
+          label: scheduleItem.label,
+          subtitle: scheduleItem.subtitle,
+          type: scheduleItem.type,
+          status: status,
+          action: _getActionForItem(scheduleItem, status),
+        ));
+      }
+      
+      if (mounted) {
+        setState(() {});
+      }
+      
+    } catch (e) {
+      debugPrint('Error building dynamic timeline: $e');
+      if (mounted) {
+        setState(() {});
+      }
+    }
   }
 
   TimelineStatus _getItemStatus(ScheduleItem item, TimeOfDay scheduleTime, TimeOfDay currentTime) {
@@ -253,6 +425,7 @@ class _UserDashboardState extends State<UserDashboard> {
       case AttendanceActionType.breakOut:
       case AttendanceActionType.breakIn:
         // These would need to check logs for completion
+        // For now, we'll implement basic logic
         break;
     }
 
@@ -270,15 +443,16 @@ class _UserDashboardState extends State<UserDashboard> {
   AttendanceAction? _getActionForItem(ScheduleItem item, TimelineStatus status) {
     // Find matching action from available actions
     final actionType = _getActionTypeString(item.type);
-    return _availableActions.firstWhere(
-      (action) => action.type == actionType,
-      orElse: () => AttendanceAction(
+    try {
+      return _availableActions.firstWhere((action) => action.type == actionType);
+    } catch (e) {
+      return AttendanceAction(
         type: actionType,
         label: item.label,
         isEnabled: false,
         reason: 'Not available now',
-      ),
-    );
+      );
+    }
   }
 
   String _getActionTypeString(AttendanceActionType type) {
@@ -292,6 +466,11 @@ class _UserDashboardState extends State<UserDashboard> {
       case AttendanceActionType.breakIn:
         return 'break_in';
     }
+  }
+
+  // Helper method to check if action needs photo
+  bool _needsPhoto(String actionType) {
+    return actionType == 'check_in' || actionType == 'check_out';
   }
 
   int _getPresenceDays() {
@@ -341,6 +520,8 @@ class _UserDashboardState extends State<UserDashboard> {
   }
 
   Future<void> _performAttendance(String actionType) async {
+    if (!mounted) return;
+    
     setState(() {
       _isLoading = true;
     });
@@ -380,26 +561,37 @@ class _UserDashboardState extends State<UserDashboard> {
         return;
       }
 
-      // Take selfie
-      String? imagePath = await _takeSelfie();
-      if (imagePath == null) {
-        _showSnackBar('Foto diperlukan untuk absensi', isError: true);
-        return;
+      String? photoUrl;
+
+      // Take selfie only for check_in and check_out
+      if (_needsPhoto(actionType)) {
+        String? imagePath = await _takeSelfie();
+        if (imagePath == null) {
+          _showSnackBar('Foto diperlukan untuk ${actionType == 'check_in' ? 'check-in' : 'check-out'}', isError: true);
+          return;
+        }
+
+        // Upload photo
+        photoUrl = await _attendanceService.uploadPhoto(imagePath);
+        if (photoUrl == null) {
+          _showSnackBar('Gagal upload foto', isError: true);
+          return;
+        }
+
+        // Clean up temporary file
+        try {
+          await File(imagePath).delete();
+        } catch (e) {
+          debugPrint('Gagal menghapus file sementara: $e');
+        }
       }
 
-      // Upload photo
-      String? photoUrl = await _attendanceService.uploadPhoto(imagePath);
-      if (photoUrl == null) {
-        _showSnackBar('Gagal upload foto', isError: true);
-        return;
-      }
-
-      // Perform attendance
+      // Perform attendance - handle null photoUrl properly
       final success = await _attendanceService.performAttendance(
         type: actionType,
         organizationMemberId: _organizationMember!.id,
         currentPosition: _currentPosition!,
-        photoUrl: photoUrl,
+        photoUrl: photoUrl ?? '',
         device: _attendanceDevice,
         schedule: _currentSchedule,
         todayRecords: _todayAttendanceRecords,
@@ -408,32 +600,27 @@ class _UserDashboardState extends State<UserDashboard> {
 
       if (success) {
         await _showSuccessAttendancePopup(actionType);
-        await _loadOrganizationData();
-        await _updateAttendanceStatus();
-        _buildDynamicTimeline();
-      }
-
-      // Clean up temporary file
-      try {
-        await File(imagePath).delete();
-      } catch (e) {
-        print('Gagal menghapus file sementara: $e');
+        // Auto refresh after successful attendance
+        await _refreshData();
       }
 
     } catch (e) {
-      print('Error performing attendance: $e');
+      debugPrint('Error performing attendance: $e');
       _showSnackBar('Gagal melakukan absensi: $e', isError: true);
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
-
   Future<void> _getCurrentLocation() async {
     try {
       _currentPosition = await _attendanceService.getCurrentLocation();
-      setState(() {});
+      if (mounted) {
+        setState(() {});
+      }
     } catch (e) {
       _showSnackBar('Gagal mendapatkan lokasi: $e', isError: true);
     }
@@ -457,6 +644,7 @@ class _UserDashboardState extends State<UserDashboard> {
     }
 
     try {
+      if (!mounted) return null;
       final result = await Navigator.push<String>(
         context,
         MaterialPageRoute(
@@ -471,6 +659,8 @@ class _UserDashboardState extends State<UserDashboard> {
   }
 
   Future<void> _showSuccessAttendancePopup(String type) async {
+    if (!mounted) return;
+    
     final jakartaTime = TimezoneHelper.nowInJakarta();
 
     return showDialog<void>(
@@ -483,14 +673,14 @@ class _UserDashboardState extends State<UserDashboard> {
             width: MediaQuery.of(context).size.width * 0.85,
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [primaryColor, primaryColor.withOpacity(0.8)],
+                colors: [primaryColor, primaryColor.withValues(alpha: 0.8)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.3),
+                  color: Colors.black.withValues(alpha: 0.3),
                   blurRadius: 20,
                   offset: const Offset(0, 10),
                 ),
@@ -511,7 +701,7 @@ class _UserDashboardState extends State<UserDashboard> {
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.2),
+                              color: Colors.black.withValues(alpha: 0.2),
                               blurRadius: 15,
                               offset: const Offset(0, 5),
                             ),
@@ -597,7 +787,10 @@ class _UserDashboardState extends State<UserDashboard> {
     }
   }
 
+  // Fixed logout confirmation to prevent double tap issue
   Future<void> _showLogoutConfirmation() async {
+    if (!mounted) return;
+    
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -618,19 +811,33 @@ class _UserDashboardState extends State<UserDashboard> {
               ),
               child: const Text('Logout', style: TextStyle(color: Colors.white)),
               onPressed: () async {
-                Navigator.of(context).pop();
-                await _attendanceService.signOut();
-                if (!mounted) return;
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const Login()),
-                );
+                Navigator.of(context).pop(); // Close dialog first
+                await _performLogout(); // Then perform logout
               },
             ),
           ],
         );
       },
     );
+  }
+
+  // Separate logout method to prevent double execution
+  Future<void> _performLogout() async {
+    try {
+      await _attendanceService.signOut();
+      if (mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const Login()),
+          (route) => false, // Remove all previous routes
+        );
+      }
+    } catch (e) {
+      debugPrint('Error during logout: $e');
+      if (mounted) {
+        _showSnackBar('Error during logout: $e', isError: true);
+      }
+    }
   }
 
   void _showSnackBar(String message, {bool isError = false}) {
@@ -654,52 +861,222 @@ class _UserDashboardState extends State<UserDashboard> {
       backgroundColor: Colors.grey.shade100,
       body: _organizationMember == null
           ? _buildNotRegisteredView()
-          : _buildMainContent(displayName),
+          : RefreshIndicator(
+              onRefresh: _refreshData,
+              color: primaryColor,
+              backgroundColor: Colors.white,
+              child: _buildMainContent(displayName),
+            ),
     );
   }
 
   Widget _buildNotRegisteredView() {
-    return Center(
-      child: Container(
-        margin: const EdgeInsets.all(24),
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.business, size: 64, color: primaryColor),
-            const SizedBox(height: 16),
-            const Text(
-              'Belum Terdaftar',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Anda belum terdaftar sebagai member organisasi.',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey),
-            ),
-            const SizedBox(height: 24),
-            ElevatedButton(
-              onPressed: _isLoading ? null : _loadUserData,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: primaryColor,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+    final user = Supabase.instance.client.auth.currentUser;
+    final displayName = _userProfile?.fullName ?? user?.email?.split('@')[0] ?? 'User';
+
+    return RefreshIndicator(
+      onRefresh: _loadUserData,
+      color: primaryColor,
+      backgroundColor: Colors.white,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: SizedBox(
+          height: MediaQuery.of(context).size.height,
+          child: Column(
+            children: [
+              // Header similar to main content but simpler
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(20, 50, 20, 30),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [backgroundColor, backgroundColor.withValues(alpha: 0.8)],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                  borderRadius: const BorderRadius.only(
+                    bottomLeft: Radius.circular(30),
+                    bottomRight: Radius.circular(30),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Icon(
+                          Icons.apps,
+                          color: primaryColor,
+                          size: 28,
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.logout, color: Colors.white),
+                          onPressed: _showLogoutConfirmation,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 25,
+                          backgroundColor: Colors.orange.shade400,
+                          backgroundImage: _userProfile?.profilePhotoUrl != null
+                              ? NetworkImage(_userProfile!.profilePhotoUrl!)
+                              : null,
+                          child: _userProfile?.profilePhotoUrl == null
+                              ? const Icon(Icons.person, color: Colors.white, size: 28)
+                              : null,
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Hello, $displayName',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              const Text(
+                                'Account Setup Required',
+                                style: TextStyle(
+                                  color: Colors.orange,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-              child: Text(_isLoading ? 'Loading...' : 'Coba Lagi'),
-            ),
-          ],
+              
+              // Main content
+              Expanded(
+                child: Center(
+                  child: Container(
+                    margin: const EdgeInsets.all(24),
+                    padding: const EdgeInsets.all(32),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.1),
+                          blurRadius: 15,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade50,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.business_outlined, 
+                            size: 40, 
+                            color: Colors.orange.shade400,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        const Text(
+                          'Organization Setup Required',
+                          style: TextStyle(
+                            fontSize: 22, 
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'You need to be registered as a member of an organization to use this attendance system.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.grey,
+                            fontSize: 16,
+                            height: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.blue.shade200),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.info_outline,
+                                color: Colors.blue.shade600,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 12),
+                              const Expanded(
+                                child: Text(
+                                  'Contact your HR administrator to get added to your organization.',
+                                  style: TextStyle(
+                                    color: Colors.black87,
+                                    fontSize: 14,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _isLoading ? null : _loadUserData,
+                                icon: _isLoading 
+                                    ? SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                                        ),
+                                      )
+                                    : const Icon(Icons.refresh),
+                                label: Text(_isLoading ? 'Checking...' : 'Check Again'),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: primaryColor,
+                                  side: BorderSide(color: primaryColor),
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -707,6 +1084,7 @@ class _UserDashboardState extends State<UserDashboard> {
 
   Widget _buildMainContent(String displayName) {
     return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
       child: Column(
         children: [
           _buildHeader(displayName),
@@ -725,7 +1103,7 @@ class _UserDashboardState extends State<UserDashboard> {
       padding: const EdgeInsets.fromLTRB(20, 50, 20, 30),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [backgroundColor, backgroundColor.withOpacity(0.8)],
+          colors: [backgroundColor, backgroundColor.withValues(alpha: 0.8)],
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
         ),
@@ -740,12 +1118,80 @@ class _UserDashboardState extends State<UserDashboard> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Icon(
-                Icons.apps,
-                color: primaryColor,
-                size: 28,
+              // Organization info with logo
+              Expanded(
+                child: Row(
+                  children: [
+                    if (_organization?.logoUrl != null)
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          color: Colors.white,
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            _organization!.logoUrl!,
+                            width: 32,
+                            height: 32,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                width: 32,
+                                height: 32,
+                                decoration: BoxDecoration(
+                                  color: primaryColor,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Icon(
+                                  Icons.business,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      )
+                    else
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: primaryColor,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(
+                          Icons.business,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _organization?.name ?? 'Unknown Organization',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
+              // Action buttons
               Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   IconButton(
                     icon: const Icon(Icons.history, color: Colors.white),
@@ -755,10 +1201,12 @@ class _UserDashboardState extends State<UserDashboard> {
                         MaterialPageRoute(builder: (context) => const AttendanceHistoryPage()),
                       );
                     },
+                    tooltip: 'Attendance History',
                   ),
                   IconButton(
                     icon: const Icon(Icons.logout, color: Colors.white),
                     onPressed: _showLogoutConfirmation,
+                    tooltip: 'Logout',
                   ),
                 ],
               ),
@@ -819,7 +1267,7 @@ class _UserDashboardState extends State<UserDashboard> {
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.1),
+              color: Colors.black.withValues(alpha: 0.1),
               blurRadius: 15,
               offset: const Offset(0, 5),
             ),
@@ -846,6 +1294,17 @@ class _UserDashboardState extends State<UserDashboard> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+                if (_isRefreshing) ...[
+                  const SizedBox(width: 12),
+                  SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                    ),
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 16),
@@ -863,17 +1322,26 @@ class _UserDashboardState extends State<UserDashboard> {
                 runSpacing: 8,
                 children: _availableActions.take(2).map((action) {
                   return ElevatedButton(
-                    onPressed: action.isEnabled ? () => _performAttendance(action.type) : null,
+                    onPressed: action.isEnabled && !_isLoading ? () => _performAttendance(action.type) : null,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: action.isEnabled ? primaryColor : Colors.grey.shade300,
                       foregroundColor: action.isEnabled ? Colors.white : Colors.grey,
                       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
-                    child: Text(
-                      action.label,
-                      style: const TextStyle(fontWeight: FontWeight.w500),
-                    ),
+                    child: _isLoading && action.isEnabled
+                        ? SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : Text(
+                            action.label,
+                            style: const TextStyle(fontWeight: FontWeight.w500),
+                          ),
                   );
                 }).toList(),
               ),
@@ -893,7 +1361,7 @@ class _UserDashboardState extends State<UserDashboard> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -969,7 +1437,7 @@ class _UserDashboardState extends State<UserDashboard> {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: 0.05),
             blurRadius: 10,
             offset: const Offset(0, 2),
           ),
@@ -986,7 +1454,21 @@ class _UserDashboardState extends State<UserDashboard> {
             ),
           ),
           const SizedBox(height: 20),
-          ..._timelineItems.map((item) => _buildTimelineItem(item)),
+          if (_timelineItems.isEmpty)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(20),
+                child: Text(
+                  'No schedule available for today',
+                  style: TextStyle(
+                    color: Colors.grey,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            )
+          else
+            ..._timelineItems.map((item) => _buildTimelineItem(item)),
         ],
       ),
     );
@@ -1067,7 +1549,7 @@ class _UserDashboardState extends State<UserDashboard> {
     }
 
     return ElevatedButton(
-      onPressed: () => _performAttendance(action.type),
+      onPressed: _isLoading ? null : () => _performAttendance(action.type),
       style: ElevatedButton.styleFrom(
         backgroundColor: primaryColor,
         foregroundColor: Colors.white,
@@ -1075,10 +1557,19 @@ class _UserDashboardState extends State<UserDashboard> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         minimumSize: const Size(0, 0),
       ),
-      child: Text(
-        action.label,
-        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-      ),
+      child: _isLoading
+          ? SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              ),
+            )
+          : Text(
+              action.label,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+            ),
     );
   }
 
@@ -1138,6 +1629,19 @@ class ScheduleItem {
     required this.label,
     required this.type,
     required this.subtitle,
+  });
+}
+
+// Organization data class
+class Organization {
+  final int id;
+  final String name;
+  final String? logoUrl;
+
+  Organization({
+    required this.id,
+    required this.name,
+    this.logoUrl,
   });
 }
 

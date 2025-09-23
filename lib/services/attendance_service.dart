@@ -16,26 +16,26 @@ class AttendanceService {
   Future<UserProfile?> loadUserProfile() async {
     try {
       final user = _supabase.auth.currentUser;
-      print('=== DEBUG loadUserProfile ===');
-      print('Current user: ${user?.id}');
-      print('User email: ${user?.email}');
+      debugPrint('=== DEBUG loadUserProfile ===');
+      debugPrint('Current user: ${user?.id}');
+      debugPrint('User email: ${user?.email}');
       
       if (user == null) {
-        print('❌ No authenticated user found');
+        debugPrint('❌ No authenticated user found');
         return null;
       }
 
-      print('🔍 Querying user_profiles table...');
+      debugPrint('🔍 Querying user_profiles table...');
       final profileResponse = await _supabase
           .from('user_profiles')
           .select()
           .eq('id', user.id)
           .maybeSingle();
 
-      print('📦 Profile response: $profileResponse');
+      debugPrint('📦 Profile response: $profileResponse');
       
       if (profileResponse == null) {
-        print('⚠️ No profile found, attempting to create...');
+        debugPrint('⚠️ No profile found, attempting to create...');
         await _createUserProfile(user);
         
         // Try to load again after creation
@@ -47,12 +47,12 @@ class AttendanceService {
             
         return newProfileResponse != null ? UserProfile.fromJson(newProfileResponse) : null;
       } else {
-        print('✅ Profile found: ${profileResponse['display_name']}');
+        debugPrint('✅ Profile found: ${profileResponse['display_name']}');
         return UserProfile.fromJson(profileResponse);
       }
     } catch (e) {
-      print('❌ Error in loadUserProfile: $e');
-      print('Error type: ${e.runtimeType}');
+      debugPrint('❌ Error in loadUserProfile: $e');
+      debugPrint('Error type: ${e.runtimeType}');
       rethrow;
     }
   }
@@ -77,9 +77,9 @@ class AttendanceService {
         'is_active': true,
       });
 
-      print('User profile created with name: $firstName $lastName');
+      debugPrint('User profile created with name: $firstName $lastName');
     } catch (e) {
-      print('Error creating user profile: $e');
+      debugPrint('Error creating user profile: $e');
       throw Exception('Error creating user profile: $e');
     }
   }
@@ -91,11 +91,11 @@ class AttendanceService {
     try {
       final user = _supabase.auth.currentUser;
       if (user == null) {
-        print('No authenticated user found');
+        debugPrint('No authenticated user found');
         return null;
       }
 
-      print('Loading organization member for user: ${user.id}');
+      debugPrint('Loading organization member for user: ${user.id}');
 
       // Get organization member
       final memberResponse = await _supabase
@@ -108,8 +108,8 @@ class AttendanceService {
           .maybeSingle();
 
       if (memberResponse == null) {
-        print('User is not a member of any organization');
-        print('Attempting auto-registration...');
+        debugPrint('User is not a member of any organization');
+        debugPrint('Attempting auto-registration...');
         
         final autoRegistered = await tryAutoRegisterToOrganization(user.id);
         if (autoRegistered) {
@@ -132,9 +132,9 @@ class AttendanceService {
             .select('id, name, code')
             .eq('id', memberResponse['organization_id'])
             .single();
-        print('Organization loaded: ${orgDetails['name']}');
+        debugPrint('Organization loaded: ${orgDetails['name']}');
       } catch (e) {
-        print('Error loading organization: $e');
+        debugPrint('Error loading organization: $e');
       }
 
       // Get department details if exists
@@ -145,9 +145,9 @@ class AttendanceService {
               .select('id, name, code')
               .eq('id', memberResponse['department_id'])
               .maybeSingle();
-          print('Department loaded: ${deptDetails?['name'] ?? 'None'}');
+          debugPrint('Department loaded: ${deptDetails?['name'] ?? 'None'}');
         } catch (e) {
-          print('Error loading department: $e');
+          debugPrint('Error loading department: $e');
         }
       }
 
@@ -159,9 +159,9 @@ class AttendanceService {
               .select('id, title, code')
               .eq('id', memberResponse['position_id'])
               .maybeSingle();
-          print('Position loaded: ${posDetails?['title'] ?? 'None'}');
+          debugPrint('Position loaded: ${posDetails?['title'] ?? 'None'}');
         } catch (e) {
-          print('Error loading position: $e');
+          debugPrint('Error loading position: $e');
         }
       }
 
@@ -173,10 +173,10 @@ class AttendanceService {
         'positions': posDetails,
       };
 
-      print('Organization member loaded successfully');
+      debugPrint('Organization member loaded successfully');
       return OrganizationMember.fromJson(combinedResponse);
     } catch (e) {
-      print('Error loading organization member: $e');
+      debugPrint('Error loading organization member: $e');
       throw Exception('Error loading organization member: $e');
     }
   }
@@ -184,7 +184,7 @@ class AttendanceService {
   /// Auto-register user to default organization
   Future<bool> tryAutoRegisterToOrganization(String userId) async {
     try {
-      print('Attempting auto-registration for user: $userId');
+      debugPrint('Attempting auto-registration for user: $userId');
       
       // Check if there's a default organization to register to
       final defaultOrg = await _supabase
@@ -194,7 +194,7 @@ class AttendanceService {
           .maybeSingle();
           
       if (defaultOrg == null) {
-        print('No default organization found with code COMPANY001');
+        debugPrint('No default organization found with code COMPANY001');
         return false;
       }
 
@@ -229,10 +229,10 @@ class AttendanceService {
           .select()
           .single();
 
-      print('User auto-registered successfully with member ID: ${result['id']}');
+      debugPrint('User auto-registered successfully with member ID: ${result['id']}');
       return true;
     } catch (e) {
-      print('Auto-registration failed: $e');
+      debugPrint('Auto-registration failed: $e');
       return false;
     }
   }
@@ -242,7 +242,7 @@ class AttendanceService {
   /// Load attendance device for organization
   Future<AttendanceDevice?> loadAttendanceDevice(String organizationId) async {
     try {
-      print('Loading attendance device for organization: $organizationId');
+      debugPrint('Loading attendance device for organization: $organizationId');
 
       final deviceResponse = await _supabase
           .from('attendance_devices')
@@ -257,17 +257,17 @@ class AttendanceService {
           .maybeSingle();
 
       if (deviceResponse != null) {
-        print('Attendance device loaded: ${deviceResponse['device_name']}');
-        print('Device coordinates: ${deviceResponse['latitude']}, ${deviceResponse['longitude']}');
-        print('Device radius: ${deviceResponse['radius_meters']}m');
+        debugPrint('Attendance device loaded: ${deviceResponse['device_name']}');
+        debugPrint('Device coordinates: ${deviceResponse['latitude']}, ${deviceResponse['longitude']}');
+        debugPrint('Device radius: ${deviceResponse['radius_meters']}m');
         
         return AttendanceDevice.fromJson(deviceResponse);
       } else {
-        print('No attendance device found for organization');
+        debugPrint('No attendance device found for organization');
         return null;
       }
     } catch (e) {
-      print('Error loading attendance device: $e');
+      debugPrint('Error loading attendance device: $e');
       throw Exception('Error loading attendance device: $e');
     }
   }
@@ -278,7 +278,7 @@ class AttendanceService {
   Future<List<AttendanceRecord>> loadTodayAttendanceRecords(String organizationMemberId) async {
     try {
       final today = TimezoneHelper.getTodayDateString();
-      print('Loading today attendance records for member: $organizationMemberId, date: $today');
+      debugPrint('Loading today attendance records for member: $organizationMemberId, date: $today');
 
       final response = await _supabase
           .from('attendance_records')
@@ -294,10 +294,10 @@ class AttendanceService {
           .map((json) => AttendanceRecord.fromJson(json))
           .toList();
 
-      print('Today attendance records loaded: ${records.length} records');
+      debugPrint('Today attendance records loaded: ${records.length} records');
       return records;
     } catch (e) {
-      print('Error loading today attendance records: $e');
+      debugPrint('Error loading today attendance records: $e');
       throw Exception('Error loading today attendance records: $e');
     }
   }
@@ -305,7 +305,7 @@ class AttendanceService {
   /// Load recent attendance records for member
   Future<List<AttendanceRecord>> loadRecentAttendanceRecords(String organizationMemberId) async {
     try {
-      print('Loading recent attendance records for member: $organizationMemberId');
+      debugPrint('Loading recent attendance records for member: $organizationMemberId');
 
       final response = await _supabase
           .from('attendance_records')
@@ -321,10 +321,10 @@ class AttendanceService {
           .map((json) => AttendanceRecord.fromJson(json))
           .toList();
 
-      print('Recent attendance records loaded: ${records.length} records');
+      debugPrint('Recent attendance records loaded: ${records.length} records');
       return records;
     } catch (e) {
-      print('Error loading recent attendance records: $e');
+      debugPrint('Error loading recent attendance records: $e');
       throw Exception('Error loading recent attendance records: $e');
     }
   }
@@ -336,7 +336,7 @@ class AttendanceService {
       final startOfDay = '$today 00:00:00';
       final endOfDay = '$today 23:59:59';
       
-      print('Loading today attendance logs for member: $organizationMemberId');
+      debugPrint('Loading today attendance logs for member: $organizationMemberId');
 
       final response = await _supabase
           .from('attendance_logs')
@@ -350,10 +350,10 @@ class AttendanceService {
           .map((json) => AttendanceLog.fromJson(json))
           .toList();
 
-      print('Today attendance logs loaded: ${logs.length} logs');
+      debugPrint('Today attendance logs loaded: ${logs.length} logs');
       return logs;
     } catch (e) {
-      print('Error loading today attendance logs: $e');
+      debugPrint('Error loading today attendance logs: $e');
       throw Exception('Error loading today attendance logs: $e');
     }
   }
@@ -364,7 +364,7 @@ class AttendanceService {
   Future<MemberSchedule?> loadCurrentSchedule(String organizationMemberId) async {
     try {
       final today = TimezoneHelper.getTodayDateString();
-      print('Loading current schedule for member: $organizationMemberId, date: $today');
+      debugPrint('Loading current schedule for member: $organizationMemberId, date: $today');
 
       final scheduleResponse = await _supabase
           .from('member_schedules')
@@ -382,14 +382,14 @@ class AttendanceService {
           .maybeSingle();
 
       if (scheduleResponse != null) {
-        print('Current schedule loaded: ${scheduleResponse['shifts']?['name'] ?? scheduleResponse['work_schedules']?['name'] ?? 'Unknown'}');
+        debugPrint('Current schedule loaded: ${scheduleResponse['shifts']?['name'] ?? scheduleResponse['work_schedules']?['name'] ?? 'Unknown'}');
         return MemberSchedule.fromJson(scheduleResponse);
       } else {
-        print('No current schedule found for member');
+        debugPrint('No current schedule found for member');
         return null;
       }
     } catch (e) {
-      print('Error loading current schedule: $e');
+      debugPrint('Error loading current schedule: $e');
       throw Exception('Error loading current schedule: $e');
     }
   }
@@ -397,7 +397,7 @@ class AttendanceService {
   /// Load work schedule details for a specific day
   Future<WorkScheduleDetails?> loadWorkScheduleDetails(String workScheduleId, int dayOfWeek) async {
     try {
-      print('Loading work schedule details for schedule: $workScheduleId, day: $dayOfWeek');
+      debugPrint('Loading work schedule details for schedule: $workScheduleId, day: $dayOfWeek');
 
       final response = await _supabase
           .from('work_schedule_details')
@@ -407,17 +407,19 @@ class AttendanceService {
           .maybeSingle();
 
       if (response != null) {
-        print('Work schedule details loaded for day $dayOfWeek');
-        print('Is working day: ${response['is_working_day']}');
-        print('Start time: ${response['start_time']}');
-        print('End time: ${response['end_time']}');
+        debugPrint('Work schedule details loaded for day $dayOfWeek');
+        debugPrint('Is working day: ${response['is_working_day']}');
+        debugPrint('Start time: ${response['start_time']}');
+        debugPrint('End time: ${response['end_time']}');
+        debugPrint('Break start: ${response['break_start']}');
+        debugPrint('Break end: ${response['break_end']}');
         return WorkScheduleDetails.fromJson(response);
       } else {
-        print('No work schedule details found for day $dayOfWeek');
+        debugPrint('No work schedule details found for day $dayOfWeek');
         return null;
       }
     } catch (e) {
-      print('Error loading work schedule details: $e');
+      debugPrint('Error loading work schedule details: $e');
       throw Exception('Error loading work schedule details: $e');
     }
   }
@@ -428,13 +430,13 @@ class AttendanceService {
       final schedule = await loadCurrentSchedule(organizationMemberId);
       if (schedule?.workScheduleId != null) {
         final today = DateTime.now();
-        final dayOfWeek = today.weekday % 7; // Convert to 0-6 format
+        final dayOfWeek = today.weekday; // Monday=1, ..., Sunday=7
         final scheduleDetails = await loadWorkScheduleDetails(schedule!.workScheduleId!, dayOfWeek);
         return scheduleDetails?.isWorkingDay ?? true;
       }
       return true; // Default to working day if no schedule found
     } catch (e) {
-      print('Error checking if today is working day: $e');
+      debugPrint('Error checking if today is working day: $e');
       return true; // Default to working day on error
     }
   }
@@ -444,13 +446,13 @@ class AttendanceService {
   /// Get current GPS location
   Future<Position> getCurrentLocation() async {
     try {
-      print('Checking location services...');
+      debugPrint('Checking location services...');
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         throw Exception('Location services are disabled');
       }
 
-      print('Checking location permissions...');
+      debugPrint('Checking location permissions...');
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
@@ -463,16 +465,16 @@ class AttendanceService {
         throw Exception('Location permissions are permanently denied');
       }
 
-      print('Getting current position...');
+      debugPrint('Getting current position...');
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
         timeLimit: const Duration(seconds: 10),
       );
 
-      print('Current position: ${position.latitude}, ${position.longitude}');
+      debugPrint('Current position: ${position.latitude}, ${position.longitude}');
       return position;
     } catch (e) {
-      print('Error getting location: $e');
+      debugPrint('Error getting location: $e');
       throw Exception('Failed to get location: $e');
     }
   }
@@ -482,14 +484,14 @@ class AttendanceService {
     if (lat2 == null || lon2 == null) return null;
     
     final distance = Geolocator.distanceBetween(lat1, lon1, lat2, lon2);
-    print('Distance calculated: ${distance.toStringAsFixed(2)}m');
+    debugPrint('Distance calculated: ${distance.toStringAsFixed(2)}m');
     return distance;
   }
 
   /// Check if current position is within device radius
   bool isWithinRadius(Position currentPosition, AttendanceDevice device) {
     if (!device.hasValidCoordinates) {
-      print('Device coordinates not available');
+      debugPrint('Device coordinates not available');
       return false;
     }
 
@@ -501,12 +503,12 @@ class AttendanceService {
     );
 
     if (distance == null) {
-      print('Cannot calculate distance');
+      debugPrint('Cannot calculate distance');
       return false;
     }
 
     final withinRadius = distance <= device.radiusMeters;
-    print('Within radius check: $withinRadius (distance: ${distance.toStringAsFixed(2)}m, radius: ${device.radiusMeters}m)');
+    debugPrint('Within radius check: $withinRadius (distance: ${distance.toStringAsFixed(2)}m, radius: ${device.radiusMeters}m)');
     
     return withinRadius;
   }
@@ -526,8 +528,8 @@ class AttendanceService {
       final fileName = '${user.id}/${timestamp}.jpg';
       final file = File(imagePath);
 
-      print('Uploading photo to: $fileName');
-      print('File size: ${await file.length()} bytes');
+      debugPrint('Uploading photo to: $fileName');
+      debugPrint('File size: ${await file.length()} bytes');
 
       // Upload to storage bucket
       await _supabase.storage
@@ -542,10 +544,10 @@ class AttendanceService {
           .from('attendance_photos')
           .getPublicUrl(fileName);
 
-      print('Photo uploaded successfully: $publicUrl');
+      debugPrint('Photo uploaded successfully: $publicUrl');
       return publicUrl;
     } catch (e) {
-      print('Error uploading photo: $e');
+      debugPrint('Error uploading photo: $e');
       throw Exception('Failed to upload photo: $e');
     }
   }
@@ -567,8 +569,8 @@ class AttendanceService {
       final today = TimezoneHelper.getTodayDateString();
       final now = TimezoneHelper.nowInJakarta();
 
-      print('Performing attendance: $type for member: $organizationMemberId');
-      print('Date: $today, Time: ${now.toIso8601String()}');
+      debugPrint('Performing attendance: $type for member: $organizationMemberId');
+      debugPrint('Date: $today, Time: ${now.toIso8601String()}');
 
       // Get today's logs to track break state
       final todayLogs = await getTodayAttendanceLogs(organizationMemberId);
@@ -606,7 +608,7 @@ class AttendanceService {
       }
 
     } catch (e) {
-      print('Error performing attendance: $e');
+      debugPrint('Error performing attendance: $e');
       throw Exception('Failed to perform attendance: $e');
     }
   }
@@ -653,7 +655,7 @@ class AttendanceService {
           .update(updateData)
           .eq('id', existingRecord.id);
 
-      print('Check-in updated on existing record');
+      debugPrint('Check-in updated on existing record');
     } else {
       // Create new record
       Map<String, dynamic> newRecordData = {
@@ -689,7 +691,7 @@ class AttendanceService {
       }
 
       await _supabase.from('attendance_records').insert(newRecordData);
-      print('New attendance record created for check-in');
+      debugPrint('New attendance record created for check-in');
     }
 
     // Log the event
@@ -757,7 +759,7 @@ class AttendanceService {
       organizationMemberId, 'check_out', now, currentPosition, device
     );
 
-    print('Check-out completed successfully');
+    debugPrint('Check-out completed successfully');
     return true;
   }
 
@@ -774,7 +776,7 @@ class AttendanceService {
       organizationMemberId, 'break_out', now, currentPosition, device
     );
 
-    print('Break out logged successfully');
+    debugPrint('Break out logged successfully');
     return true;
   }
 
@@ -798,7 +800,6 @@ class AttendanceService {
       final breakDuration = now.difference(lastBreakOut.eventTime).inMinutes;
       
       // Update today's attendance record with break duration
-      final today = TimezoneHelper.getTodayDateString();
       final todayRecords = await loadTodayAttendanceRecords(organizationMemberId);
       
       if (todayRecords.isNotEmpty) {
@@ -818,7 +819,7 @@ class AttendanceService {
       organizationMemberId, 'break_in', now, currentPosition, device
     );
 
-    print('Break in (resume work) logged successfully');
+    debugPrint('Break in (resume work) logged successfully');
     return true;
   }
 
@@ -946,22 +947,6 @@ class AttendanceService {
     return TimeHelper.isTimeBefore(actual, scheduled) ? diff : 0;
   }
 
-  /// Get attendance type label for display
-  String _getAttendanceTypeLabel(String type) {
-    switch (type) {
-      case 'check_in':
-        return 'Check-in';
-      case 'check_out':
-        return 'Check-out';
-      case 'break_out':
-        return 'Break out';
-      case 'break_in':
-        return 'Break in';
-      default:
-        return 'Attendance';
-    }
-  }
-
   /// Get current attendance status based on today's logs
   Future<AttendanceStatus> getCurrentAttendanceStatus(String organizationMemberId) async {
     try {
@@ -985,7 +970,7 @@ class AttendanceService {
 
       return AttendanceStatus.working;
     } catch (e) {
-      print('Error getting attendance status: $e');
+      debugPrint('Error getting attendance status: $e');
       return AttendanceStatus.unknown;
     }
   }
@@ -998,7 +983,7 @@ class AttendanceService {
       
       WorkScheduleDetails? scheduleDetails;
       if (schedule?.workScheduleId != null) {
-        final dayOfWeek = DateTime.now().weekday % 7;
+        final dayOfWeek = DateTime.now().weekday; // Use correct day format
         scheduleDetails = await loadWorkScheduleDetails(schedule!.workScheduleId!, dayOfWeek);
       }
 
@@ -1066,7 +1051,7 @@ class AttendanceService {
 
       return actions;
     } catch (e) {
-      print('Error getting available actions: $e');
+      debugPrint('Error getting available actions: $e');
       return [];
     }
   }
@@ -1110,11 +1095,11 @@ class AttendanceService {
   /// Sign out current user
   Future<void> signOut() async {
     try {
-      print('Signing out user...');
+      debugPrint('Signing out user...');
       await _supabase.auth.signOut();
-      print('User signed out successfully');
+      debugPrint('User signed out successfully');
     } catch (e) {
-      print('Error signing out: $e');
+      debugPrint('Error signing out: $e');
       throw Exception('Failed to sign out: $e');
     }
   }
