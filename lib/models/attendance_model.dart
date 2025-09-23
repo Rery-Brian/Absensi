@@ -178,12 +178,19 @@ class AttendanceRecord {
   final String id;
   final String organizationMemberId;
   final String attendanceDate;
+  final String? scheduledStart;
+  final String? scheduledEnd;
   final DateTime? actualCheckIn;
   final DateTime? actualCheckOut;
   final String? checkInPhotoUrl;
   final String? checkOutPhotoUrl;
   final Map<String, dynamic>? checkInLocation;
   final Map<String, dynamic>? checkOutLocation;
+  final int? workDurationMinutes;
+  final int? breakDurationMinutes;
+  final int? overtimeMinutes;
+  final int? lateMinutes;
+  final int? earlyLeaveMinutes;
   final String status;
   final String? scheduledShiftId;
 
@@ -191,12 +198,19 @@ class AttendanceRecord {
     required this.id,
     required this.organizationMemberId,
     required this.attendanceDate,
+    this.scheduledStart,
+    this.scheduledEnd,
     this.actualCheckIn,
     this.actualCheckOut,
     this.checkInPhotoUrl,
     this.checkOutPhotoUrl,
     this.checkInLocation,
     this.checkOutLocation,
+    this.workDurationMinutes,
+    this.breakDurationMinutes,
+    this.overtimeMinutes,
+    this.lateMinutes,
+    this.earlyLeaveMinutes,
     required this.status,
     this.scheduledShiftId,
   });
@@ -206,12 +220,19 @@ class AttendanceRecord {
       id: json['id']?.toString() ?? '',
       organizationMemberId: json['organization_member_id']?.toString() ?? '',
       attendanceDate: json['attendance_date']?.toString() ?? '',
+      scheduledStart: json['scheduled_start']?.toString(),
+      scheduledEnd: json['scheduled_end']?.toString(),
       actualCheckIn: _parseDateTime(json['actual_check_in']),
       actualCheckOut: _parseDateTime(json['actual_check_out']),
       checkInPhotoUrl: json['check_in_photo_url']?.toString(),
       checkOutPhotoUrl: json['check_out_photo_url']?.toString(),
       checkInLocation: json['check_in_location'] as Map<String, dynamic>?,
       checkOutLocation: json['check_out_location'] as Map<String, dynamic>?,
+      workDurationMinutes: json['work_duration_minutes'],
+      breakDurationMinutes: json['break_duration_minutes'],
+      overtimeMinutes: json['overtime_minutes'],
+      lateMinutes: json['late_minutes'],
+      earlyLeaveMinutes: json['early_leave_minutes'],
       status: json['status']?.toString() ?? 'absent',
       scheduledShiftId: json['scheduled_shift_id']?.toString(),
     );
@@ -235,6 +256,8 @@ class Shift {
   final String code;
   final String startTime;
   final String endTime;
+  final bool overnight;
+  final int breakDurationMinutes;
 
   Shift({
     required this.id,
@@ -242,6 +265,8 @@ class Shift {
     required this.code,
     required this.startTime,
     required this.endTime,
+    required this.overnight,
+    required this.breakDurationMinutes,
   });
 
   factory Shift.fromJson(Map<String, dynamic> json) {
@@ -251,6 +276,8 @@ class Shift {
       code: json['code']?.toString() ?? '',
       startTime: json['start_time']?.toString() ?? '',
       endTime: json['end_time']?.toString() ?? '',
+      overnight: json['overnight'] ?? false,
+      breakDurationMinutes: json['break_duration_minutes'] ?? 0,
     );
   }
 }
@@ -260,12 +287,16 @@ class WorkSchedule {
   final String name;
   final String code;
   final String? description;
+  final String scheduleType;
+  final bool isDefault;
 
   WorkSchedule({
     required this.id,
     required this.name,
     required this.code,
     this.description,
+    required this.scheduleType,
+    required this.isDefault,
   });
 
   factory WorkSchedule.fromJson(Map<String, dynamic> json) {
@@ -274,6 +305,58 @@ class WorkSchedule {
       name: json['name']?.toString() ?? '',
       code: json['code']?.toString() ?? '',
       description: json['description']?.toString(),
+      scheduleType: json['schedule_type']?.toString() ?? '',
+      isDefault: json['is_default'] ?? false,
+    );
+  }
+}
+
+class WorkScheduleDetails {
+  final String id;
+  final String workScheduleId;
+  final int dayOfWeek;
+  final bool isWorkingDay;
+  final String? startTime;
+  final String? endTime;
+  final String? breakStart;
+  final String? breakEnd;
+  final int? breakDurationMinutes;
+  final bool flexibleHours;
+  final String? coreHoursStart;
+  final String? coreHoursEnd;
+  final double? minimumHours;
+
+  WorkScheduleDetails({
+    required this.id,
+    required this.workScheduleId,
+    required this.dayOfWeek,
+    required this.isWorkingDay,
+    this.startTime,
+    this.endTime,
+    this.breakStart,
+    this.breakEnd,
+    this.breakDurationMinutes,
+    required this.flexibleHours,
+    this.coreHoursStart,
+    this.coreHoursEnd,
+    this.minimumHours,
+  });
+
+  factory WorkScheduleDetails.fromJson(Map<String, dynamic> json) {
+    return WorkScheduleDetails(
+      id: json['id']?.toString() ?? '',
+      workScheduleId: json['work_schedule_id']?.toString() ?? '',
+      dayOfWeek: json['day_of_week'] ?? 0,
+      isWorkingDay: json['is_working_day'] ?? true,
+      startTime: json['start_time']?.toString(),
+      endTime: json['end_time']?.toString(),
+      breakStart: json['break_start']?.toString(),
+      breakEnd: json['break_end']?.toString(),
+      breakDurationMinutes: json['break_duration_minutes'],
+      flexibleHours: json['flexible_hours'] ?? false,
+      coreHoursStart: json['core_hours_start']?.toString(),
+      coreHoursEnd: json['core_hours_end']?.toString(),
+      minimumHours: json['minimum_hours']?.toDouble(),
     );
   }
 }
@@ -314,6 +397,44 @@ class MemberSchedule {
       workSchedule: json['work_schedules'] != null
           ? WorkSchedule.fromJson(json['work_schedules'])
           : null,
+    );
+  }
+}
+
+class AttendanceLog {
+  final String id;
+  final String organizationMemberId;
+  final String? attendanceRecordId;
+  final String eventType;
+  final DateTime eventTime;
+  final String? deviceId;
+  final String method;
+  final Map<String, dynamic>? location;
+  final bool isVerified;
+
+  AttendanceLog({
+    required this.id,
+    required this.organizationMemberId,
+    this.attendanceRecordId,
+    required this.eventType,
+    required this.eventTime,
+    this.deviceId,
+    required this.method,
+    this.location,
+    required this.isVerified,
+  });
+
+  factory AttendanceLog.fromJson(Map<String, dynamic> json) {
+    return AttendanceLog(
+      id: json['id']?.toString() ?? '',
+      organizationMemberId: json['organization_member_id']?.toString() ?? '',
+      attendanceRecordId: json['attendance_record_id']?.toString(),
+      eventType: json['event_type']?.toString() ?? '',
+      eventTime: DateTime.parse(json['event_time']),
+      deviceId: json['device_id']?.toString(),
+      method: json['method']?.toString() ?? '',
+      location: json['location'] as Map<String, dynamic>?,
+      isVerified: json['is_verified'] ?? false,
     );
   }
 }

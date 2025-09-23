@@ -11,6 +11,7 @@ import '../pages/camera_selfie_screen.dart';
 import 'login.dart';
 import 'attendance_history.dart';
 import '../helpers/timezone_helper.dart';
+import '../helpers/time_helper.dart';
 
 class UserDashboard extends StatefulWidget {
   const UserDashboard({super.key});
@@ -31,8 +32,11 @@ class _UserDashboardState extends State<UserDashboard> {
   List<AttendanceRecord> _recentAttendanceRecords = [];
   MemberSchedule? _currentSchedule;
   AttendanceDevice? _attendanceDevice;
+  WorkScheduleDetails? _todayScheduleDetails;
+  AttendanceStatus _currentStatus = AttendanceStatus.unknown;
+  List<AttendanceAction> _availableActions = [];
 
-  // Timeline data structure for multiple check-ins/check-outs
+  // Timeline data structure for dynamic actions
   List<TimelineItem> _timelineItems = [];
 
   // Theme colors
@@ -49,6 +53,7 @@ class _UserDashboardState extends State<UserDashboard> {
 
   Future<void> _initializeServices() async {
     try {
+      TimezoneHelper.initialize();
       await CameraService.initializeCameras();
     } catch (e) {
       print('Error initializing services: $e');
@@ -73,7 +78,9 @@ class _UserDashboardState extends State<UserDashboard> {
         
         if (_organizationMember != null) {
           await _loadOrganizationData();
-          _buildTimelineItems();
+          await _loadScheduleData();
+          await _updateAttendanceStatus();
+          _buildDynamicTimeline();
           print('Organization data loaded');
         } else {
           print('⚠️ No organization member found');
@@ -118,119 +125,222 @@ class _UserDashboardState extends State<UserDashboard> {
     }
   }
 
-  void _buildTimelineItems() {
+  Future<void> _loadScheduleData() async {
+    if (_organizationMember == null || _currentSchedule?.workScheduleId == null) return;
+
+    try {
+      final dayOfWeek = TimeHelper.getCurrentDayOfWeek();
+      _todayScheduleDetails = await _attendanceService.loadWorkScheduleDetails(
+        _currentSchedule!.workScheduleId!, 
+        dayOfWeek
+      );
+      setState(() {});
+    } catch (e) {
+      print('Error loading schedule details: $e');
+    }
+  }
+
+  Future<void> _updateAttendanceStatus() async {
+    if (_organizationMember == null) return;
+
+    try {
+      _currentStatus = await _attendanceService.getCurrentAttendanceStatus(_organizationMember!.id);
+      _availableActions = await _attendanceService.getAvailableActions(_organizationMember!.id);
+      setState(() {});
+    } catch (e) {
+      print('Error updating attendance status: $e');
+    }
+  }
+
+  void _buildDynamicTimeline() {
     _timelineItems.clear();
     
-    final now = DateTime.now();
-    final currentTime = TimeOfDay.now();
-    
-    // Define schedule based on UBIG working hours with prayer breaks
-    final schedules = [
+    // Get base schedule times
+    final scheduleItems = _getScheduleItems();
+    final currentTime = TimeHelper.getCurrentTime();
+
+    // Build timeline based on schedule and current status
+    for (var scheduleItem in scheduleItems) {
+      final scheduleTime = TimeHelper.parseTimeString(scheduleItem.time);
+      final status = _getItemStatus(scheduleItem, scheduleTime, currentTime);
+      
+      _timelineItems.add(TimelineItem(
+        time: scheduleItem.time,
+        label: scheduleItem.label,
+        subtitle: scheduleItem.subtitle,
+        type: scheduleItem.type,
+        status: status,
+        action: _getActionForItem(scheduleItem, status),
+      ));
+    }
+  }
+
+  List<ScheduleItem> _getScheduleItems() {
+    // Use actual schedule if available, otherwise use default
+    if (_todayScheduleDetails != null) {
+      return [
+        ScheduleItem(
+          time: _todayScheduleDetails!.startTime ?? '09:00',
+          label: 'Check In',
+          type: AttendanceActionType.checkIn,
+          subtitle: 'Start work day',
+        ),
+        if (_todayScheduleDetails!.breakStart != null)
+          ScheduleItem(
+            time: _todayScheduleDetails!.breakStart!,
+            label: 'Break',
+            type: AttendanceActionType.breakOut,
+            subtitle: 'Take a break',
+          ),
+        if (_todayScheduleDetails!.breakEnd != null)
+          ScheduleItem(
+            time: _todayScheduleDetails!.breakEnd!,
+            label: 'Resume',
+            type: AttendanceActionType.breakIn,
+            subtitle: 'Resume work',
+          ),
+        ScheduleItem(
+          time: _todayScheduleDetails!.endTime ?? '17:00',
+          label: 'Check Out',
+          type: AttendanceActionType.checkOut,
+          subtitle: 'End work day',
+        ),
+      ];
+    }
+
+    // Default schedule
+    return [
       ScheduleItem(
-        time: '09:38',
+        time: '09:00',
         label: 'Check In',
-        type: TimelineItemType.checkIn,
-        subtitle: 'Morning arrival',
+        type: AttendanceActionType.checkIn,
+        subtitle: 'Start work day',
       ),
       ScheduleItem(
         time: '12:00',
-        label: 'Dzuhur Break',
-        type: TimelineItemType.breakOut,
-        subtitle: 'Prayer & lunch break',
+        label: 'Break',
+        type: AttendanceActionType.breakOut,
+        subtitle: 'Lunch break',
       ),
       ScheduleItem(
         time: '13:00',
-        label: 'After Break',
-        type: TimelineItemType.breakIn,
-        subtitle: 'Resume work',
-      ),
-      ScheduleItem(
-        time: '15:00',
-        label: 'Ashar Break',
-        type: TimelineItemType.breakOut,
-        subtitle: 'Prayer break',
-      ),
-      ScheduleItem(
-        time: '15:30',
-        label: 'After Break',
-        type: TimelineItemType.breakIn,
+        label: 'Resume',
+        type: AttendanceActionType.breakIn,
         subtitle: 'Resume work',
       ),
       ScheduleItem(
         time: '17:00',
         label: 'Check Out',
-        type: TimelineItemType.checkOut,
-        subtitle: 'End of work day',
+        type: AttendanceActionType.checkOut,
+        subtitle: 'End work day',
       ),
     ];
+  }
 
-    for (var schedule in schedules) {
-      final scheduleTime = _parseTime(schedule.time);
-      TimelineStatus status;
-      
-      // Check if this schedule item has been completed today
-      bool isCompleted = _isScheduleCompleted(schedule, scheduleTime);
-      bool isActive = _isScheduleActive(schedule, scheduleTime, currentTime);
-      
-      if (isCompleted) {
-        status = TimelineStatus.completed;
-      } else if (isActive) {
-        status = TimelineStatus.active;
-      } else {
-        status = TimelineStatus.upcoming;
-      }
+  TimelineStatus _getItemStatus(ScheduleItem item, TimeOfDay scheduleTime, TimeOfDay currentTime) {
+    // Check against actual attendance records and logs
+    switch (item.type) {
+      case AttendanceActionType.checkIn:
+        if (_todayAttendanceRecords.isNotEmpty && _todayAttendanceRecords.first.hasCheckedIn) {
+          return TimelineStatus.completed;
+        }
+        break;
+      case AttendanceActionType.checkOut:
+        if (_todayAttendanceRecords.isNotEmpty && _todayAttendanceRecords.first.hasCheckedOut) {
+          return TimelineStatus.completed;
+        }
+        break;
+      case AttendanceActionType.breakOut:
+      case AttendanceActionType.breakIn:
+        // These would need to check logs for completion
+        break;
+    }
 
-      _timelineItems.add(TimelineItem(
-        time: schedule.time,
-        label: schedule.label,
-        subtitle: schedule.subtitle,
-        type: schedule.type,
-        status: status,
-      ));
+    // Check if currently active (within 30 minutes window)
+    final currentMinutes = TimeHelper.timeToMinutes(currentTime);
+    final scheduleMinutes = TimeHelper.timeToMinutes(scheduleTime);
+    
+    if (currentMinutes >= scheduleMinutes - 15 && currentMinutes <= scheduleMinutes + 15) {
+      return TimelineStatus.active;
+    }
+
+    return TimelineStatus.upcoming;
+  }
+
+  AttendanceAction? _getActionForItem(ScheduleItem item, TimelineStatus status) {
+    // Find matching action from available actions
+    final actionType = _getActionTypeString(item.type);
+    return _availableActions.firstWhere(
+      (action) => action.type == actionType,
+      orElse: () => AttendanceAction(
+        type: actionType,
+        label: item.label,
+        isEnabled: false,
+        reason: 'Not available now',
+      ),
+    );
+  }
+
+  String _getActionTypeString(AttendanceActionType type) {
+    switch (type) {
+      case AttendanceActionType.checkIn:
+        return 'check_in';
+      case AttendanceActionType.checkOut:
+        return 'check_out';
+      case AttendanceActionType.breakOut:
+        return 'break_out';
+      case AttendanceActionType.breakIn:
+        return 'break_in';
     }
   }
 
-  TimeOfDay _parseTime(String time) {
-    final parts = time.split(':');
-    return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
-  }
-
-  bool _isScheduleCompleted(ScheduleItem schedule, TimeOfDay scheduleTime) {
-    // This would check against actual attendance records
-    // For now, simplified logic based on current time
-    final now = TimeOfDay.now();
-    final nowMinutes = now.hour * 60 + now.minute;
-    final scheduleMinutes = scheduleTime.hour * 60 + scheduleTime.minute;
-    
-    // If current time is past schedule time, consider it completed
-    // In real implementation, check against attendance records
-    return nowMinutes > scheduleMinutes;
-  }
-
-  bool _isScheduleActive(ScheduleItem schedule, TimeOfDay scheduleTime, TimeOfDay currentTime) {
-    final nowMinutes = currentTime.hour * 60 + currentTime.minute;
-    final scheduleMinutes = scheduleTime.hour * 60 + scheduleTime.minute;
-    
-    // Active if within 30 minutes window
-    return (nowMinutes >= scheduleMinutes - 15) && (nowMinutes <= scheduleMinutes + 15);
-  }
-
   int _getPresenceDays() {
-    // Calculate from recent attendance records
     return _recentAttendanceRecords.where((r) => r.status == 'present').length;
   }
 
   int _getAbsenceDays() {
-    // Calculate from recent attendance records
     return _recentAttendanceRecords.where((r) => r.status == 'absent').length;
   }
 
   String _getLateness() {
-    // Calculate total lateness from records
-    return '1.5h'; // Placeholder
+    final totalLateMinutes = _recentAttendanceRecords
+        .where((r) => r.lateMinutes != null)
+        .map((r) => r.lateMinutes!)
+        .fold(0, (sum, minutes) => sum + minutes);
+    return TimeHelper.formatDuration(totalLateMinutes);
   }
 
-  Future<void> _performAttendance(TimelineItemType type) async {
+  String _getCurrentStatusText() {
+    switch (_currentStatus) {
+      case AttendanceStatus.notCheckedIn:
+        return 'Ready to start';
+      case AttendanceStatus.working:
+        return 'Currently working';
+      case AttendanceStatus.onBreak:
+        return 'On break';
+      case AttendanceStatus.checkedOut:
+        return 'Work completed';
+      case AttendanceStatus.unknown:
+        return 'Status unknown';
+    }
+  }
+
+  Color _getStatusColor() {
+    switch (_currentStatus) {
+      case AttendanceStatus.notCheckedIn:
+        return Colors.orange;
+      case AttendanceStatus.working:
+        return Colors.green;
+      case AttendanceStatus.onBreak:
+        return Colors.blue;
+      case AttendanceStatus.checkedOut:
+        return Colors.grey;
+      case AttendanceStatus.unknown:
+        return Colors.red;
+    }
+  }
+
+  Future<void> _performAttendance(String actionType) async {
     setState(() {
       _isLoading = true;
     });
@@ -284,24 +394,23 @@ class _UserDashboardState extends State<UserDashboard> {
         return;
       }
 
-      // Convert timeline type to string
-      String attendanceType = _getAttendanceTypeString(type);
-
       // Perform attendance
       final success = await _attendanceService.performAttendance(
-        type: attendanceType,
+        type: actionType,
         organizationMemberId: _organizationMember!.id,
         currentPosition: _currentPosition!,
         photoUrl: photoUrl,
         device: _attendanceDevice,
         schedule: _currentSchedule,
         todayRecords: _todayAttendanceRecords,
+        scheduleDetails: _todayScheduleDetails,
       );
 
       if (success) {
-        await _showSuccessAttendancePopup(attendanceType);
+        await _showSuccessAttendancePopup(actionType);
         await _loadOrganizationData();
-        _buildTimelineItems();
+        await _updateAttendanceStatus();
+        _buildDynamicTimeline();
       }
 
       // Clean up temporary file
@@ -318,19 +427,6 @@ class _UserDashboardState extends State<UserDashboard> {
       setState(() {
         _isLoading = false;
       });
-    }
-  }
-
-  String _getAttendanceTypeString(TimelineItemType type) {
-    switch (type) {
-      case TimelineItemType.checkIn:
-        return 'check_in';
-      case TimelineItemType.checkOut:
-        return 'check_out';
-      case TimelineItemType.breakOut:
-        return 'break_out';
-      case TimelineItemType.breakIn:
-        return 'break_in';
     }
   }
 
@@ -437,6 +533,24 @@ class _UserDashboardState extends State<UserDashboard> {
                         ),
                         textAlign: TextAlign.center,
                       ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _getAttendanceTypeLabel(type),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 16,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        TimezoneHelper.formatAttendanceDateTime(jakartaTime),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 14,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
                     ],
                   ),
                 ),
@@ -466,6 +580,21 @@ class _UserDashboardState extends State<UserDashboard> {
         );
       },
     );
+  }
+
+  String _getAttendanceTypeLabel(String type) {
+    switch (type) {
+      case 'check_in':
+        return 'Check-in completed';
+      case 'check_out':
+        return 'Check-out completed';
+      case 'break_out':
+        return 'Break started';
+      case 'break_in':
+        return 'Work resumed';
+      default:
+        return 'Attendance recorded';
+    }
   }
 
   Future<void> _showLogoutConfirmation() async {
@@ -581,6 +710,7 @@ class _UserDashboardState extends State<UserDashboard> {
       child: Column(
         children: [
           _buildHeader(displayName),
+          _buildStatusCard(),
           _buildOverviewCard(),
           _buildTimelineCard(),
           const SizedBox(height: 20),
@@ -653,18 +783,19 @@ class _UserDashboardState extends State<UserDashboard> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Morning, $displayName',
+                      'Hello, $displayName',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 24,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    const Text(
-                      "Let's be productive today!",
+                    Text(
+                      _getCurrentStatusText(),
                       style: TextStyle(
-                        color: Colors.grey,
+                        color: _getStatusColor(),
                         fontSize: 14,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
@@ -677,20 +808,94 @@ class _UserDashboardState extends State<UserDashboard> {
     );
   }
 
-  Widget _buildOverviewCard() {
+  Widget _buildStatusCard() {
     return Transform.translate(
       offset: const Offset(0, -20),
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 16),
         padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              blurRadius: 15,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: _getStatusColor(),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  _getCurrentStatusText(),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Text(
+              TimezoneHelper.formatJakartaTime(DateTime.now(), 'EEEE, dd MMMM yyyy • HH:mm WIB'),
+              style: const TextStyle(
+                fontSize: 14,
+                color: Colors.grey,
+              ),
+            ),
+            if (_availableActions.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _availableActions.take(2).map((action) {
+                  return ElevatedButton(
+                    onPressed: action.isEnabled ? () => _performAttendance(action.type) : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: action.isEnabled ? primaryColor : Colors.grey.shade300,
+                      foregroundColor: action.isEnabled ? Colors.white : Colors.grey,
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: Text(
+                      action.label,
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOverviewCard() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 15,
-            offset: const Offset(0, 5),
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -707,17 +912,12 @@ class _UserDashboardState extends State<UserDashboard> {
                   fontWeight: FontWeight.w500,
                 ),
               ),
-              Row(
-                children: [
-                  Text(
-                    DateFormat('MMM yyyy').format(DateTime.now()),
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey,
-                    ),
-                  ),
-                  const Icon(Icons.keyboard_arrow_down, color: Colors.grey),
-                ],
+              Text(
+                DateFormat('MMM yyyy').format(DateTime.now()),
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: Colors.grey,
+                ),
               ),
             ],
           ),
@@ -725,74 +925,38 @@ class _UserDashboardState extends State<UserDashboard> {
           Row(
             children: [
               Expanded(
-                child: Column(
-                  children: [
-                    const Text(
-                      'Presence',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${_getPresenceDays()}',
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
+                child: _buildStatItem('Presence', '${_getPresenceDays()}', Colors.green),
               ),
               Expanded(
-                child: Column(
-                  children: [
-                    const Text(
-                      'Absence',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${_getAbsenceDays()}',
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
+                child: _buildStatItem('Absence', '${_getAbsenceDays()}', Colors.red),
               ),
               Expanded(
-                child: Column(
-                  children: [
-                    const Text(
-                      'Lateness',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _getLateness(),
-                      style: const TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
+                child: _buildStatItem('Lateness', _getLateness(), Colors.orange),
               ),
             ],
           ),
-          const SizedBox(height: 20),
-          Center(
-            child: Text(
-              DateFormat('EEEE dd MMMM yyyy').format(DateTime.now()),
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
         ],
       ),
-    ),
+    );
+  }
+
+  Widget _buildStatItem(String label, String value, Color color) {
+    return Column(
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.w600,
+            color: color,
+          ),
+        ),
+      ],
     );
   }
 
@@ -812,10 +976,17 @@ class _UserDashboardState extends State<UserDashboard> {
         ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          const Text(
+            'Today\'s Schedule',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 20),
           ..._timelineItems.map((item) => _buildTimelineItem(item)),
-          const Divider(height: 30),
-          _buildOvertimeItem(),
         ],
       ),
     );
@@ -823,18 +994,18 @@ class _UserDashboardState extends State<UserDashboard> {
 
   Widget _buildTimelineItem(TimelineItem item) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 12),
       child: Row(
         children: [
           Container(
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: _getStatusColor(item.status),
+              color: _getItemStatusColor(item.status),
               shape: BoxShape.circle,
             ),
             child: Icon(
-              _getStatusIcon(item.type),
+              _getItemIcon(item.type),
               color: item.status == TimelineStatus.active ? Colors.white : 
                      item.status == TimelineStatus.completed ? Colors.white : Colors.grey,
               size: 20,
@@ -851,13 +1022,15 @@ class _UserDashboardState extends State<UserDashboard> {
                     Text(
                       item.time,
                       style: const TextStyle(
-                        fontSize: 14,
+                        fontSize: 16,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    _buildActionButton(item),
+                    if (item.action != null)
+                      _buildActionButton(item),
                   ],
                 ),
+                const SizedBox(height: 4),
                 Text(
                   item.subtitle,
                   style: const TextStyle(
@@ -874,104 +1047,42 @@ class _UserDashboardState extends State<UserDashboard> {
   }
 
   Widget _buildActionButton(TimelineItem item) {
-    if (item.status == TimelineStatus.completed && item.type == TimelineItemType.checkIn) {
+    final action = item.action!;
+    
+    if (!action.isEnabled) {
       return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.orange.shade100,
+          color: Colors.grey.shade100,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Text(
-          'Last Check-in',
-          style: TextStyle(
+          action.reason ?? 'Not available',
+          style: const TextStyle(
             fontSize: 12,
-            color: Colors.orange.shade700,
-            fontWeight: FontWeight.w500,
+            color: Colors.grey,
           ),
         ),
       );
     }
-    
-    if (item.status == TimelineStatus.active) {
-      return ElevatedButton.icon(
-        onPressed: () => _performAttendance(item.type),
-        icon: Icon(_getStatusIcon(item.type), size: 16),
-        label: Text(item.label),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: primaryColor,
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      );
-    }
-    
-    if (item.type == TimelineItemType.checkOut) {
-      return ElevatedButton.icon(
-        onPressed: item.status == TimelineStatus.upcoming ? null : () => _performAttendance(item.type),
-        icon: const Icon(Icons.logout, size: 16),
-        label: Text(item.label),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: item.status == TimelineStatus.upcoming ? Colors.grey.shade200 : Colors.red.shade400,
-          foregroundColor: item.status == TimelineStatus.upcoming ? Colors.grey : Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      );
-    }
-    
-    return Text(
-      item.label,
-      style: const TextStyle(
-        fontSize: 14,
-        fontWeight: FontWeight.w500,
+
+    return ElevatedButton(
+      onPressed: () => _performAttendance(action.type),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: primaryColor,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        minimumSize: const Size(0, 0),
+      ),
+      child: Text(
+        action.label,
+        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
       ),
     );
   }
 
-  Widget _buildOvertimeItem() {
-    return Row(
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: Colors.grey.shade100,
-            shape: BoxShape.circle,
-          ),
-          child: const Icon(
-            Icons.access_time,
-            color: Colors.grey,
-            size: 20,
-          ),
-        ),
-        const SizedBox(width: 16),
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Overtime',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              Text(
-                'Less 10 Plus Minimum',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Color _getStatusColor(TimelineStatus status) {
+  Color _getItemStatusColor(TimelineStatus status) {
     switch (status) {
       case TimelineStatus.completed:
         return Colors.green.shade400;
@@ -982,27 +1093,29 @@ class _UserDashboardState extends State<UserDashboard> {
     }
   }
 
-  IconData _getStatusIcon(TimelineItemType type) {
+  IconData _getItemIcon(AttendanceActionType type) {
     switch (type) {
-      case TimelineItemType.checkIn:
+      case AttendanceActionType.checkIn:
         return Icons.login;
-      case TimelineItemType.checkOut:
+      case AttendanceActionType.checkOut:
         return Icons.logout;
-      case TimelineItemType.breakOut:
+      case AttendanceActionType.breakOut:
         return Icons.coffee;
-      case TimelineItemType.breakIn:
+      case AttendanceActionType.breakIn:
         return Icons.work;
     }
   }
 }
 
-// Data classes for timeline
+// ================== DATA CLASSES ==================
+
 class TimelineItem {
   final String time;
   final String label;
   final String subtitle;
-  final TimelineItemType type;
+  final AttendanceActionType type;
   final TimelineStatus status;
+  final AttendanceAction? action;
 
   TimelineItem({
     required this.time,
@@ -1010,13 +1123,14 @@ class TimelineItem {
     required this.subtitle,
     required this.type,
     required this.status,
+    this.action,
   });
 }
 
 class ScheduleItem {
   final String time;
   final String label;
-  final TimelineItemType type;
+  final AttendanceActionType type;
   final String subtitle;
 
   ScheduleItem({
@@ -1027,7 +1141,7 @@ class ScheduleItem {
   });
 }
 
-enum TimelineItemType {
+enum AttendanceActionType {
   checkIn,
   checkOut,
   breakOut,
