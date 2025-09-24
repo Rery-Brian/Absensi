@@ -8,6 +8,7 @@ import '../models/attendance_model.dart' hide Position;
 import '../services/attendance_service.dart';
 import '../services/camera_service.dart';
 import '../pages/camera_selfie_screen.dart';
+import '../pages/break_page.dart'; 
 import 'login.dart';
 import 'attendance_history.dart';
 import '../helpers/timezone_helper.dart';
@@ -26,10 +27,9 @@ class _UserDashboardState extends State<UserDashboard> {
   bool _isRefreshing = false;
   Position? _currentPosition;
 
-  // Data from services
   UserProfile? _userProfile;
   OrganizationMember? _organizationMember;
-  Organization? _organization; // Added organization data
+  Organization? _organization;
   List<AttendanceRecord> _todayAttendanceRecords = [];
   List<AttendanceRecord> _recentAttendanceRecords = [];
   MemberSchedule? _currentSchedule;
@@ -38,12 +38,10 @@ class _UserDashboardState extends State<UserDashboard> {
   AttendanceStatus _currentStatus = AttendanceStatus.unknown;
   List<AttendanceAction> _availableActions = [];
 
-  // Timeline data structure for dynamic actions
   final List<TimelineItem> _timelineItems = [];
 
-  // Theme colors
-  static const Color primaryColor = Color(0xFF6366F1); // Purple
-  static const Color backgroundColor = Color(0xFF1F2937); // Dark gray
+  static const Color primaryColor = Color(0xFF6366F1);
+  static const Color backgroundColor = Color(0xFF1F2937);
 
   @override
   void initState() {
@@ -58,7 +56,7 @@ class _UserDashboardState extends State<UserDashboard> {
       await CameraService.initializeCameras();
     } catch (e) {
       debugPrint('Error initializing services: $e');
-      _showSnackBar('Error inisialisasi layanan: $e', isError: true);
+      _showSnackBar('Failed to initialize services. Please restart the app.', isError: true);
     }
   }
 
@@ -68,33 +66,26 @@ class _UserDashboardState extends State<UserDashboard> {
     });
 
     try {
-      debugPrint('=== Starting _loadUserData ===');
-      
       _userProfile = await _attendanceService.loadUserProfile();
-      debugPrint('User profile loaded: ${_userProfile?.fullName}');
       
       if (_userProfile != null) {
         _organizationMember = await _attendanceService.loadOrganizationMember();
-        debugPrint('Organization member loaded: ${_organizationMember?.id}');
         
         if (_organizationMember != null) {
-          await _loadOrganizationInfo(); // Load organization details
+          await _loadOrganizationInfo();
           await _loadOrganizationData();
           await _loadScheduleData();
           await _updateAttendanceStatus();
           await _buildDynamicTimeline();
-          debugPrint('Organization data loaded');
         } else {
-          debugPrint('⚠️ No organization member found');
+          _showSnackBar('No organization found. Contact admin.', isError: true);
         }
       } else {
-        debugPrint('❌ User profile is null');
+        _showSnackBar('No user profile found. Please login again.', isError: true);
       }
     } catch (e) {
-      debugPrint('❌ Error in _loadUserData: $e');
-      if (mounted) {
-        _showSnackBar('Error loading user data: $e', isError: true);
-      }
+      debugPrint('Error in _loadUserData: $e');
+      _showSnackBar('Failed to load user data. Please try again.', isError: true);
     } finally {
       if (mounted) {
         setState(() {
@@ -104,7 +95,6 @@ class _UserDashboardState extends State<UserDashboard> {
     }
   }
 
-  // New method to load organization information
   Future<void> _loadOrganizationInfo() async {
     if (_organizationMember == null) return;
 
@@ -126,11 +116,10 @@ class _UserDashboardState extends State<UserDashboard> {
       }
     } catch (e) {
       debugPrint('Error loading organization info: $e');
-      // Don't show error to user, just log it
+      _showSnackBar('Failed to load organization info.', isError: true);
     }
   }
 
-  // Refresh method for pull-to-refresh
   Future<void> _refreshData() async {
     setState(() {
       _isRefreshing = true;
@@ -138,7 +127,7 @@ class _UserDashboardState extends State<UserDashboard> {
 
     try {
       if (_organizationMember != null) {
-        await _loadOrganizationInfo(); // Refresh organization info too
+        await _loadOrganizationInfo();
         await _loadOrganizationData();
         await _loadScheduleData();
         await _updateAttendanceStatus();
@@ -146,7 +135,7 @@ class _UserDashboardState extends State<UserDashboard> {
       }
     } catch (e) {
       debugPrint('Error refreshing data: $e');
-      _showSnackBar('Error refreshing data: $e', isError: true);
+      _showSnackBar('Failed to refresh data. Please try again.', isError: true);
     } finally {
       if (mounted) {
         setState(() {
@@ -179,9 +168,7 @@ class _UserDashboardState extends State<UserDashboard> {
       }
     } catch (e) {
       debugPrint('Error loading organization data: $e');
-      if (e.toString().contains('location')) {
-        _showSnackBar('Gagal mendapatkan lokasi. Pastikan GPS aktif.', isError: true);
-      }
+      _showSnackBar('Failed to load organization data.', isError: true);
     }
   }
 
@@ -199,6 +186,7 @@ class _UserDashboardState extends State<UserDashboard> {
       }
     } catch (e) {
       debugPrint('Error loading schedule details: $e');
+      _showSnackBar('Failed to load schedule details.', isError: true);
     }
   }
 
@@ -213,18 +201,16 @@ class _UserDashboardState extends State<UserDashboard> {
       }
     } catch (e) {
       debugPrint('Error updating attendance status: $e');
+      _showSnackBar('Failed to update attendance status.', isError: true);
     }
   }
 
-  // Method untuk mengambil schedule items dari database
   Future<List<ScheduleItem>> _getScheduleItemsFromDatabase() async {
     List<ScheduleItem> items = [];
     
     try {
-      // Jika ada schedule details dari database, gunakan itu
       if (_todayScheduleDetails != null && _todayScheduleDetails!.isWorkingDay) {
         
-        // Check In - selalu ada jika hari kerja
         if (_todayScheduleDetails!.startTime != null) {
           items.add(ScheduleItem(
             time: _formatTimeFromDatabase(_todayScheduleDetails!.startTime!),
@@ -234,7 +220,6 @@ class _UserDashboardState extends State<UserDashboard> {
           ));
         }
         
-        // Break Out - jika ada jadwal istirahat
         if (_todayScheduleDetails!.breakStart != null) {
           items.add(ScheduleItem(
             time: _formatTimeFromDatabase(_todayScheduleDetails!.breakStart!),
@@ -244,17 +229,8 @@ class _UserDashboardState extends State<UserDashboard> {
           ));
         }
         
-        // Break In - jika ada jadwal masuk dari istirahat
-        if (_todayScheduleDetails!.breakEnd != null) {
-          items.add(ScheduleItem(
-            time: _formatTimeFromDatabase(_todayScheduleDetails!.breakEnd!),
-            label: 'Resume',
-            type: AttendanceActionType.breakIn,
-            subtitle: 'Resume work',
-          ));
-        }
+        // Removed resume work item as per instructions
         
-        // Check Out - selalu ada jika hari kerja
         if (_todayScheduleDetails!.endTime != null) {
           items.add(ScheduleItem(
             time: _formatTimeFromDatabase(_todayScheduleDetails!.endTime!),
@@ -265,29 +241,26 @@ class _UserDashboardState extends State<UserDashboard> {
         }
         
       } else {
-        // Jika tidak ada schedule details, coba ambil dari shift
         if (_currentSchedule?.shiftId != null) {
           items = await _getScheduleItemsFromShift();
         } else {
           debugPrint('No work schedule found for today');
-          // Return empty list for non-working days
           return [];
         }
       }
       
     } catch (e) {
       debugPrint('Error getting schedule items from database: $e');
+      _showSnackBar('Failed to load schedule items.', isError: true);
     }
     
     return items;
   }
 
-  // Method untuk mengambil schedule dari shift jika tidak ada work_schedule_details
   Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
     List<ScheduleItem> items = [];
     
     try {
-      // Query shift details dari database
       final shiftResponse = await Supabase.instance.client
           .from('shifts')
           .select('start_time, end_time, break_duration_minutes')
@@ -295,7 +268,6 @@ class _UserDashboardState extends State<UserDashboard> {
           .single();
       
       if (shiftResponse != null) {
-        // Check In
         items.add(ScheduleItem(
           time: _formatTimeFromDatabase(shiftResponse['start_time']),
           label: 'Check In',
@@ -303,14 +275,12 @@ class _UserDashboardState extends State<UserDashboard> {
           subtitle: 'Start work day',
         ));
         
-        // Break (estimasi di tengah shift jika ada break_duration)
         if (shiftResponse['break_duration_minutes'] != null && 
             shiftResponse['break_duration_minutes'] > 0) {
           
           final startTime = TimeHelper.parseTimeString(_formatTimeFromDatabase(shiftResponse['start_time']));
           final endTime = TimeHelper.parseTimeString(_formatTimeFromDatabase(shiftResponse['end_time']));
           
-          // Hitung waktu break di tengah shift
           final totalMinutes = TimeHelper.timeToMinutes(endTime) - TimeHelper.timeToMinutes(startTime);
           final breakStartMinutes = TimeHelper.timeToMinutes(startTime) + (totalMinutes ~/ 2);
           final breakEndMinutes = breakStartMinutes + (shiftResponse['break_duration_minutes'] as int);
@@ -322,15 +292,9 @@ class _UserDashboardState extends State<UserDashboard> {
             subtitle: 'Take a break',
           ));
           
-          items.add(ScheduleItem(
-            time: TimeHelper.formatTimeOfDay(TimeHelper.minutesToTime(breakEndMinutes)),
-            label: 'Resume',
-            type: AttendanceActionType.breakIn,
-            subtitle: 'Resume work',
-          ));
+          // Removed resume item
         }
         
-        // Check Out
         items.add(ScheduleItem(
           time: _formatTimeFromDatabase(shiftResponse['end_time']),
           label: 'Check Out',
@@ -341,16 +305,14 @@ class _UserDashboardState extends State<UserDashboard> {
       
     } catch (e) {
       debugPrint('Error getting schedule from shift: $e');
+      _showSnackBar('Failed to load shift schedule.', isError: true);
     }
     
     return items;
   }
 
-  // Method untuk format waktu dari database (menangani format TIME database)
   String _formatTimeFromDatabase(String timeString) {
     try {
-      // Database TIME format: "08:00:00" atau "08:00"
-      // Kita perlu convert ke "08:00" untuk UI
       if (timeString.contains(':')) {
         final parts = timeString.split(':');
         if (parts.length >= 2) {
@@ -364,12 +326,10 @@ class _UserDashboardState extends State<UserDashboard> {
     }
   }
 
-  // Method yang sudah diperbaiki untuk build timeline dinamis
   Future<void> _buildDynamicTimeline() async {
     _timelineItems.clear();
     
     try {
-      // Ambil schedule items dari database
       final scheduleItems = await _getScheduleItemsFromDatabase();
       
       if (scheduleItems.isEmpty) {
@@ -382,7 +342,6 @@ class _UserDashboardState extends State<UserDashboard> {
       
       final currentTime = TimeHelper.getCurrentTime();
 
-      // Build timeline berdasarkan data database
       for (var scheduleItem in scheduleItems) {
         final scheduleTime = TimeHelper.parseTimeString(scheduleItem.time);
         final status = _getItemStatus(scheduleItem, scheduleTime, currentTime);
@@ -403,6 +362,7 @@ class _UserDashboardState extends State<UserDashboard> {
       
     } catch (e) {
       debugPrint('Error building dynamic timeline: $e');
+      _showSnackBar('Failed to build timeline.', isError: true);
       if (mounted) {
         setState(() {});
       }
@@ -410,7 +370,6 @@ class _UserDashboardState extends State<UserDashboard> {
   }
 
   TimelineStatus _getItemStatus(ScheduleItem item, TimeOfDay scheduleTime, TimeOfDay currentTime) {
-    // Check against actual attendance records and logs
     switch (item.type) {
       case AttendanceActionType.checkIn:
         if (_todayAttendanceRecords.isNotEmpty && _todayAttendanceRecords.first.hasCheckedIn) {
@@ -424,12 +383,9 @@ class _UserDashboardState extends State<UserDashboard> {
         break;
       case AttendanceActionType.breakOut:
       case AttendanceActionType.breakIn:
-        // These would need to check logs for completion
-        // For now, we'll implement basic logic
         break;
     }
 
-    // Check if currently active (within 30 minutes window)
     final currentMinutes = TimeHelper.timeToMinutes(currentTime);
     final scheduleMinutes = TimeHelper.timeToMinutes(scheduleTime);
     
@@ -441,7 +397,6 @@ class _UserDashboardState extends State<UserDashboard> {
   }
 
   AttendanceAction? _getActionForItem(ScheduleItem item, TimelineStatus status) {
-    // Find matching action from available actions
     final actionType = _getActionTypeString(item.type);
     try {
       return _availableActions.firstWhere((action) => action.type == actionType);
@@ -468,7 +423,6 @@ class _UserDashboardState extends State<UserDashboard> {
     }
   }
 
-  // Helper method to check if action needs photo
   bool _needsPhoto(String actionType) {
     return actionType == 'check_in' || actionType == 'check_out';
   }
@@ -519,28 +473,64 @@ class _UserDashboardState extends State<UserDashboard> {
     }
   }
 
+  Future<void> _navigateToBreakPage() async {
+    if (_organizationMember == null) {
+      _showSnackBar('Organization member data not found. Contact admin.', isError: true);
+      return;
+    }
+
+    try {
+      int memberId = int.parse(_organizationMember!.id as String);
+      int? deviceId;
+      if (_attendanceDevice?.id != null) {
+        deviceId = int.parse(_attendanceDevice!.id as String);
+      }
+
+      final result = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder: (context) => BreakPage(
+            organizationMemberId: memberId,
+            deviceId: deviceId,
+          ),
+        ),
+      );
+
+      if (result == true || mounted) {
+        await _refreshData();
+      }
+    } catch (e) {
+      debugPrint('Error navigating to break page: $e');
+      _showSnackBar('Failed to open break page.', isError: true);
+    }
+  }
+
   Future<void> _performAttendance(String actionType) async {
     if (!mounted) return;
+    
+    if (actionType == 'break_out') {
+      await _navigateToBreakPage();
+      return;
+    }
     
     setState(() {
       _isLoading = true;
     });
 
     try {
-      // Validation checks
       if (_organizationMember == null) {
-        _showSnackBar('Data member organisasi tidak ditemukan. Hubungi admin.', isError: true);
+        _showSnackBar('Organization member data not found. Contact admin.', isError: true);
         return;
       }
 
       if (_attendanceDevice == null || !_attendanceDevice!.hasValidCoordinates) {
-        _showSnackBar('Lokasi kantor belum dikonfigurasi. Hubungi administrator.', isError: true);
+        _showSnackBar('Office location not configured. Contact admin.', isError: true);
         return;
       }
 
       await _getCurrentLocation();
       if (_currentPosition == null) {
-        _showSnackBar('Lokasi tidak ditemukan. Pastikan GPS aktif.', isError: true);
+        _showSnackBar('Location not found. Ensure GPS is on.', isError: true);
         return;
       }
 
@@ -554,8 +544,8 @@ class _UserDashboardState extends State<UserDashboard> {
         
         _showSnackBar(
           distance != null
-              ? 'Anda berada di luar radius kantor (${distance.toStringAsFixed(0)}m dari ${_attendanceDevice!.radiusMeters.toInt()}m)'
-              : 'Tidak dapat menghitung jarak ke kantor',
+              ? 'You are outside office radius (${distance.toStringAsFixed(0)}m from ${_attendanceDevice!.radiusMeters.toInt()}m)'
+              : 'Cannot calculate distance to office',
           isError: true,
         );
         return;
@@ -563,30 +553,26 @@ class _UserDashboardState extends State<UserDashboard> {
 
       String? photoUrl;
 
-      // Take selfie only for check_in and check_out
       if (_needsPhoto(actionType)) {
         String? imagePath = await _takeSelfie();
         if (imagePath == null) {
-          _showSnackBar('Foto diperlukan untuk ${actionType == 'check_in' ? 'check-in' : 'check-out'}', isError: true);
+          _showSnackBar('Photo required for ${actionType == 'check_in' ? 'check-in' : 'check-out'}', isError: true);
           return;
         }
 
-        // Upload photo
         photoUrl = await _attendanceService.uploadPhoto(imagePath);
         if (photoUrl == null) {
-          _showSnackBar('Gagal upload foto', isError: true);
+          _showSnackBar('Failed to upload photo.', isError: true);
           return;
         }
 
-        // Clean up temporary file
         try {
           await File(imagePath).delete();
         } catch (e) {
-          debugPrint('Gagal menghapus file sementara: $e');
+          debugPrint('Failed to delete temporary file: $e');
         }
       }
 
-      // Perform attendance - handle null photoUrl properly
       final success = await _attendanceService.performAttendance(
         type: actionType,
         organizationMemberId: _organizationMember!.id,
@@ -600,13 +586,12 @@ class _UserDashboardState extends State<UserDashboard> {
 
       if (success) {
         await _showSuccessAttendancePopup(actionType);
-        // Auto refresh after successful attendance
         await _refreshData();
       }
 
     } catch (e) {
       debugPrint('Error performing attendance: $e');
-      _showSnackBar('Gagal melakukan absensi: $e', isError: true);
+      _showSnackBar('Failed to perform attendance: $e', isError: true);
     } finally {
       if (mounted) {
         setState(() {
@@ -615,6 +600,7 @@ class _UserDashboardState extends State<UserDashboard> {
       }
     }
   }
+
   Future<void> _getCurrentLocation() async {
     try {
       _currentPosition = await _attendanceService.getCurrentLocation();
@@ -622,7 +608,7 @@ class _UserDashboardState extends State<UserDashboard> {
         setState(() {});
       }
     } catch (e) {
-      _showSnackBar('Gagal mendapatkan lokasi: $e', isError: true);
+      _showSnackBar('Failed to get location: $e', isError: true);
     }
   }
 
@@ -633,13 +619,13 @@ class _UserDashboardState extends State<UserDashboard> {
 
   Future<String?> _takeSelfie() async {
     if (!CameraService.isInitialized) {
-      _showSnackBar('Kamera tidak tersedia', isError: true);
+      _showSnackBar('Camera not available.', isError: true);
       return null;
     }
 
     final hasPermission = await CameraService.requestCameraPermission();
     if (!hasPermission) {
-      _showSnackBar('Izin kamera diperlukan', isError: true);
+      _showSnackBar('Camera permission required.', isError: true);
       return null;
     }
 
@@ -653,7 +639,7 @@ class _UserDashboardState extends State<UserDashboard> {
       );
       return result;
     } catch (e) {
-      _showSnackBar('Gagal mengambil foto: $e', isError: true);
+      _showSnackBar('Failed to take photo: $e', isError: true);
       return null;
     }
   }
@@ -715,7 +701,7 @@ class _UserDashboardState extends State<UserDashboard> {
                       ),
                       const SizedBox(height: 20),
                       const Text(
-                        'Absensi Berhasil!',
+                        'Attendance Successful!',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 24,
@@ -787,7 +773,6 @@ class _UserDashboardState extends State<UserDashboard> {
     }
   }
 
-  // Fixed logout confirmation to prevent double tap issue
   Future<void> _showLogoutConfirmation() async {
     if (!mounted) return;
     
@@ -797,11 +782,11 @@ class _UserDashboardState extends State<UserDashboard> {
       builder: (BuildContext context) {
         return AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          title: const Text('Konfirmasi Logout'),
-          content: const Text('Apakah Anda yakin ingin keluar dari aplikasi?'),
+          title: const Text('Confirm Logout'),
+          content: const Text('Are you sure you want to logout?'),
           actions: <Widget>[
             TextButton(
-              child: const Text('Batal'),
+              child: const Text('Cancel'),
               onPressed: () => Navigator.of(context).pop(),
             ),
             ElevatedButton(
@@ -811,8 +796,8 @@ class _UserDashboardState extends State<UserDashboard> {
               ),
               child: const Text('Logout', style: TextStyle(color: Colors.white)),
               onPressed: () async {
-                Navigator.of(context).pop(); // Close dialog first
-                await _performLogout(); // Then perform logout
+                Navigator.of(context).pop(); 
+                await _performLogout(); 
               },
             ),
           ],
@@ -821,7 +806,6 @@ class _UserDashboardState extends State<UserDashboard> {
     );
   }
 
-  // Separate logout method to prevent double execution
   Future<void> _performLogout() async {
     try {
       await _attendanceService.signOut();
@@ -829,13 +813,13 @@ class _UserDashboardState extends State<UserDashboard> {
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (_) => const Login()),
-          (route) => false, // Remove all previous routes
+          (route) => false,
         );
       }
     } catch (e) {
       debugPrint('Error during logout: $e');
       if (mounted) {
-        _showSnackBar('Error during logout: $e', isError: true);
+        _showSnackBar('Failed to logout: $e', isError: true);
       }
     }
   }
@@ -884,7 +868,6 @@ class _UserDashboardState extends State<UserDashboard> {
           height: MediaQuery.of(context).size.height,
           child: Column(
             children: [
-              // Header similar to main content but simpler
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.fromLTRB(20, 50, 20, 30),
@@ -959,7 +942,6 @@ class _UserDashboardState extends State<UserDashboard> {
                 ),
               ),
               
-              // Main content
               Expanded(
                 child: Center(
                   child: Container(
@@ -1118,7 +1100,6 @@ class _UserDashboardState extends State<UserDashboard> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // Organization info with logo
               Expanded(
                 child: Row(
                   children: [
@@ -1189,7 +1170,6 @@ class _UserDashboardState extends State<UserDashboard> {
                   ],
                 ),
               ),
-              // Action buttons
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -1346,6 +1326,23 @@ class _UserDashboardState extends State<UserDashboard> {
                 }).toList(),
               ),
             ],
+            if (_currentStatus == AttendanceStatus.working) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _navigateToBreakPage,
+                  icon: const Icon(Icons.coffee, size: 18),
+                  label: const Text('Take Break'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.blue,
+                    side: const BorderSide(color: Colors.blue),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -1391,16 +1388,11 @@ class _UserDashboardState extends State<UserDashboard> {
           ),
           const SizedBox(height: 20),
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              Expanded(
-                child: _buildStatItem('Presence', '${_getPresenceDays()}', Colors.green),
-              ),
-              Expanded(
-                child: _buildStatItem('Absence', '${_getAbsenceDays()}', Colors.red),
-              ),
-              Expanded(
-                child: _buildStatItem('Lateness', _getLateness(), Colors.orange),
-              ),
+              _buildStatItem('Presence', '${_getPresenceDays()}', Colors.green),
+              _buildStatItem('Absence', '${_getAbsenceDays()}', Colors.red),
+              _buildStatItem('Lateness', _getLateness(), Colors.orange),
             ],
           ),
         ],
@@ -1409,22 +1401,24 @@ class _UserDashboardState extends State<UserDashboard> {
   }
 
   Widget _buildStatItem(String label, String value, Color color) {
-    return Column(
-      children: [
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.w600,
-            color: color,
+    return Expanded(
+      child: Column(
+        children: [
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, color: Colors.grey),
           ),
-        ),
-      ],
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1468,7 +1462,14 @@ class _UserDashboardState extends State<UserDashboard> {
               ),
             )
           else
-            ..._timelineItems.map((item) => _buildTimelineItem(item)),
+            ListView.builder(
+              shrinkWrap: true,
+              physics: NeverScrollableScrollPhysics(),
+              itemCount: _timelineItems.length,
+              itemBuilder: (context, index) {
+                return _buildTimelineItem(_timelineItems[index]);
+              },
+            ),
         ],
       ),
     );
@@ -1548,6 +1549,32 @@ class _UserDashboardState extends State<UserDashboard> {
       );
     }
 
+    if (action.type == 'break_out') {
+      return ElevatedButton(
+        onPressed: _isLoading ? null : _navigateToBreakPage,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.blue,
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          minimumSize: const Size(0, 0),
+        ),
+        child: _isLoading
+            ? SizedBox(
+                width: 12,
+                height: 12,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              )
+            : Text(
+                action.label,
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+              ),
+      );
+    }
+
     return ElevatedButton(
       onPressed: _isLoading ? null : () => _performAttendance(action.type),
       style: ElevatedButton.styleFrom(
@@ -1598,8 +1625,6 @@ class _UserDashboardState extends State<UserDashboard> {
   }
 }
 
-// ================== DATA CLASSES ==================
-
 class TimelineItem {
   final String time;
   final String label;
@@ -1632,7 +1657,6 @@ class ScheduleItem {
   });
 }
 
-// Organization data class
 class Organization {
   final int id;
   final String name;
