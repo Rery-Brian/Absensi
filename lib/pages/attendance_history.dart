@@ -622,11 +622,6 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
                   ],
                 ),
               ),
-              // Action buttons (removed refresh button)
-              IconButton(
-                icon: const Icon(Icons.arrow_back, color: Colors.white),
-                onPressed: () => Navigator.pop(context),
-              ),
             ],
           ),
           const SizedBox(height: 20),

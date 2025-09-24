@@ -11,6 +11,7 @@ import '../pages/camera_selfie_screen.dart';
 import '../pages/break_page.dart'; 
 import 'login.dart';
 import 'attendance_history.dart';
+import 'profile.dart';
 import '../helpers/timezone_helper.dart';
 import '../helpers/time_helper.dart';
 
@@ -22,6 +23,89 @@ class UserDashboard extends StatefulWidget {
 }
 
 class _UserDashboardState extends State<UserDashboard> {
+  int _currentIndex = 0;
+  static const Color primaryColor = Color(0xFF6366F1);
+  static const Color backgroundColor = Color(0xFF1F2937);
+
+  final List<BottomNavigationBarItem> _bottomNavItems = [
+    const BottomNavigationBarItem(
+      icon: Icon(Icons.home_outlined),
+      activeIcon: Icon(Icons.home),
+      label: 'Home',
+    ),
+    const BottomNavigationBarItem(
+      icon: Icon(Icons.history_outlined),
+      activeIcon: Icon(Icons.history),
+      label: 'History',
+    ),
+    const BottomNavigationBarItem(
+      icon: Icon(Icons.person_outline),
+      activeIcon: Icon(Icons.person),
+      label: 'Profile',
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: IndexedStack(
+        index: _currentIndex,
+        children: [
+          _DashboardContent(),
+          const AttendanceHistoryPage(),
+          const ProfilePage(),
+        ],
+      ),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.1),
+              blurRadius: 20,
+              offset: const Offset(0, -5),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
+            child: BottomNavigationBar(
+              type: BottomNavigationBarType.fixed,
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              currentIndex: _currentIndex,
+              onTap: (index) {
+                setState(() {
+                  _currentIndex = index;
+                });
+              },
+              selectedItemColor: primaryColor,
+              unselectedItemColor: Colors.grey.shade400,
+              selectedFontSize: 12,
+              unselectedFontSize: 12,
+              iconSize: 24,
+              selectedLabelStyle: const TextStyle(
+                fontWeight: FontWeight.w600,
+              ),
+              unselectedLabelStyle: const TextStyle(
+                fontWeight: FontWeight.w500,
+              ),
+              items: _bottomNavItems,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DashboardContent extends StatefulWidget {
+  @override
+  State<_DashboardContent> createState() => _DashboardContentState();
+}
+
+class _DashboardContentState extends State<_DashboardContent> {
   final AttendanceService _attendanceService = AttendanceService();
   bool _isLoading = false;
   bool _isRefreshing = false;
@@ -773,58 +857,7 @@ class _UserDashboardState extends State<UserDashboard> {
     }
   }
 
-  Future<void> _showLogoutConfirmation() async {
-    if (!mounted) return;
-    
-    return showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          title: const Text('Confirm Logout'),
-          content: const Text('Are you sure you want to logout?'),
-          actions: <Widget>[
-            TextButton(
-              child: const Text('Cancel'),
-              onPressed: () => Navigator.of(context).pop(),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: primaryColor,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-              ),
-              child: const Text('Logout', style: TextStyle(color: Colors.white)),
-              onPressed: () async {
-                Navigator.of(context).pop(); 
-                await _performLogout(); 
-              },
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<void> _performLogout() async {
-    try {
-      await _attendanceService.signOut();
-      if (mounted) {
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const Login()),
-          (route) => false,
-        );
-      }
-    } catch (e) {
-      debugPrint('Error during logout: $e');
-      if (mounted) {
-        _showSnackBar('Failed to logout: $e', isError: true);
-      }
-    }
-  }
-
-  void _showSnackBar(String message, {bool isError = false}) {
+    void _showSnackBar(String message, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -892,10 +925,6 @@ class _UserDashboardState extends State<UserDashboard> {
                           Icons.apps,
                           color: primaryColor,
                           size: 28,
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.logout, color: Colors.white),
-                          onPressed: _showLogoutConfirmation,
                         ),
                       ],
                     ),
@@ -1073,7 +1102,7 @@ class _UserDashboardState extends State<UserDashboard> {
           _buildStatusCard(),
           _buildOverviewCard(),
           _buildTimelineCard(),
-          const SizedBox(height: 20),
+          const SizedBox(height: 100), // Extra space for bottom navigation
         ],
       ),
     );
@@ -1169,26 +1198,6 @@ class _UserDashboardState extends State<UserDashboard> {
                     ),
                   ],
                 ),
-              ),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.history, color: Colors.white),
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (context) => const AttendanceHistoryPage()),
-                      );
-                    },
-                    tooltip: 'Attendance History',
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.logout, color: Colors.white),
-                    onPressed: _showLogoutConfirmation,
-                    tooltip: 'Logout',
-                  ),
-                ],
               ),
             ],
           ),
@@ -1490,7 +1499,7 @@ class _UserDashboardState extends State<UserDashboard> {
             child: Icon(
               _getItemIcon(item.type),
               color: item.status == TimelineStatus.active ? Colors.white : 
-                     item.status == TimelineStatus.completed ? Colors.white : Colors.grey,
+                    item.status == TimelineStatus.completed ? Colors.white : Colors.grey,
               size: 20,
             ),
           ),

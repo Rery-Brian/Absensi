@@ -18,23 +18,27 @@ class _SignupState extends State<Signup> {
   bool _obscurePassword = true;
   bool _isLoading = false;
 
+  // Theme colors matching dashboard and login
+  static const Color primaryColor = Color(0xFF6366F1);
+  static const Color backgroundColor = Color(0xFF1F2937);
+
   Future<void> _signUp() async {
     final name = _nameController.text.trim();
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
 
     if (name.isEmpty || email.isEmpty || password.isEmpty) {
-      _showSnackBar('Nama, email, dan password wajib diisi', isError: true);
+      _showSnackBar('Name, email, and password are required', isError: true);
       return;
     }
 
     if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email)) {
-      _showSnackBar('Format email tidak valid', isError: true);
+      _showSnackBar('Invalid email format', isError: true);
       return;
     }
 
     if (password.length < 6) {
-      _showSnackBar('Password minimal 6 karakter', isError: true);
+      _showSnackBar('Password must be at least 6 characters', isError: true);
       return;
     }
 
@@ -53,30 +57,19 @@ class _SignupState extends State<Signup> {
       );
 
       if (res.user != null) {
-        _showSnackBar('Berhasil daftar! Silakan login.');
-        
-        // Clear form
-        _nameController.clear();
-        _emailController.clear();
-        _passwordController.clear();
-
-        // Redirect ke login
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const Login()),
-        );
+        _showSuccessDialog();
       } else {
-        _showSnackBar('Gagal membuat akun', isError: true);
+        _showSnackBar('Failed to create account', isError: true);
       }
     } catch (e) {
-      String errorMessage = 'Gagal daftar: ';
+      String errorMessage = 'Registration failed: ';
       
       if (e.toString().contains('already registered')) {
-        errorMessage += 'Email sudah terdaftar';
+        errorMessage += 'Email already registered';
       } else if (e.toString().contains('invalid email')) {
-        errorMessage += 'Format email tidak valid';
+        errorMessage += 'Invalid email format';
       } else if (e.toString().contains('weak password')) {
-        errorMessage += 'Password terlalu lemah';
+        errorMessage += 'Password too weak';
       } else {
         errorMessage += e.toString();
       }
@@ -89,12 +82,124 @@ class _SignupState extends State<Signup> {
     }
   }
 
+  void _showSuccessDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          child: Container(
+            width: MediaQuery.of(context).size.width * 0.85,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [primaryColor, primaryColor.withValues(alpha: 0.8)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.3),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 20),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.2),
+                              blurRadius: 15,
+                              offset: const Offset(0, 5),
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          Icons.check_circle,
+                          size: 40,
+                          color: primaryColor,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        'Registration Successful!',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Your account has been created successfully',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 16,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 20),
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      // Clear form
+                      _nameController.clear();
+                      _emailController.clear();
+                      _passwordController.clear();
+                      // Redirect ke login
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(builder: (_) => const Login()),
+                      );
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: primaryColor,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Continue to Login',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _showSnackBar(String message, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor: isError ? Colors.red : Colors.green,
+        backgroundColor: isError ? Colors.red : primaryColor,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
@@ -104,146 +209,349 @@ class _SignupState extends State<Signup> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xfff1f1f1),
+      backgroundColor: Colors.grey.shade100,
       body: SingleChildScrollView(
         child: Column(
           children: [
+            // Header dengan gradient dan logo
             Container(
-              alignment: Alignment.center,
-              width: MediaQuery.of(context).size.width,
-              height: MediaQuery.of(context).size.height * 0.4,
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.only(
-                  bottomLeft: Radius.circular(60.0),
+              width: double.infinity,
+              height: MediaQuery.of(context).size.height * 0.45,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [backgroundColor, backgroundColor.withValues(alpha: 0.8)],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(30),
+                  bottomRight: Radius.circular(30),
                 ),
               ),
-              child: const Column(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  SizedBox(height: 44),
-                  Image(
-                    image: AssetImage("images/logo.png"),
-                    height: 150,
-                    width: 150,
-                    fit: BoxFit.contain,
+                  const SizedBox(height: 60),
+                  // Logo dengan background circle
+                  Container(
+                    width: 120,
+                    height: 120,
+                    padding: const EdgeInsets.all(20),
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Image(
+                      image: AssetImage("images/logo.png"),
+                      fit: BoxFit.contain,
+                    ),
                   ),
-                  SizedBox(height: 16),
-                  Text(
+                  const SizedBox(height: 24),
+                  // Title
+                  const Text(
                     "Absensi",
                     style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 26,
-                      color: Color(0xFF009688),
+                      fontWeight: FontWeight.w700,
+                      fontSize: 32,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  // Subtitle
+                  Text(
+                    "Create Your Account",
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.white.withValues(alpha: 0.8),
+                      fontWeight: FontWeight.w400,
                     ),
                   ),
                 ],
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 30, 16, 16),
-              child: Column(
-                children: [
-                  // Nama Lengkap
-                  TextField(
-                    controller: _nameController,
-                    enabled: !_isLoading,
-                    decoration: const InputDecoration(
-                      hintText: "Nama Lengkap",
-                      filled: true,
-                      fillColor: Color(0xffd8d8d8),
-                      prefixIcon: Icon(Icons.person, color: Colors.black),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.all(Radius.circular(12.0)),
-                        borderSide: BorderSide.none,
+
+            // Form signup card
+            Transform.translate(
+              offset: const Offset(0, -30),
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 20),
+                padding: const EdgeInsets.all(28),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.1),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      "Create Account",
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Email
-                  TextField(
-                    controller: _emailController,
-                    enabled: !_isLoading,
-                    keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(
-                      hintText: "Email",
-                      filled: true,
-                      fillColor: Color(0xffd9d9d9),
-                      prefixIcon: Icon(Icons.mail, color: Colors.black),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.all(Radius.circular(12.0)),
-                        borderSide: BorderSide.none,
+                    const SizedBox(height: 8),
+                    Text(
+                      "Fill in your details to get started",
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.grey.shade600,
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
+                    const SizedBox(height: 32),
 
-                  // Password
-                  TextField(
-                    controller: _passwordController,
-                    enabled: !_isLoading,
-                    obscureText: _obscurePassword,
-                    decoration: InputDecoration(
-                      hintText: "Password (min. 6 karakter)",
-                      filled: true,
-                      fillColor: const Color(0xffd9d9d9),
-                      prefixIcon: const Icon(Icons.lock, color: Colors.black),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscurePassword
-                              ? Icons.visibility_off
-                              : Icons.visibility,
-                          color: Colors.black,
+                    // Name TextField
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Full Name",
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey.shade700,
+                          ),
                         ),
-                        onPressed: _isLoading ? null : () {
-                          setState(() {
-                            _obscurePassword = !_obscurePassword;
-                          });
-                        },
-                      ),
-                      border: const OutlineInputBorder(
-                        borderRadius: BorderRadius.all(Radius.circular(12.0)),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // Tombol Buat Akun
-                  MaterialButton(
-                    onPressed: _isLoading ? null : _signUp,
-                    color: const Color(0xFF009688),
-                    disabledColor: Colors.grey,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12.0),
-                    ),
-                    padding: const EdgeInsets.all(16),
-                    minWidth: MediaQuery.of(context).size.width,
-                    child: _isLoading 
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _nameController,
+                          enabled: !_isLoading,
+                          decoration: InputDecoration(
+                            hintText: "Enter your full name",
+                            hintStyle: TextStyle(color: Colors.grey.shade400),
+                            filled: true,
+                            fillColor: Colors.grey.shade50,
+                            prefixIcon: Icon(
+                              Icons.person_outline,
+                              color: Colors.grey.shade500,
                             ),
-                          )
-                        : const Text(
-                            "Buat Akun",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.grey.shade300),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.grey.shade300),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: primaryColor, width: 2),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 16,
                             ),
                           ),
-                  ),
-                ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Email TextField
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Email",
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _emailController,
+                          enabled: !_isLoading,
+                          keyboardType: TextInputType.emailAddress,
+                          decoration: InputDecoration(
+                            hintText: "Enter your email",
+                            hintStyle: TextStyle(color: Colors.grey.shade400),
+                            filled: true,
+                            fillColor: Colors.grey.shade50,
+                            prefixIcon: Icon(
+                              Icons.mail_outline,
+                              color: Colors.grey.shade500,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.grey.shade300),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.grey.shade300),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: primaryColor, width: 2),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 16,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Password TextField
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Password",
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          controller: _passwordController,
+                          enabled: !_isLoading,
+                          obscureText: _obscurePassword,
+                          decoration: InputDecoration(
+                            hintText: "Enter your password (min. 6 characters)",
+                            hintStyle: TextStyle(color: Colors.grey.shade400),
+                            filled: true,
+                            fillColor: Colors.grey.shade50,
+                            prefixIcon: Icon(
+                              Icons.lock_outline,
+                              color: Colors.grey.shade500,
+                            ),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscurePassword
+                                    ? Icons.visibility_off_outlined
+                                    : Icons.visibility_outlined,
+                                color: Colors.grey.shade500,
+                              ),
+                              onPressed: _isLoading ? null : () {
+                                setState(() {
+                                  _obscurePassword = !_obscurePassword;
+                                });
+                              },
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.grey.shade300),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.grey.shade300),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: primaryColor, width: 2),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 16,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 32),
+
+                    // Create Account Button
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: _isLoading ? null : _signUp,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryColor,
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor: Colors.grey.shade300,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 0,
+                        ),
+                        child: _isLoading
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                ),
+                              )
+                            : const Text(
+                                "Create Account",
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                      ),
+                    ),
+
+                    // Loading indicator
+                    if (_isLoading) ...[
+                      const SizedBox(height: 20),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: primaryColor.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: primaryColor.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Text(
+                                'Creating your account...',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.black87,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
             ),
+
+            const SizedBox(height: 20),
+
+            // Login Link
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Text("Sudah punya akun?"),
+                Text(
+                  "Already have an account? ",
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 15,
+                  ),
+                ),
                 TextButton(
                   onPressed: _isLoading ? null : () {
                     Navigator.pushReplacement(
@@ -252,15 +560,18 @@ class _SignupState extends State<Signup> {
                     );
                   },
                   child: const Text(
-                    "Login Disini!",
+                    "Sign In",
                     style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xff3a57e8),
+                      fontWeight: FontWeight.w600,
+                      color: primaryColor,
+                      fontSize: 15,
                     ),
                   ),
                 ),
               ],
             ),
+
+            const SizedBox(height: 40),
           ],
         ),
       ),
