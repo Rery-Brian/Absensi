@@ -2,6 +2,8 @@
 import 'package:absensiwajah/pages/login.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
 import '../models/attendance_model.dart';
 import '../services/attendance_service.dart';
 
@@ -20,13 +22,50 @@ class _ProfilePageState extends State<ProfilePage> {
   Organization? _organization;
   bool _isLoading = true;
 
+  // Form controllers for editing
+  final _formKey = GlobalKey<FormState>();
+  late TextEditingController _fullNameController;
+  late TextEditingController _phoneController;
+  late TextEditingController _mobileController;
+  String _selectedGender = 'male';
+  DateTime? _selectedDateOfBirth;
+  File? _selectedImage;
+  bool _isEditMode = false;
+  bool _isSaving = false;
+  bool _isUploadingImage = false;
+
   static const Color primaryColor = Color(0xFF6366F1);
   static const Color backgroundColor = Color(0xFF1F2937);
+
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
     super.initState();
+    _initializeControllers();
     _loadUserData();
+  }
+
+  void _initializeControllers() {
+    _fullNameController = TextEditingController();
+    _phoneController = TextEditingController();
+    _mobileController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _fullNameController.dispose();
+    _phoneController.dispose();
+    _mobileController.dispose();
+    super.dispose();
+  }
+
+  void _populateControllers() {
+    _fullNameController.text = _userProfile?.displayName ?? _userProfile?.fullName ?? '';
+    _phoneController.text = _userProfile?.phone ?? '';
+    _mobileController.text = _userProfile?.mobile ?? '';
+    _selectedGender = _userProfile?.gender ?? 'male';
+    _selectedDateOfBirth = _userProfile?.dateOfBirth;
   }
 
   Future<void> _loadUserData() async {
@@ -36,6 +75,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
     try {
       _userProfile = await _attendanceService.loadUserProfile();
+      _populateControllers();
       
       if (_userProfile != null) {
         _organizationMember = await _attendanceService.loadOrganizationMember();
@@ -90,6 +130,284 @@ class _ProfilePageState extends State<ProfilePage> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
+  }
+
+  Future<String?> _uploadProfileImage(File imageFile) async {
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) return null;
+
+      final bytes = await imageFile.readAsBytes();
+      // Use user ID as folder structure for better organization and security
+      final fileName = '${user.id}/${user.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      
+      // Delete old profile photo if exists
+      if (_userProfile?.profilePhotoUrl != null) {
+        try {
+          final oldFileName = _userProfile!.profilePhotoUrl!
+              .split('/profile-photos/')[1];
+          await Supabase.instance.client.storage
+              .from('profile-photos')
+              .remove([oldFileName]);
+        } catch (e) {
+          debugPrint('Could not delete old photo: $e');
+        }
+      }
+      
+      // Upload new photo
+      await Supabase.instance.client.storage
+          .from('profile-photos')
+          .uploadBinary(fileName, bytes, 
+            fileOptions: const FileOptions(
+              cacheControl: '3600',
+              upsert: true,
+            ),
+          );
+
+      final imageUrl = Supabase.instance.client.storage
+          .from('profile-photos')
+          .getPublicUrl(fileName);
+
+      return imageUrl;
+    } catch (e) {
+      debugPrint('Error uploading image: $e');
+      return null;
+    }
+  }
+
+  Future<void> _pickImage() async {
+    try {
+      // Show source selection dialog
+      final source = await showModalBottomSheet<ImageSource>(
+        context: context,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (context) => Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const Text(
+                'Select Photo Source',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => Navigator.pop(context, ImageSource.camera),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(
+                              Icons.camera_alt_outlined,
+                              size: 32,
+                              color: primaryColor,
+                            ),
+                            const SizedBox(height: 8),
+                            const Text('Camera'),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => Navigator.pop(context, ImageSource.gallery),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          children: [
+                            Icon(
+                              Icons.photo_library_outlined,
+                              size: 32,
+                              color: primaryColor,
+                            ),
+                            const SizedBox(height: 8),
+                            const Text('Gallery'),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      if (source == null) return;
+
+      final XFile? image = await _picker.pickImage(
+        source: source,
+        maxWidth: 800,
+        maxHeight: 800,
+        imageQuality: 85,
+      );
+      
+      if (image != null) {
+        setState(() {
+          _selectedImage = File(image.path);
+          _isUploadingImage = true;
+        });
+
+        // Upload image immediately
+        final imageUrl = await _uploadProfileImage(_selectedImage!);
+        
+        if (imageUrl != null) {
+          // Update profile photo URL in database
+          final user = Supabase.instance.client.auth.currentUser;
+          if (user != null) {
+            await Supabase.instance.client
+                .from('user_profiles')
+                .update({
+                  'profile_photo_url': imageUrl,
+                  'updated_at': DateTime.now().toIso8601String(),
+                })
+                .eq('id', user.id);
+            
+            // Reload user data to reflect changes
+            await _loadUserData();
+            _showSnackBar('Profile photo updated successfully!');
+          }
+        } else {
+          _showSnackBar('Failed to upload image', isError: true);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error picking image: $e');
+      if (e.toString().contains('channel-error')) {
+        _showSnackBar('Image picker not available. Please check app permissions.', isError: true);
+      } else {
+        _showSnackBar('Failed to pick image. Please try again.', isError: true);
+      }
+    } finally {
+      setState(() {
+        _isUploadingImage = false;
+        _selectedImage = null;
+      });
+    }
+  }
+
+  Future<void> _saveProfile() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+    });
+
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // Update user_profiles table
+      await Supabase.instance.client
+          .from('user_profiles')
+          .update({
+            'display_name': _fullNameController.text.trim(),
+            'phone': _phoneController.text.trim(),
+            'gender': _selectedGender,
+            'date_of_birth': _selectedDateOfBirth?.toIso8601String().split('T')[0],
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('id', user.id);
+
+      // Refresh user data
+      await _loadUserData();
+      
+      setState(() {
+        _isEditMode = false;
+      });
+
+      _showSnackBar('Profile updated successfully!');
+    } catch (e) {
+      debugPrint('Error saving profile: $e');
+      _showSnackBar('Failed to update profile: $e', isError: true);
+    } finally {
+      setState(() {
+        _isSaving = false;
+      });
+    }
+  }
+
+  void _toggleEditMode() {
+    setState(() {
+      _isEditMode = !_isEditMode;
+      if (_isEditMode) {
+        _populateControllers();
+      }
+    });
+  }
+
+  void _cancelEdit() {
+    setState(() {
+      _isEditMode = false;
+    });
+    _populateControllers(); // Reset form data
+  }
+
+  Future<void> _selectDate() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDateOfBirth ?? DateTime.now().subtract(const Duration(days: 365 * 25)),
+      firstDate: DateTime(1900),
+      lastDate: DateTime.now(),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: ColorScheme.light(
+              primary: primaryColor,
+              onPrimary: Colors.white,
+              surface: Colors.white,
+              onSurface: Colors.black,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    
+    if (picked != null) {
+      setState(() {
+        _selectedDateOfBirth = picked;
+      });
+    }
   }
 
   /// ====== LOGOUT FUNCTION ======
@@ -158,7 +476,8 @@ class _ProfilePageState extends State<ProfilePage> {
     }
 
     final user = Supabase.instance.client.auth.currentUser;
-    final displayName = _userProfile?.fullName ?? user?.email?.split('@')[0] ?? 'User';
+    // Use display_name from user profile instead of parsing email
+    final displayName = _userProfile?.displayName ?? _userProfile?.fullName ?? user?.email?.split('@')[0] ?? 'User';
     final email = user?.email ?? 'No email';
 
     return Scaffold(
@@ -172,9 +491,11 @@ class _ProfilePageState extends State<ProfilePage> {
             children: [
               _buildHeader(displayName, email),
               _buildProfileInfo(context),
-              _buildAccountSection(context),
-              _buildSupportSection(context),
-              _buildLogoutSection(context),
+              if (!_isEditMode) ...[
+                _buildAccountSection(context),
+                _buildSupportSection(context),
+                _buildLogoutSection(context),
+              ],
               const SizedBox(height: 100), // Space for bottom navigation
             ],
           ),
@@ -200,16 +521,66 @@ class _ProfilePageState extends State<ProfilePage> {
       ),
       child: Column(
         children: [
+          // Header title
+          const Text(
+            'Profile',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
+          ),
           const SizedBox(height: 20),
-          CircleAvatar(
-            radius: 50,
-            backgroundColor: Colors.orange.shade400,
-            backgroundImage: _userProfile?.profilePhotoUrl != null
-                ? NetworkImage(_userProfile!.profilePhotoUrl!)
-                : null,
-            child: _userProfile?.profilePhotoUrl == null
-                ? const Icon(Icons.person, color: Colors.white, size: 50)
-                : null,
+          // Profile photo with edit functionality
+          Stack(
+            children: [
+              CircleAvatar(
+                radius: 50,
+                backgroundColor: Colors.orange.shade400,
+                backgroundImage: _userProfile?.profilePhotoUrl != null
+                    ? NetworkImage(_userProfile!.profilePhotoUrl!)
+                    : null,
+                child: _userProfile?.profilePhotoUrl == null
+                    ? const Icon(Icons.person, color: Colors.white, size: 50)
+                    : null,
+              ),
+              if (_isUploadingImage)
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.5),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Center(
+                      child: CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        strokeWidth: 2,
+                      ),
+                    ),
+                  ),
+                ),
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: InkWell(
+                  onTap: _isUploadingImage ? null : _pickImage,
+                  child: Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: primaryColor,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 2),
+                    ),
+                    child: const Icon(
+                      Icons.camera_alt,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 20),
           Text(
@@ -279,57 +650,444 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ],
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              child: const Text(
-                'Personal Information',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black87,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header with action buttons
+              Container(
+                padding: const EdgeInsets.all(20),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Personal Information',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    if (!_isEditMode)
+                      // Edit button with better styling
+                      OutlinedButton.icon(
+                        onPressed: _toggleEditMode,
+                        icon: const Icon(Icons.edit, size: 16),
+                        label: const Text('Edit'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: primaryColor,
+                          side: BorderSide(color: primaryColor),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        ),
+                      ),
+                  ],
                 ),
               ),
+              // Action buttons when in edit mode
+              if (_isEditMode)
+                Container(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _isSaving ? null : _cancelEdit,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.grey[600],
+                            side: BorderSide(color: Colors.grey[300]!),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          child: const Text('Cancel'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: _isSaving ? null : _saveProfile,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryColor,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            elevation: 0,
+                          ),
+                          child: _isSaving
+                              ? Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: const [
+                                    SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                      ),
+                                    ),
+                                    SizedBox(width: 8),
+                                    Text('Saving...'),
+                                  ],
+                                )
+                              : const Text('Save Changes'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              // Profile fields
+              _buildProfileField(
+                icon: Icons.person_outline,
+                title: 'Display Name',
+                controller: _fullNameController,
+                currentValue: _userProfile?.displayName ?? _userProfile?.fullName ?? 'Not provided',
+                isEditable: true,
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Display name is required';
+                  }
+                  return null;
+                },
+              ),
+              _buildProfileField(
+                icon: Icons.phone_outlined,
+                title: 'Phone Number',
+                controller: _phoneController,
+                currentValue: _userProfile?.phone ?? 'Not provided',
+                isEditable: true,
+                keyboardType: TextInputType.phone,
+              ),
+              _buildGenderField(),
+              _buildDateOfBirthField(),
+              _buildProfileField(
+                icon: Icons.badge_outlined,
+                title: 'Employee ID',
+                controller: null,
+                currentValue: _organizationMember?.employeeId ?? 'Not assigned',
+                isEditable: false,
+              ),
+              _buildProfileField(
+                icon: Icons.work_outline,
+                title: 'Position',
+                controller: null,
+                currentValue: _organizationMember?.position?.title ?? 'Not specified',
+                isEditable: false,
+              ),
+              _buildProfileField(
+                icon: Icons.business_outlined,
+                title: 'Department',
+                controller: null,
+                currentValue: _organizationMember?.department?.name ?? 'Not specified',
+                isEditable: false,
+                isLast: true,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGenderField() {
+    final canEdit = _isEditMode;
+    final genderDisplay = _selectedGender == 'male' ? 'Male' : 'Female';
+
+    return InkWell(
+      onTap: canEdit ? null : ((){
+        if (!_isEditMode) _toggleEditMode();
+      }),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: Colors.grey.shade200,
+              width: 1,
             ),
-            _buildInfoItem(
-              icon: Icons.person_outline,
-              title: 'Full Name',
-              value: _userProfile?.fullName ?? 'Not provided',
-              onTap: () => _showComingSoon(context),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: primaryColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                Icons.person_pin,
+                color: primaryColor,
+                size: 20,
+              ),
             ),
-            _buildInfoItem(
-              icon: Icons.email_outlined,
-              title: 'Email Address',
-              value: Supabase.instance.client.auth.currentUser?.email ?? 'Not provided',
-              onTap: () => _showComingSoon(context),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Gender',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  if (canEdit) ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: RadioListTile<String>(
+                            title: const Text('Male'),
+                            value: 'male',
+                            groupValue: _selectedGender,
+                            activeColor: primaryColor,
+                            contentPadding: EdgeInsets.zero,
+                            onChanged: (value) {
+                              setState(() {
+                                _selectedGender = value!;
+                              });
+                            },
+                          ),
+                        ),
+                        Expanded(
+                          child: RadioListTile<String>(
+                            title: const Text('Female'),
+                            value: 'female',
+                            groupValue: _selectedGender,
+                            activeColor: primaryColor,
+                            contentPadding: EdgeInsets.zero,
+                            onChanged: (value) {
+                              setState(() {
+                                _selectedGender = value!;
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ] else ...[
+                    Text(
+                      genderDisplay,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
-            _buildInfoItem(
-              icon: Icons.phone_outlined,
-              title: 'Phone Number',
-              value: _userProfile?.mobile ?? _userProfile?.phone ?? 'Not provided',
-              onTap: () => _showComingSoon(context),
+            if (!canEdit)
+              Icon(
+                Icons.arrow_forward_ios,
+                size: 16,
+                color: Colors.grey.shade400,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDateOfBirthField() {
+    final canEdit = _isEditMode;
+    final dateDisplay = _selectedDateOfBirth != null
+        ? '${_selectedDateOfBirth!.day}/${_selectedDateOfBirth!.month}/${_selectedDateOfBirth!.year}'
+        : 'Not provided';
+
+    return InkWell(
+      onTap: canEdit ? _selectDate : ((){
+        if (!_isEditMode) _toggleEditMode();
+      }),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: Colors.grey.shade200,
+              width: 1,
             ),
-            _buildInfoItem(
-              icon: Icons.badge_outlined,
-              title: 'Employee ID',
-              value: _organizationMember?.employeeId ?? 'Not assigned',
-              onTap: null,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: primaryColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                Icons.cake_outlined,
+                color: primaryColor,
+                size: 20,
+              ),
             ),
-            _buildInfoItem(
-              icon: Icons.work_outline,
-              title: 'Position',
-              value: _organizationMember?.position?.title ?? 'Not specified',
-              onTap: null,
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Date of Birth',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    dateDisplay,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.black87,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            _buildInfoItem(
-              icon: Icons.business_outlined,
-              title: 'Department',
-              value: _organizationMember?.department?.name ?? 'Not specified',
-              onTap: null,
-              isLast: true,
+            Icon(
+              canEdit ? Icons.calendar_today : Icons.arrow_forward_ios,
+              size: 16,
+              color: Colors.grey.shade400,
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileField({
+    required IconData icon,
+    required String title,
+    TextEditingController? controller,
+    required String currentValue,
+    required bool isEditable,
+    VoidCallback? onTap,
+    TextInputType? keyboardType,
+    String? Function(String?)? validator,
+    bool isLast = false,
+  }) {
+    final canEdit = _isEditMode && isEditable && controller != null;
+    final showTapIndicator = !_isEditMode && (onTap != null || (isEditable && controller != null));
+
+    return InkWell(
+      onTap: canEdit ? null : (onTap ?? (_isEditMode ? null : (isEditable ? _toggleEditMode : null))),
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        decoration: BoxDecoration(
+          border: isLast ? null : Border(
+            bottom: BorderSide(
+              color: Colors.grey.shade200,
+              width: 1,
+            ),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: primaryColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                icon,
+                color: primaryColor,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Colors.grey,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  if (canEdit) ...[
+                    // Improved text field styling for edit mode
+                    Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: TextFormField(
+                        controller: controller,
+                        keyboardType: keyboardType,
+                        validator: validator,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.black87,
+                        ),
+                        decoration: InputDecoration(
+                          border: InputBorder.none,
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: primaryColor, width: 2),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: Colors.grey.shade300),
+                          ),
+                          errorBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(color: Colors.red),
+                          ),
+                          focusedErrorBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(color: Colors.red, width: 2),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          filled: true,
+                          fillColor: Colors.grey.shade50,
+                        ),
+                      ),
+                    ),
+                  ] else ...[
+                    Text(
+                      currentValue,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (showTapIndicator)
+              Icon(
+                Icons.arrow_forward_ios,
+                size: 16,
+                color: Colors.grey.shade400,
+              ),
           ],
         ),
       ),
@@ -480,78 +1238,6 @@ class _ProfilePageState extends State<ProfilePage> {
         textColor: Colors.red,
         iconColor: Colors.red,
         isLast: true,
-      ),
-    );
-  }
-
-  Widget _buildInfoItem({
-    required IconData icon,
-    required String title,
-    required String value,
-    VoidCallback? onTap,
-    bool isLast = false,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        decoration: BoxDecoration(
-          border: isLast ? null : Border(
-            bottom: BorderSide(
-              color: Colors.grey.shade200,
-              width: 1,
-            ),
-          ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: primaryColor.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(
-                icon,
-                color: primaryColor,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Colors.grey,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    value,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.black87,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (onTap != null)
-              Icon(
-                Icons.arrow_forward_ios,
-                size: 16,
-                color: Colors.grey.shade400,
-              ),
-          ],
-        ),
       ),
     );
   }

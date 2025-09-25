@@ -857,7 +857,7 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
-    void _showSnackBar(String message, {bool isError = false}) {
+  void _showSnackBar(String message, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -869,10 +869,37 @@ class _DashboardContentState extends State<_DashboardContent> {
     );
   }
 
+  // Helper method to get display name with proper fallback
+  String _getDisplayName() {
+    final user = Supabase.instance.client.auth.currentUser;
+    
+    // Priority 1: display_name from user_profiles
+    if (_userProfile?.displayName != null && _userProfile!.displayName!.isNotEmpty) {
+      return _userProfile!.displayName!;
+    }
+    
+    // Priority 2: fullName (combination of first_name + last_name)
+    if (_userProfile?.fullName != null && _userProfile!.fullName!.isNotEmpty) {
+      return _userProfile!.fullName!;
+    }
+    
+    // Priority 3: first_name only
+    if (_userProfile?.firstName != null && _userProfile!.firstName!.isNotEmpty) {
+      return _userProfile!.firstName!;
+    }
+    
+    // Priority 4: email username (fallback)
+    if (user?.email != null) {
+      return user!.email!.split('@')[0];
+    }
+    
+    // Final fallback
+    return 'User';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final user = Supabase.instance.client.auth.currentUser;
-    final displayName = _userProfile?.fullName ?? user?.email?.split('@')[0] ?? 'User';
+    final displayName = _getDisplayName();
 
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
@@ -888,8 +915,7 @@ class _DashboardContentState extends State<_DashboardContent> {
   }
 
   Widget _buildNotRegisteredView() {
-    final user = Supabase.instance.client.auth.currentUser;
-    final displayName = _userProfile?.fullName ?? user?.email?.split('@')[0] ?? 'User';
+    final displayName = _getDisplayName();
 
     return RefreshIndicator(
       onRefresh: _loadUserData,
