@@ -1,14 +1,16 @@
-// screens/user_dashboard.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import '../models/attendance_model.dart' hide Position;
+import '../models/branch_model.dart';
 import '../services/attendance_service.dart';
+import '../services/branch_service.dart';
 import '../services/camera_service.dart';
 import '../pages/camera_selfie_screen.dart';
 import '../pages/break_page.dart'; 
+import '../pages/branch_selection_screen.dart';
 import 'login.dart';
 import 'attendance_history.dart';
 import 'profile.dart';
@@ -107,20 +109,22 @@ class _DashboardContent extends StatefulWidget {
 
 class _DashboardContentState extends State<_DashboardContent> {
   final AttendanceService _attendanceService = AttendanceService();
+  final BranchService _branchService = BranchService();
   bool _isLoading = false;
   bool _isRefreshing = false;
   Position? _currentPosition;
 
   UserProfile? _userProfile;
   OrganizationMember? _organizationMember;
-  Organization? _organization;
+  SimpleOrganization? _organization;
+  Branch? _selectedBranch;
   List<AttendanceRecord> _todayAttendanceRecords = [];
   List<AttendanceRecord> _recentAttendanceRecords = [];
   MemberSchedule? _currentSchedule;
-  AttendanceDevice? _attendanceDevice;
   WorkScheduleDetails? _todayScheduleDetails;
   AttendanceStatus _currentStatus = AttendanceStatus.unknown;
   List<AttendanceAction> _availableActions = [];
+  bool _needsBranchSelection = false;
 
   final List<TimelineItem> _timelineItems = [];
 
@@ -157,10 +161,14 @@ class _DashboardContentState extends State<_DashboardContent> {
         
         if (_organizationMember != null) {
           await _loadOrganizationInfo();
-          await _loadOrganizationData();
-          await _loadScheduleData();
-          await _updateAttendanceStatus();
-          await _buildDynamicTimeline();
+          await _checkBranchSelection();
+          
+          if (!_needsBranchSelection) {
+            await _loadOrganizationData();
+            await _loadScheduleData();
+            await _updateAttendanceStatus();
+            await _buildDynamicTimeline();
+          }
         } else {
           _showSnackBar('No organization found. Contact admin.', isError: true);
         }
@@ -179,20 +187,78 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
+  Future<void> _checkBranchSelection() async {
+    if (_organizationMember == null) return;
+
+    try {
+      // Check if branch selection is required
+      final selectionRequired = await _branchService.isSelectionRequired(_organizationMember!.organizationId);
+      
+      if (selectionRequired) {
+        // Check if user has already selected a branch
+        final selectedBranch = await _branchService.loadSelectedBranch(_organizationMember!.organizationId);
+        
+        if (selectedBranch == null) {
+          setState(() {
+            _needsBranchSelection = true;
+          });
+          return;
+        }
+      }
+
+      // Load the selected branch
+      _selectedBranch = await _branchService.loadSelectedBranch(_organizationMember!.organizationId);
+      
+      setState(() {
+        _needsBranchSelection = false;
+      });
+    } catch (e) {
+      debugPrint('Error checking branch selection: $e');
+      _showSnackBar('Failed to check branch configuration.', isError: true);
+    }
+  }
+
+  Future<void> _navigateToBranchSelection({bool isRequired = false}) async {
+    if (_organizationMember == null) return;
+
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => BranchSelectionScreen(
+          organizationId: _organizationMember!.organizationId,
+          organizationName: _organization?.name ?? 'Organization',
+          isRequired: isRequired,
+        ),
+      ),
+    );
+
+    if (result == true) {
+      await _refreshData();
+    }
+  }
+
   Future<void> _loadOrganizationInfo() async {
     if (_organizationMember == null) return;
 
     try {
+      // Handle both string and int organizationId
+      dynamic orgIdValue;
+      try {
+        orgIdValue = int.parse(_organizationMember!.organizationId);
+      } catch (e) {
+        orgIdValue = _organizationMember!.organizationId;
+      }
+
       final response = await Supabase.instance.client
           .from('organizations')
           .select('id, name, logo_url')
-          .eq('id', _organizationMember!.organizationId)
+          .eq('id', orgIdValue)
           .single();
 
       if (response != null && mounted) {
         setState(() {
-          _organization = Organization(
-            id: response['id'],
+          _organization = SimpleOrganization(
+            id: response['id'].toString(),
             name: response['name'] ?? 'Unknown Organization',
             logoUrl: response['logo_url'],
           );
@@ -200,7 +266,7 @@ class _DashboardContentState extends State<_DashboardContent> {
       }
     } catch (e) {
       debugPrint('Error loading organization info: $e');
-      _showSnackBar('Failed to load organization info.', isError: true);
+      _showSnackBar('Failed to load organization info: ${e.toString()}', isError: true);
     }
   }
 
@@ -212,10 +278,14 @@ class _DashboardContentState extends State<_DashboardContent> {
     try {
       if (_organizationMember != null) {
         await _loadOrganizationInfo();
-        await _loadOrganizationData();
-        await _loadScheduleData();
-        await _updateAttendanceStatus();
-        await _buildDynamicTimeline();
+        await _checkBranchSelection();
+        
+        if (!_needsBranchSelection) {
+          await _loadOrganizationData();
+          await _loadScheduleData();
+          await _updateAttendanceStatus();
+          await _buildDynamicTimeline();
+        }
       }
     } catch (e) {
       debugPrint('Error refreshing data: $e');
@@ -234,7 +304,6 @@ class _DashboardContentState extends State<_DashboardContent> {
 
     try {
       final futures = await Future.wait([
-        _attendanceService.loadAttendanceDevice(_organizationMember!.organizationId),
         _attendanceService.loadTodayAttendanceRecords(_organizationMember!.id),
         _attendanceService.loadRecentAttendanceRecords(_organizationMember!.id),
         _attendanceService.loadCurrentSchedule(_organizationMember!.id),
@@ -243,11 +312,10 @@ class _DashboardContentState extends State<_DashboardContent> {
 
       if (mounted) {
         setState(() {
-          _attendanceDevice = futures[0] as AttendanceDevice?;
-          _todayAttendanceRecords = futures[1] as List<AttendanceRecord>;
-          _recentAttendanceRecords = futures[2] as List<AttendanceRecord>;
-          _currentSchedule = futures[3] as MemberSchedule?;
-          _currentPosition = futures[4] as Position?;
+          _todayAttendanceRecords = futures[0] as List<AttendanceRecord>;
+          _recentAttendanceRecords = futures[1] as List<AttendanceRecord>;
+          _currentSchedule = futures[2] as MemberSchedule?;
+          _currentPosition = futures[3] as Position?;
         });
       }
     } catch (e) {
@@ -256,15 +324,25 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
-  Future<void> _loadScheduleData() async {
-    if (_organizationMember == null || _currentSchedule?.workScheduleId == null) return;
+ Future<void> _loadScheduleData() async {
+    if (_organizationMember == null) return;
 
     try {
-      final dayOfWeek = TimeHelper.getCurrentDayOfWeek();
-      _todayScheduleDetails = await _attendanceService.loadWorkScheduleDetails(
-        _currentSchedule!.workScheduleId!, 
-        dayOfWeek
-      );
+      // Get current schedule first
+      _currentSchedule = await _attendanceService.loadCurrentSchedule(_organizationMember!.id);
+      
+      if (_currentSchedule?.workScheduleId != null) {
+        // If we have a work schedule, get today's details
+        final dayOfWeek = TimeHelper.getCurrentDayOfWeek();
+        _todayScheduleDetails = await _attendanceService.loadWorkScheduleDetails(
+          _currentSchedule!.workScheduleId!, 
+          dayOfWeek
+        );
+        debugPrint('Loaded work schedule details: ${_todayScheduleDetails?.toJson()}');
+      } else {
+        debugPrint('No work schedule found, current schedule: ${_currentSchedule?.toJson()}');
+      }
+
       if (mounted) {
         setState(() {});
       }
@@ -313,8 +391,6 @@ class _DashboardContentState extends State<_DashboardContent> {
           ));
         }
         
-        // Removed resume work item as per instructions
-        
         if (_todayScheduleDetails!.endTime != null) {
           items.add(ScheduleItem(
             time: _formatTimeFromDatabase(_todayScheduleDetails!.endTime!),
@@ -341,74 +417,84 @@ class _DashboardContentState extends State<_DashboardContent> {
     return items;
   }
 
-  Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
-    List<ScheduleItem> items = [];
-    
-    try {
-      final shiftResponse = await Supabase.instance.client
-          .from('shifts')
-          .select('start_time, end_time, break_duration_minutes')
-          .eq('id', _currentSchedule!.shiftId!)
-          .single();
-      
-      if (shiftResponse != null) {
-        items.add(ScheduleItem(
-          time: _formatTimeFromDatabase(shiftResponse['start_time']),
-          label: 'Check In',
-          type: AttendanceActionType.checkIn,
-          subtitle: 'Start work day',
-        ));
-        
-        if (shiftResponse['break_duration_minutes'] != null && 
-            shiftResponse['break_duration_minutes'] > 0) {
-          
-          final startTime = TimeHelper.parseTimeString(_formatTimeFromDatabase(shiftResponse['start_time']));
-          final endTime = TimeHelper.parseTimeString(_formatTimeFromDatabase(shiftResponse['end_time']));
-          
-          final totalMinutes = TimeHelper.timeToMinutes(endTime) - TimeHelper.timeToMinutes(startTime);
-          final breakStartMinutes = TimeHelper.timeToMinutes(startTime) + (totalMinutes ~/ 2);
-          final breakEndMinutes = breakStartMinutes + (shiftResponse['break_duration_minutes'] as int);
-          
-          items.add(ScheduleItem(
-            time: TimeHelper.formatTimeOfDay(TimeHelper.minutesToTime(breakStartMinutes)),
-            label: 'Break',
-            type: AttendanceActionType.breakOut,
-            subtitle: 'Take a break',
-          ));
-          
-          // Removed resume item
-        }
-        
-        items.add(ScheduleItem(
-          time: _formatTimeFromDatabase(shiftResponse['end_time']),
-          label: 'Check Out',
-          type: AttendanceActionType.checkOut,
-          subtitle: 'End work day',
-        ));
-      }
-      
-    } catch (e) {
-      debugPrint('Error getting schedule from shift: $e');
-      _showSnackBar('Failed to load shift schedule.', isError: true);
-    }
-    
-    return items;
-  }
+ // Tambahkan method-method ini ke dalam class _DashboardContentState
 
-  String _formatTimeFromDatabase(String timeString) {
-    try {
-      if (timeString.contains(':')) {
-        final parts = timeString.split(':');
-        if (parts.length >= 2) {
-          return '${parts[0]}:${parts[1]}';
-        }
+String _formatTimeFromDatabase(String timeString) {
+  try {
+    // Use TimeHelper to parse and format the time properly
+    final timeOfDay = TimeHelper.parseTimeString(timeString);
+    return TimeHelper.formatTimeOfDay(timeOfDay);
+  } catch (e) {
+    debugPrint('Error formatting time from database "$timeString": $e');
+    // Fallback: try basic string manipulation
+    if (timeString.contains(':')) {
+      final parts = timeString.split(':');
+      if (parts.length >= 2) {
+        final hour = int.tryParse(parts[0])?.toString().padLeft(2, '0') ?? '00';
+        final minute = int.tryParse(parts[1])?.toString().padLeft(2, '0') ?? '00';
+        return '$hour:$minute';
       }
-      return timeString;
-    } catch (e) {
-      debugPrint('Error formatting time from database: $e');
-      return timeString;
     }
+    return timeString; // Return original if all else fails
   }
+}
+
+Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
+  List<ScheduleItem> items = [];
+  
+  try {
+    dynamic shiftIdValue;
+    try {
+      shiftIdValue = int.parse(_currentSchedule!.shiftId!);
+    } catch (e) {
+      shiftIdValue = _currentSchedule!.shiftId!;
+    }
+
+    final shiftResponse = await Supabase.instance.client
+        .from('shifts')
+        .select('start_time, end_time, break_duration_minutes')
+        .eq('id', shiftIdValue)
+        .single();
+    
+    if (shiftResponse != null) {
+      items.add(ScheduleItem(
+        time: _formatTimeFromDatabase(shiftResponse['start_time']),
+        label: 'Check In',
+        type: AttendanceActionType.checkIn,
+        subtitle: 'Start work day',
+      ));
+      
+      if (shiftResponse['break_duration_minutes'] != null && 
+          shiftResponse['break_duration_minutes'] > 0) {
+        
+        final startTime = TimeHelper.parseTimeString(_formatTimeFromDatabase(shiftResponse['start_time']));
+        final endTime = TimeHelper.parseTimeString(_formatTimeFromDatabase(shiftResponse['end_time']));
+        
+        final totalMinutes = TimeHelper.timeToMinutes(endTime) - TimeHelper.timeToMinutes(startTime);
+        final breakStartMinutes = TimeHelper.timeToMinutes(startTime) + (totalMinutes ~/ 2);
+        
+        items.add(ScheduleItem(
+          time: TimeHelper.formatTimeOfDay(TimeHelper.minutesToTime(breakStartMinutes)),
+          label: 'Break',
+          type: AttendanceActionType.breakOut,
+          subtitle: 'Take a break',
+        ));
+      }
+      
+      items.add(ScheduleItem(
+        time: _formatTimeFromDatabase(shiftResponse['end_time']),
+        label: 'Check Out',
+        type: AttendanceActionType.checkOut,
+        subtitle: 'End work day',
+      ));
+    }
+    
+  } catch (e) {
+    debugPrint('Error getting schedule from shift: $e');
+  }
+  
+  return items;
+}
 
   Future<void> _buildDynamicTimeline() async {
     _timelineItems.clear();
@@ -564,11 +650,8 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
 
     try {
-      int memberId = int.parse(_organizationMember!.id as String);
+      int memberId = int.parse(_organizationMember!.id);
       int? deviceId;
-      if (_attendanceDevice?.id != null) {
-        deviceId = int.parse(_attendanceDevice!.id as String);
-      }
 
       final result = await Navigator.push<bool>(
         context,
@@ -607,8 +690,8 @@ class _DashboardContentState extends State<_DashboardContent> {
         return;
       }
 
-      if (_attendanceDevice == null || !_attendanceDevice!.hasValidCoordinates) {
-        _showSnackBar('Office location not configured. Contact admin.', isError: true);
+      if (_selectedBranch == null || !_selectedBranch!.hasValidCoordinates) {
+        _showSnackBar('Branch location not configured. Please select a valid branch.', isError: true);
         return;
       }
 
@@ -618,18 +701,14 @@ class _DashboardContentState extends State<_DashboardContent> {
         return;
       }
 
-      if (!_isWithinRadius()) {
-        final distance = _attendanceService.calculateDistance(
-          _currentPosition!.latitude,
-          _currentPosition!.longitude,
-          _attendanceDevice!.latitude,
-          _attendanceDevice!.longitude,
-        );
+      // Use the new branch-specific methods
+      if (!_attendanceService.isWithinBranchRadius(_currentPosition!, _selectedBranch!)) {
+        final distance = _attendanceService.calculateDistanceToBranch(_currentPosition!, _selectedBranch!);
         
         _showSnackBar(
           distance != null
-              ? 'You are outside office radius (${distance.toStringAsFixed(0)}m from ${_attendanceDevice!.radiusMeters.toInt()}m)'
-              : 'Cannot calculate distance to office',
+              ? 'You are outside branch radius (${distance.toStringAsFixed(0)}m from ${_selectedBranch!.radiusMeters}m)'
+              : 'Cannot calculate distance to branch',
           isError: true,
         );
         return;
@@ -662,7 +741,6 @@ class _DashboardContentState extends State<_DashboardContent> {
         organizationMemberId: _organizationMember!.id,
         currentPosition: _currentPosition!,
         photoUrl: photoUrl ?? '',
-        device: _attendanceDevice,
         schedule: _currentSchedule,
         todayRecords: _todayAttendanceRecords,
         scheduleDetails: _todayScheduleDetails,
@@ -694,11 +772,6 @@ class _DashboardContentState extends State<_DashboardContent> {
     } catch (e) {
       _showSnackBar('Failed to get location: $e', isError: true);
     }
-  }
-
-  bool _isWithinRadius() {
-    if (_currentPosition == null || _attendanceDevice == null) return false;
-    return _attendanceService.isWithinRadius(_currentPosition!, _attendanceDevice!);
   }
 
   Future<String?> _takeSelfie() async {
@@ -853,7 +926,7 @@ class _DashboardContentState extends State<_DashboardContent> {
       case 'break_in':
         return 'Work resumed';
       default:
-        return 'Attendance recorded';
+       return 'Attendance recorded';
     }
   }
 
@@ -869,37 +942,36 @@ class _DashboardContentState extends State<_DashboardContent> {
     );
   }
 
-  // Helper method to get display name with proper fallback
   String _getDisplayName() {
     final user = Supabase.instance.client.auth.currentUser;
     
-    // Priority 1: display_name from user_profiles
     if (_userProfile?.displayName != null && _userProfile!.displayName!.isNotEmpty) {
       return _userProfile!.displayName!;
     }
     
-    // Priority 2: fullName (combination of first_name + last_name)
     if (_userProfile?.fullName != null && _userProfile!.fullName!.isNotEmpty) {
       return _userProfile!.fullName!;
     }
     
-    // Priority 3: first_name only
     if (_userProfile?.firstName != null && _userProfile!.firstName!.isNotEmpty) {
       return _userProfile!.firstName!;
     }
     
-    // Priority 4: email username (fallback)
     if (user?.email != null) {
       return user!.email!.split('@')[0];
     }
     
-    // Final fallback
     return 'User';
   }
 
   @override
   Widget build(BuildContext context) {
     final displayName = _getDisplayName();
+
+    // Check for branch selection requirement
+    if (_needsBranchSelection) {
+      return _buildBranchSelectionRequiredView();
+    }
 
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
@@ -911,6 +983,250 @@ class _DashboardContentState extends State<_DashboardContent> {
               backgroundColor: Colors.white,
               child: _buildMainContent(displayName),
             ),
+    );
+  }
+
+  Widget _buildBranchSelectionRequiredView() {
+    final displayName = _getDisplayName();
+
+    return Scaffold(
+      backgroundColor: Colors.grey.shade100,
+      body: RefreshIndicator(
+        onRefresh: _refreshData,
+        color: primaryColor,
+        backgroundColor: Colors.white,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: SizedBox(
+            height: MediaQuery.of(context).size.height,
+            child: Column(
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(20, 50, 20, 30),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [backgroundColor, backgroundColor.withValues(alpha: 0.8)],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
+                    borderRadius: const BorderRadius.only(
+                      bottomLeft: Radius.circular(30),
+                      bottomRight: Radius.circular(30),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Row(
+                              children: [
+                                if (_organization?.logoUrl != null)
+                                  Container(
+                                    width: 32,
+                                    height: 32,
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(8),
+                                      color: Colors.white,
+                                    ),
+                                    child: ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Image.network(
+                                        _organization!.logoUrl!,
+                                        width: 32,
+                                        height: 32,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (context, error, stackTrace) {
+                                          return Container(
+                                            width: 32,
+                                            height: 32,
+                                            decoration: BoxDecoration(
+                                              color: primaryColor,
+                                              borderRadius: BorderRadius.circular(8),
+                                            ),
+                                            child: const Icon(
+                                              Icons.business,
+                                              color: Colors.white,
+                                              size: 20,
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  Container(
+                                    width: 32,
+                                    height: 32,
+                                    decoration: BoxDecoration(
+                                      color: primaryColor,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Icon(
+                                      Icons.business,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                  ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        _organization?.name ?? 'Unknown Organization',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 25,
+                            backgroundColor: Colors.orange.shade400,
+                            backgroundImage: _userProfile?.profilePhotoUrl != null
+                                ? NetworkImage(_userProfile!.profilePhotoUrl!)
+                                : null,
+                            child: _userProfile?.profilePhotoUrl == null
+                                ? const Icon(Icons.person, color: Colors.white, size: 28)
+                                : null,
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Hello, $displayName',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 24,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const Text(
+                                  'Branch selection required',
+                                  style: TextStyle(
+                                    color: Colors.orange,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                
+                Expanded(
+                  child: Center(
+                    child: Container(
+                      margin: const EdgeInsets.all(24),
+                      padding: const EdgeInsets.all(32),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.1),
+                            blurRadius: 15,
+                            offset: const Offset(0, 5),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 80,
+                            height: 80,
+                            decoration: BoxDecoration(
+                              color: primaryColor.withValues(alpha: 0.1),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.location_on, 
+                              size: 40, 
+                              color: primaryColor,
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          const Text(
+                            'Select Your Branch',
+                            style: TextStyle(
+                              fontSize: 22, 
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Please select your work branch location before using the attendance system.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Colors.grey,
+                              fontSize: 16,
+                              height: 1.5,
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: _isLoading ? null : () => _navigateToBranchSelection(isRequired: true),
+                                  icon: _isLoading 
+                                      ? SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                          ),
+                                        )
+                                      : const Icon(Icons.location_on),
+                                  label: Text(_isLoading ? 'Loading...' : 'Select Branch'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: primaryColor,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 16),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -1128,7 +1444,7 @@ class _DashboardContentState extends State<_DashboardContent> {
           _buildStatusCard(),
           _buildOverviewCard(),
           _buildTimelineCard(),
-          const SizedBox(height: 100), // Extra space for bottom navigation
+          const SizedBox(height: 100),
         ],
       ),
     );
@@ -1225,6 +1541,43 @@ class _DashboardContentState extends State<_DashboardContent> {
                   ],
                 ),
               ),
+              // Branch selector button
+              if (_selectedBranch != null)
+                GestureDetector(
+                  onTap: () => _navigateToBranchSelection(),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.location_on,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _selectedBranch!.name,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Icon(
+                          Icons.keyboard_arrow_down,
+                          color: Colors.white,
+                          size: 16,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 20),
@@ -1323,12 +1676,64 @@ class _DashboardContentState extends State<_DashboardContent> {
               ],
             ),
             const SizedBox(height: 16),
-            Text(
-              TimezoneHelper.formatJakartaTime(DateTime.now(), 'EEEE, dd MMMM yyyy • HH:mm WIB'),
-              style: const TextStyle(
-                fontSize: 14,
-                color: Colors.grey,
-              ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  TimezoneHelper.formatJakartaTime(DateTime.now(), 'EEEE, dd MMMM yyyy • HH:mm WIB'),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey,
+                  ),
+                ),
+                if (_selectedBranch != null) ...[
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.location_on_outlined,
+                        size: 14,
+                        color: Colors.grey.shade400,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          _selectedBranch!.name,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey.shade600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (_currentPosition != null && _selectedBranch!.hasValidCoordinates) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: _attendanceService.isWithinBranchRadius(_currentPosition!, _selectedBranch!)
+                                ? Colors.green.shade50
+                                : Colors.orange.shade50,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            _attendanceService.isWithinBranchRadius(_currentPosition!, _selectedBranch!)
+                                ? 'In range'
+                                : 'Out of range',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: _attendanceService.isWithinBranchRadius(_currentPosition!, _selectedBranch!)
+                                  ? Colors.green.shade700
+                                  : Colors.orange.shade700,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ],
             ),
             if (_availableActions.isNotEmpty) ...[
               const SizedBox(height: 16),
@@ -1499,7 +1904,7 @@ class _DashboardContentState extends State<_DashboardContent> {
           else
             ListView.builder(
               shrinkWrap: true,
-              physics: NeverScrollableScrollPhysics(),
+              physics: const NeverScrollableScrollPhysics(),
               itemCount: _timelineItems.length,
               itemBuilder: (context, index) {
                 return _buildTimelineItem(_timelineItems[index]);
@@ -1660,6 +2065,7 @@ class _DashboardContentState extends State<_DashboardContent> {
   }
 }
 
+// Helper classes
 class TimelineItem {
   final String time;
   final String label;
@@ -1692,12 +2098,12 @@ class ScheduleItem {
   });
 }
 
-class Organization {
-  final int id;
+class SimpleOrganization {
+  final String id;
   final String name;
   final String? logoUrl;
 
-  Organization({
+  SimpleOrganization({
     required this.id,
     required this.name,
     this.logoUrl,

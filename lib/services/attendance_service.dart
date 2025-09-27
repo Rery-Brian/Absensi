@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/attendance_model.dart' hide Position;
+import '../models/branch_model.dart';
 import '../helpers/timezone_helper.dart';
 import '../helpers/time_helper.dart';
 
@@ -198,8 +199,31 @@ class AttendanceService {
     }
   }
 
+  // Tambahkan method untuk validasi user authorization
+  Future<void> _validateUserAccess(String organizationMemberId) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) {
+      throw Exception('No authenticated user');
+    }
+
+    final memberVerification = await _supabase
+        .from('organization_members')
+        .select('id, user_id')
+        .eq('id', organizationMemberId)
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+        .maybeSingle();
+
+    if (memberVerification == null) {
+      throw Exception('Unauthorized: Access denied to organization member data');
+    }
+  }
+
+  // Update method dengan user validation
   Future<List<AttendanceRecord>> loadTodayAttendanceRecords(String organizationMemberId) async {
     try {
+      await _validateUserAccess(organizationMemberId);
+      
       final today = TimezoneHelper.getTodayDateString();
 
       final response = await _supabase
@@ -222,8 +246,11 @@ class AttendanceService {
     }
   }
 
+  // Update method dengan user validation
   Future<List<AttendanceRecord>> loadRecentAttendanceRecords(String organizationMemberId) async {
     try {
+      await _validateUserAccess(organizationMemberId);
+      
       final response = await _supabase
           .from('attendance_records')
           .select('''
@@ -244,8 +271,11 @@ class AttendanceService {
     }
   }
 
+  // Update method dengan user validation
   Future<List<AttendanceLog>> getTodayAttendanceLogs(String organizationMemberId) async {
     try {
+      await _validateUserAccess(organizationMemberId);
+      
       final today = TimezoneHelper.getTodayDateString();
       final startOfDay = '$today 00:00:00';
       final endOfDay = '$today 23:59:59';
@@ -268,9 +298,29 @@ class AttendanceService {
     }
   }
 
+  // Ganti method loadCurrentSchedule dengan versi enhanced
   Future<MemberSchedule?> loadCurrentSchedule(String organizationMemberId) async {
     try {
       final today = TimezoneHelper.getTodayDateString();
+      final user = _supabase.auth.currentUser;
+      
+      if (user == null) {
+        throw Exception('No authenticated user');
+      }
+
+      debugPrint('Loading schedule for member: $organizationMemberId, user: ${user.id}');
+
+      // First verify that the organization member belongs to the current user
+      final memberVerification = await _supabase
+          .from('organization_members')
+          .select('id, user_id, organization_id')
+          .eq('id', organizationMemberId)
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+      if (memberVerification == null) {
+        throw Exception('Unauthorized: Organization member does not belong to current user');
+      }
 
       final scheduleResponse = await _supabase
           .from('member_schedules')
@@ -288,17 +338,129 @@ class AttendanceService {
           .maybeSingle();
 
       if (scheduleResponse != null) {
+        debugPrint('Found schedule: ${scheduleResponse}');
         return MemberSchedule.fromJson(scheduleResponse);
       } else {
-        return null;
+        debugPrint('No active schedule found, trying to find default schedule');
+        // Try to get organization's default schedule
+        final defaultSchedule = await _getDefaultScheduleForMember(
+          organizationMemberId, 
+          memberVerification['organization_id'].toString()
+        );
+        return defaultSchedule;
       }
     } catch (e) {
+      debugPrint('Error loading current schedule: $e');
       throw Exception('Error loading current schedule: $e');
     }
   }
 
+  // Tambahkan method helper untuk default schedule
+  Future<MemberSchedule?> _getDefaultScheduleForMember(String organizationMemberId, String organizationId) async {
+    try {
+      final user = _supabase.auth.currentUser;
+      if (user == null) {
+        throw Exception('No authenticated user');
+      }
+
+      // Look for default work schedule
+      final defaultWorkSchedule = await _supabase
+          .from('work_schedules')
+          .select('id, name, code, description, organization_id')
+          .eq('organization_id', organizationId)
+          .eq('is_default', true)
+          .eq('is_active', true)
+          .maybeSingle();
+
+      if (defaultWorkSchedule != null) {
+        debugPrint('Found default work schedule: ${defaultWorkSchedule['name']}');
+        
+        // Create a virtual member schedule using the default work schedule
+        return MemberSchedule(
+          id: 'default',
+          organizationMemberId: organizationMemberId,
+          workScheduleId: defaultWorkSchedule['id'].toString(),
+          shiftId: null,
+          effectiveDate: DateTime.now(),
+          endDate: null,
+          isActive: true,
+          workSchedule: WorkSchedule.fromJson(defaultWorkSchedule),
+          shift: null,
+        );
+      }
+
+      // If no default work schedule, look for default shift
+      final defaultShift = await _supabase
+          .from('shifts')
+          .select('id, name, start_time, end_time, code, organization_id')
+          .eq('organization_id', organizationId)
+          .eq('is_active', true)
+          .order('created_at')
+          .limit(1)
+          .maybeSingle();
+
+      if (defaultShift != null) {
+        debugPrint('Found default shift: ${defaultShift['name']}');
+        
+        // Create a virtual member schedule using the default shift
+        return MemberSchedule(
+          id: 'default_shift',
+          organizationMemberId: organizationMemberId,
+          workScheduleId: null,
+          shiftId: defaultShift['id'].toString(),
+          effectiveDate: DateTime.now(),
+          endDate: null,
+          isActive: true,
+          workSchedule: null,
+          shift: Shift.fromJson(defaultShift),
+        );
+      }
+
+      debugPrint('No default schedule or shift found');
+      return null;
+    } catch (e) {
+      debugPrint('Error getting default schedule: $e');
+      return null;
+    }
+  }
+
+  // Ganti method loadWorkScheduleDetails dengan versi enhanced
   Future<WorkScheduleDetails?> loadWorkScheduleDetails(String workScheduleId, int dayOfWeek) async {
     try {
+      final user = _supabase.auth.currentUser;
+      if (user == null) {
+        throw Exception('No authenticated user');
+      }
+
+      debugPrint('Loading work schedule details for schedule: $workScheduleId, day: $dayOfWeek');
+
+      // Verify user has access to this work schedule through organization membership
+      final hasAccess = await _supabase
+          .from('work_schedules')
+          .select('''
+            id,
+            organization_id
+          ''')
+          .eq('id', workScheduleId)
+          .single();
+
+      if (hasAccess == null) {
+        throw Exception('Work schedule not found');
+      }
+
+      // Verify user is member of the organization that owns this work schedule
+      final memberCheck = await _supabase
+          .from('organization_members')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('organization_id', hasAccess['organization_id'])
+          .eq('is_active', true)
+          .maybeSingle();
+
+      if (memberCheck == null) {
+        throw Exception('Unauthorized: User does not have access to this work schedule');
+      }
+
       final response = await _supabase
           .from('work_schedule_details')
           .select('*')
@@ -307,11 +469,14 @@ class AttendanceService {
           .maybeSingle();
 
       if (response != null) {
+        debugPrint('Found work schedule details: $response');
         return WorkScheduleDetails.fromJson(response);
       } else {
+        debugPrint('No work schedule details found for day $dayOfWeek');
         return null;
       }
     } catch (e) {
+      debugPrint('Error loading work schedule details: $e');
       throw Exception('Error loading work schedule details: $e');
     }
   }
@@ -368,6 +533,7 @@ class AttendanceService {
     return distance;
   }
 
+  // Method for AttendanceDevice compatibility
   bool isWithinRadius(Position currentPosition, AttendanceDevice device) {
     if (!device.hasValidCoordinates) {
       return false;
@@ -387,6 +553,30 @@ class AttendanceService {
     final withinRadius = distance <= device.radiusMeters;
     
     return withinRadius;
+  }
+
+  // New methods for Branch support
+  bool isWithinBranchRadius(Position currentPosition, Branch branch) {
+    if (!branch.hasValidCoordinates) {
+      return false;
+    }
+
+    double? distance = calculateDistanceToBranch(currentPosition, branch);
+
+    if (distance == null) {
+      return false;
+    }
+
+    return distance <= branch.radiusMeters;
+  }
+
+  double? calculateDistanceToBranch(Position currentPosition, Branch branch) {
+    return calculateDistance(
+      currentPosition.latitude,
+      currentPosition.longitude,
+      branch.latitude,
+      branch.longitude,
+    );
   }
 
   Future<String?> uploadPhoto(String imagePath) async {
@@ -766,8 +956,11 @@ class AttendanceService {
     return TimeHelper.isTimeBefore(actual, scheduled) ? diff : 0;
   }
 
+  // Update method dengan user validation
   Future<AttendanceStatus> getCurrentAttendanceStatus(String organizationMemberId) async {
     try {
+      await _validateUserAccess(organizationMemberId);
+      
       final todayRecords = await loadTodayAttendanceRecords(organizationMemberId);
       final todayLogs = await getTodayAttendanceLogs(organizationMemberId);
       
@@ -792,14 +985,17 @@ class AttendanceService {
     }
   }
 
+  // Update method dengan user validation
   Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) async {
     try {
+      await _validateUserAccess(organizationMemberId);
+      
       final status = await getCurrentAttendanceStatus(organizationMemberId);
       final schedule = await loadCurrentSchedule(organizationMemberId);
       
       WorkScheduleDetails? scheduleDetails;
       if (schedule?.workScheduleId != null) {
-        final dayOfWeek = DateTime.now().weekday;
+        final dayOfWeek = TimeHelper.getCurrentDayOfWeek();
         scheduleDetails = await loadWorkScheduleDetails(schedule!.workScheduleId!, dayOfWeek);
       }
 
@@ -911,6 +1107,8 @@ class AttendanceService {
 
   Future<void> updateBreakDuration(int organizationMemberId, int additionalMinutes) async {
     try {
+      await _validateUserAccess(organizationMemberId.toString());
+      
       final today = TimezoneHelper.getTodayDateString();
       final response = await _supabase
           .from('attendance_records')
@@ -932,6 +1130,291 @@ class AttendanceService {
     } catch (e) {
       debugPrint('Error updating break duration: $e');
       throw Exception('Failed to update break duration: $e');
+    }
+  }
+
+  // Additional helper methods dari versi original
+  Future<List<AttendanceRecord>> loadAttendanceRecordsInRange(
+    String organizationMemberId, 
+    DateTime startDate, 
+    DateTime endDate
+  ) async {
+    try {
+      await _validateUserAccess(organizationMemberId);
+      
+      final response = await _supabase
+          .from('attendance_records')
+          .select('''
+            *,
+            shifts(id, name, start_time, end_time)
+          ''')
+          .eq('organization_member_id', organizationMemberId)
+          .gte('attendance_date', startDate.toIso8601String().split('T')[0])
+          .lte('attendance_date', endDate.toIso8601String().split('T')[0])
+          .order('attendance_date', ascending: false);
+
+      final records = List<Map<String, dynamic>>.from(response)
+          .map((json) => AttendanceRecord.fromJson(json))
+          .toList();
+
+      return records;
+    } catch (e) {
+      throw Exception('Error loading attendance records in range: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>> getAttendanceSummary(
+    String organizationMemberId,
+    DateTime startDate,
+    DateTime endDate
+  ) async {
+    try {
+      await _validateUserAccess(organizationMemberId);
+      
+      final records = await loadAttendanceRecordsInRange(organizationMemberId, startDate, endDate);
+      
+      int presentDays = 0;
+      int absentDays = 0;
+      int lateDays = 0;
+      int totalLateMinutes = 0;
+      int totalOvertimeMinutes = 0;
+      int totalWorkMinutes = 0;
+
+      for (final record in records) {
+        if (record.status == 'present') {
+          presentDays++;
+          
+          if (record.lateMinutes != null && record.lateMinutes! > 0) {
+            lateDays++;
+            totalLateMinutes += record.lateMinutes!;
+          }
+          
+          if (record.overtimeMinutes != null) {
+            totalOvertimeMinutes += record.overtimeMinutes!;
+          }
+          
+          if (record.workDurationMinutes != null) {
+            totalWorkMinutes += record.workDurationMinutes!;
+          }
+        } else if (record.status == 'absent') {
+          absentDays++;
+        }
+      }
+
+      return {
+        'present_days': presentDays,
+        'absent_days': absentDays,
+        'late_days': lateDays,
+        'total_late_minutes': totalLateMinutes,
+        'total_overtime_minutes': totalOvertimeMinutes,
+        'total_work_minutes': totalWorkMinutes,
+        'average_work_hours': totalWorkMinutes > 0 ? (totalWorkMinutes / 60) / presentDays : 0,
+        'attendance_rate': records.isNotEmpty ? (presentDays / records.length * 100) : 0,
+      };
+    } catch (e) {
+      throw Exception('Error calculating attendance summary: $e');
+    }
+  }
+
+  Future<bool> hasAttendanceRecordToday(String organizationMemberId) async {
+    try {
+      await _validateUserAccess(organizationMemberId);
+      
+      final today = TimezoneHelper.getTodayDateString();
+      final response = await _supabase
+          .from('attendance_records')
+          .select('id')
+          .eq('organization_member_id', organizationMemberId)
+          .eq('attendance_date', today)
+          .limit(1)
+          .maybeSingle();
+
+      return response != null;
+    } catch (e) {
+      debugPrint('Error checking today attendance record: $e');
+      return false;
+    }
+  }
+
+  Future<AttendanceRecord?> getTodayAttendanceRecord(String organizationMemberId) async {
+    try {
+      final records = await loadTodayAttendanceRecords(organizationMemberId);
+      return records.isNotEmpty ? records.first : null;
+    } catch (e) {
+      debugPrint('Error getting today attendance record: $e');
+      return null;
+    }
+  }
+
+  Future<List<AttendanceLog>> getAttendanceLogsInRange(
+    String organizationMemberId,
+    DateTime startDate,
+    DateTime endDate
+  ) async {
+    try {
+      await _validateUserAccess(organizationMemberId);
+      
+      final startDateStr = '${startDate.toIso8601String().split('T')[0]} 00:00:00';
+      final endDateStr = '${endDate.toIso8601String().split('T')[0]} 23:59:59';
+      
+      final response = await _supabase
+          .from('attendance_logs')
+          .select('*')
+          .eq('organization_member_id', organizationMemberId)
+          .gte('event_time', startDateStr)
+          .lte('event_time', endDateStr)
+          .order('event_time', ascending: false);
+
+      final logs = List<Map<String, dynamic>>.from(response)
+          .map((json) => AttendanceLog.fromJson(json))
+          .toList();
+
+      return logs;
+    } catch (e) {
+      throw Exception('Error loading attendance logs in range: $e');
+    }
+  }
+
+  Future<bool> validateAttendancePermissions(String organizationMemberId) async {
+    try {
+      await _validateUserAccess(organizationMemberId);
+      
+      // Check if member is active and has valid schedule
+      final member = await loadOrganizationMember();
+      if (member == null || !member.isActive) {
+        throw Exception('Member account is not active');
+      }
+
+      final schedule = await loadCurrentSchedule(organizationMemberId);
+      if (schedule == null) {
+        throw Exception('No active schedule found');
+      }
+
+      // Check if today is a working day
+      final isWorkingDay = await isTodayWorkingDay(organizationMemberId);
+      if (!isWorkingDay) {
+        throw Exception('Today is not a working day');
+      }
+
+      return true;
+    } catch (e) {
+      throw Exception('Attendance validation failed: $e');
+    }
+  }
+
+  Future<Map<String, dynamic>?> getAttendanceSettings(String organizationId) async {
+    try {
+      final response = await _supabase
+          .from('attendance_settings')
+          .select('*')
+          .eq('organization_id', organizationId)
+          .eq('is_active', true)
+          .maybeSingle();
+
+      return response;
+    } catch (e) {
+      debugPrint('Error loading attendance settings: $e');
+      return null;
+    }
+  }
+
+  Future<bool> isLocationRequired(String organizationId) async {
+    try {
+      final settings = await getAttendanceSettings(organizationId);
+      return settings?['require_location'] ?? true;
+    } catch (e) {
+      return true; // Default to requiring location
+    }
+  }
+
+  Future<bool> isPhotoRequired(String organizationId, String attendanceType) async {
+    try {
+      final settings = await getAttendanceSettings(organizationId);
+      if (settings == null) return true; // Default to requiring photo
+
+      final photoSettings = settings['photo_requirements'] as Map<String, dynamic>?;
+      return photoSettings?[attendanceType] ?? true;
+    } catch (e) {
+      return true; // Default to requiring photo
+    }
+  }
+
+  Future<int> getLocationToleranceMeters(String organizationId) async {
+    try {
+      final settings = await getAttendanceSettings(organizationId);
+      return settings?['location_tolerance_meters'] ?? 100;
+    } catch (e) {
+      return 100; // Default tolerance
+    }
+  }
+
+  Future<bool> canPerformAttendanceAction(String organizationMemberId, String actionType) async {
+    try {
+      final status = await getCurrentAttendanceStatus(organizationMemberId);
+      final actions = await getAvailableActions(organizationMemberId);
+      
+      final action = actions.firstWhere(
+        (a) => a.type == actionType,
+        orElse: () => AttendanceAction(type: actionType, label: '', isEnabled: false),
+      );
+
+      return action.isEnabled;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Method to clean up old attendance photos (for maintenance)
+  Future<void> cleanupOldAttendancePhotos(int daysToKeep) async {
+    try {
+      final cutoffDate = DateTime.now().subtract(Duration(days: daysToKeep));
+      final user = _supabase.auth.currentUser;
+      
+      if (user == null) return;
+
+      // This would typically be handled by a server-side cleanup job
+      // For now, just log the cleanup request
+      debugPrint('Cleanup request for attendance photos older than $daysToKeep days');
+      
+    } catch (e) {
+      debugPrint('Error during photo cleanup: $e');
+    }
+  }
+
+  // Method to validate attendance data integrity
+  Future<List<String>> validateAttendanceDataIntegrity(String organizationMemberId) async {
+    List<String> issues = [];
+
+    try {
+      await _validateUserAccess(organizationMemberId);
+      
+      final records = await loadRecentAttendanceRecords(organizationMemberId);
+      
+      for (final record in records) {
+        // Check for missing check-out after check-in
+        if (record.hasCheckedIn && !record.hasCheckedOut) {
+          final recordDate = DateTime.parse(record.attendanceDate);
+          final daysDiff = DateTime.now().difference(recordDate).inDays;
+          
+          if (daysDiff > 0) {
+            issues.add('Missing check-out for ${record.attendanceDate}');
+          }
+        }
+
+        // Check for unrealistic work durations
+        if (record.workDurationMinutes != null && record.workDurationMinutes! > 16 * 60) {
+          issues.add('Unusually long work duration on ${record.attendanceDate}: ${(record.workDurationMinutes! / 60).toStringAsFixed(1)} hours');
+        }
+
+        // Check for missing location data
+        if (record.checkInLocation == null && record.hasCheckedIn) {
+          issues.add('Missing location data for check-in on ${record.attendanceDate}');
+        }
+      }
+
+      return issues;
+    } catch (e) {
+      return ['Error validating attendance data: $e'];
     }
   }
 }
@@ -956,6 +1439,11 @@ class AttendanceAction {
     this.isEnabled = true,
     this.reason,
   });
+
+  @override
+  String toString() {
+    return 'AttendanceAction(type: $type, label: $label, isEnabled: $isEnabled, reason: $reason)';
+  }
 }
 
 class AttendanceLog {
@@ -993,5 +1481,24 @@ class AttendanceLog {
       location: json['location'] as Map<String, dynamic>?,
       isVerified: json['is_verified'] ?? false,
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'organization_member_id': organizationMemberId,
+      'attendance_record_id': attendanceRecordId,
+      'event_type': eventType,
+      'event_time': eventTime.toIso8601String(),
+      'device_id': deviceId,
+      'method': method,
+      'location': location,
+      'is_verified': isVerified,
+    };
+  }
+
+  @override
+  String toString() {
+    return 'AttendanceLog(id: $id, eventType: $eventType, eventTime: $eventTime, isVerified: $isVerified)';
   }
 }

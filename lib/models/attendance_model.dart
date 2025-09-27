@@ -1,4 +1,4 @@
-// models/attendance_model.dart
+// models/attendance_model.dart - Updated with toJson methods
 
 class UserProfile {
   final String id;
@@ -55,7 +55,32 @@ class UserProfile {
     );
   }
 
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'employee_code': employeeCode,
+      'first_name': firstName,
+      'middle_name': middleName,
+      'last_name': lastName,
+      'display_name': displayName,
+      'phone': phone,
+      'mobile': mobile,
+      'date_of_birth': dateOfBirth?.toIso8601String().split('T')[0],
+      'gender': gender,
+      'nationality': nationality,
+      'national_id': nationalId,
+      'profile_photo_url': profilePhotoUrl,
+      'emergency_contact': emergencyContact,
+      'is_active': isActive,
+    };
+  }
+
   String get fullName => '$firstName ${middleName ?? ''} $lastName'.replaceAll('  ', ' ').trim();
+
+  @override
+  String toString() {
+    return 'UserProfile(id: $id, firstName: $firstName, lastName: $lastName, displayName: $displayName)';
+  }
 }
 
 class Organization {
@@ -124,6 +149,35 @@ class Organization {
       isActive: json['is_active'] ?? true,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'code': code,
+      'name': name,
+      'legal_name': legalName,
+      'tax_id': taxId,
+      'industry': industry,
+      'size_category': sizeCategory,
+      'timezone': timezone,
+      'currency_code': currencyCode,
+      'country_code': countryCode,
+      'address': address,
+      'city': city,
+      'state_province': stateProvince,
+      'postal_code': postalCode,
+      'phone': phone,
+      'email': email,
+      'website': website,
+      'logo_url': logoUrl,
+      'is_active': isActive,
+    };
+  }
+
+  @override
+  String toString() {
+    return 'Organization(id: $id, name: $name, code: $code)';
+  }
 }
 
 class Department {
@@ -159,6 +213,24 @@ class Department {
       isActive: json['is_active'] ?? true,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'organization_id': organizationId,
+      'parent_department_id': parentDepartmentId,
+      'code': code,
+      'name': name,
+      'description': description,
+      'head_member_id': headMemberId,
+      'is_active': isActive,
+    };
+  }
+
+  @override
+  String toString() {
+    return 'Department(id: $id, name: $name, code: $code, organizationId: $organizationId)';
+  }
 }
 
 class Position {
@@ -190,6 +262,23 @@ class Position {
       level: json['level'],
       isActive: json['is_active'] ?? true,
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'organization_id': organizationId,
+      'code': code,
+      'title': title,
+      'description': description,
+      'level': level,
+      'is_active': isActive,
+    };
+  }
+
+  @override
+  String toString() {
+    return 'Position(id: $id, title: $title, code: $code, organizationId: $organizationId)';
   }
 }
 
@@ -259,6 +348,33 @@ class OrganizationMember {
           : null,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'organization_id': organizationId,
+      'user_id': userId,
+      'employee_id': employeeId,
+      'department_id': departmentId,
+      'position_id': positionId,
+      'direct_manager_id': directManagerId,
+      'hire_date': hireDate.toIso8601String().split('T')[0],
+      'probation_end_date': probationEndDate?.toIso8601String().split('T')[0],
+      'contract_type': contractType,
+      'employment_status': employmentStatus,
+      'termination_date': terminationDate?.toIso8601String().split('T')[0],
+      'work_location': workLocation,
+      'is_active': isActive,
+      'organizations': organization?.toJson(),
+      'departments': department?.toJson(),
+      'positions': position?.toJson(),
+    };
+  }
+
+  @override
+  String toString() {
+    return 'OrganizationMember(id: $id, organizationId: $organizationId, userId: $userId, employeeId: $employeeId)';
+  }
 }
 
 class AttendanceDevice {
@@ -327,7 +443,33 @@ class AttendanceDevice {
     return null;
   }
 
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'organization_id': organizationId,
+      'device_type_id': deviceTypeId,
+      'device_code': deviceCode,
+      'device_name': deviceName,
+      'serial_number': serialNumber,
+      'ip_address': ipAddress,
+      'mac_address': macAddress,
+      'location': location,
+      'latitude': latitude,
+      'longitude': longitude,
+      'radius_meters': radiusMeters,
+      'firmware_version': firmwareVersion,
+      'last_sync_at': lastSyncAt?.toIso8601String(),
+      'is_active': isActive,
+      'configuration': configuration,
+    };
+  }
+
   bool get hasValidCoordinates => latitude != null && longitude != null;
+
+  @override
+  String toString() {
+    return 'AttendanceDevice(id: $id, deviceName: $deviceName, location: $location, hasValidCoordinates: $hasValidCoordinates)';
+  }
 }
 
 class AttendanceRecord {
@@ -425,9 +567,45 @@ class AttendanceRecord {
     return null;
   }
 
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'organization_member_id': organizationMemberId,
+      'attendance_date': attendanceDate,
+      'scheduled_shift_id': scheduledShiftId,
+      'scheduled_start': scheduledStart,
+      'scheduled_end': scheduledEnd,
+      'actual_check_in': actualCheckIn?.toIso8601String(),
+      'actual_check_out': actualCheckOut?.toIso8601String(),
+      'check_in_device_id': checkInDeviceId,
+      'check_out_device_id': checkOutDeviceId,
+      'check_in_method': checkInMethod,
+      'check_out_method': checkOutMethod,
+      'check_in_location': checkInLocation,
+      'check_out_location': checkOutLocation,
+      'check_in_photo_url': checkInPhotoUrl,
+      'check_out_photo_url': checkOutPhotoUrl,
+      'work_duration_minutes': workDurationMinutes,
+      'break_duration_minutes': breakDurationMinutes,
+      'overtime_minutes': overtimeMinutes,
+      'late_minutes': lateMinutes,
+      'early_leave_minutes': earlyLeaveMinutes,
+      'status': status,
+      'validation_status': validationStatus,
+      'validated_by': validatedBy,
+      'validated_at': validatedAt?.toIso8601String(),
+      'validation_note': validationNote,
+    };
+  }
+
   bool get hasCheckedIn => actualCheckIn != null;
   bool get hasCheckedOut => actualCheckOut != null;
   bool get canCheckOut => hasCheckedIn && !hasCheckedOut;
+
+  @override
+  String toString() {
+    return 'AttendanceRecord(id: $id, date: $attendanceDate, status: $status, hasCheckedIn: $hasCheckedIn, hasCheckedOut: $hasCheckedOut)';
+  }
 }
 
 class Shift {
@@ -472,6 +650,27 @@ class Shift {
       isActive: json['is_active'] ?? true,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'organization_id': organizationId,
+      'code': code,
+      'name': name,
+      'description': description,
+      'start_time': startTime,
+      'end_time': endTime,
+      'overnight': overnight,
+      'break_duration_minutes': breakDurationMinutes,
+      'color_code': colorCode,
+      'is_active': isActive,
+    };
+  }
+
+  @override
+  String toString() {
+    return 'Shift(id: $id, name: $name, code: $code, startTime: $startTime, endTime: $endTime)';
+  }
 }
 
 class WorkSchedule {
@@ -506,6 +705,24 @@ class WorkSchedule {
       isDefault: json['is_default'] ?? false,
       isActive: json['is_active'] ?? true,
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'organization_id': organizationId,
+      'code': code,
+      'name': name,
+      'description': description,
+      'schedule_type': scheduleType,
+      'is_default': isDefault,
+      'is_active': isActive,
+    };
+  }
+
+  @override
+  String toString() {
+    return 'WorkSchedule(id: $id, name: $name, code: $code, scheduleType: $scheduleType)';
   }
 }
 
@@ -557,6 +774,29 @@ class WorkScheduleDetails {
       minimumHours: json['minimum_hours']?.toDouble(),
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'work_schedule_id': workScheduleId,
+      'day_of_week': dayOfWeek,
+      'is_working_day': isWorkingDay,
+      'start_time': startTime,
+      'end_time': endTime,
+      'break_start': breakStart,
+      'break_end': breakEnd,
+      'break_duration_minutes': breakDurationMinutes,
+      'flexible_hours': flexibleHours,
+      'core_hours_start': coreHoursStart,
+      'core_hours_end': coreHoursEnd,
+      'minimum_hours': minimumHours,
+    };
+  }
+
+  @override
+  String toString() {
+    return 'WorkScheduleDetails(id: $id, workScheduleId: $workScheduleId, dayOfWeek: $dayOfWeek, isWorkingDay: $isWorkingDay, startTime: $startTime, endTime: $endTime)';
+  }
 }
 
 class MemberSchedule {
@@ -596,6 +836,25 @@ class MemberSchedule {
           : null,
       shift: json['shifts'] != null ? Shift.fromJson(json['shifts']) : null,
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'organization_member_id': organizationMemberId,
+      'work_schedule_id': workScheduleId,
+      'shift_id': shiftId,
+      'effective_date': effectiveDate.toIso8601String(),
+      'end_date': endDate?.toIso8601String(),
+      'is_active': isActive,
+      'work_schedules': workSchedule?.toJson(),
+      'shifts': shift?.toJson(),
+    };
+  }
+
+  @override
+  String toString() {
+    return 'MemberSchedule(id: $id, workScheduleId: $workScheduleId, shiftId: $shiftId, effectiveDate: $effectiveDate)';
   }
 }
 
@@ -643,5 +902,27 @@ class AttendanceLog {
       isVerified: json['is_verified'] ?? false,
       verificationMethod: json['verification_method'],
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'organization_member_id': organizationMemberId,
+      'attendance_record_id': attendanceRecordId,
+      'event_type': eventType,
+      'event_time': eventTime.toIso8601String(),
+      'device_id': deviceId,
+      'method': method,
+      'location': location,
+      'ip_address': ipAddress,
+      'user_agent': userAgent,
+      'is_verified': isVerified,
+      'verification_method': verificationMethod,
+    };
+  }
+
+  @override
+  String toString() {
+    return 'AttendanceLog(id: $id, eventType: $eventType, eventTime: $eventTime, isVerified: $isVerified)';
   }
 }
