@@ -8,8 +8,8 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Supabase.initialize(
-    url: 'https://mgidfodeiedfyaczqjng.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1naWRmb2RlaWVkZnlhY3pxam5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyNTEyNjcsImV4cCI6MjA3MzgyNzI2N30.yAhh8dXILji3OZqXdBHaZJmoJ4z316U-jfCNhMDi7c8',
+    url: 'https://oxkuxwkehinhyxfsauqe.supabase.co',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im94a3V4d2tlaGluaHl4ZnNhdXFlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc5NDYxOTMsImV4cCI6MjA3MzUyMjE5M30.g3BjGtZCSFxnBDwMWkaM2mEcnCkoDL92fvTP_gUgR20',
   );
 
   await initializeDateFormatting('id_ID', null);
