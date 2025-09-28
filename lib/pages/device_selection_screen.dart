@@ -1,16 +1,15 @@
-// screens/branch_selection_screen.dart
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
-import '../models/branch_model.dart';
-import '../services/branch_service.dart';
+import 'package:geolocator/geolocator.dart' as Geolocator;
+import '../models/attendance_model.dart';
+import '../services/device_service.dart';
 import '../services/attendance_service.dart';
 
-class BranchSelectionScreen extends StatefulWidget {
+class DeviceSelectionScreen extends StatefulWidget {
   final String organizationId;
   final String organizationName;
   final bool isRequired;
 
-  const BranchSelectionScreen({
+  const DeviceSelectionScreen({
     super.key,
     required this.organizationId,
     required this.organizationName,
@@ -18,18 +17,18 @@ class BranchSelectionScreen extends StatefulWidget {
   });
 
   @override
-  State<BranchSelectionScreen> createState() => _BranchSelectionScreenState();
+  State<DeviceSelectionScreen> createState() => _DeviceSelectionScreenState();
 }
 
-class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
-  final BranchService _branchService = BranchService();
+class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
+  final DeviceService _deviceService = DeviceService();
   final AttendanceService _attendanceService = AttendanceService();
   
-  List<Branch> _branches = [];
-  Branch? _selectedBranch;
+  List<AttendanceDevice> _devices = [];
+  AttendanceDevice? _selectedDevice;
   bool _isLoading = true;
   bool _isSelecting = false;
-  Position? _currentPosition;
+  Geolocator.Position? _currentPosition;
   Map<String, double> _distances = {};
 
   static const Color primaryColor = Color(0xFF6366F1);
@@ -38,26 +37,26 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
   @override
   void initState() {
     super.initState();
-    _loadBranches();
+    _loadDevices();
     _getCurrentLocation();
   }
 
-  Future<void> _loadBranches() async {
+  Future<void> _loadDevices() async {
     try {
       setState(() => _isLoading = true);
       
-      final branches = await _branchService.loadBranches(widget.organizationId);
-      final selectedBranch = await _branchService.loadSelectedBranch(widget.organizationId);
+      final devices = await _deviceService.loadDevices(widget.organizationId);
+      final selectedDevice = await _deviceService.loadSelectedDevice(widget.organizationId);
 
       setState(() {
-        _branches = branches;
-        _selectedBranch = selectedBranch;
+        _devices = devices;
+        _selectedDevice = selectedDevice;
         _isLoading = false;
       });
 
       _calculateDistances();
     } catch (e) {
-      _showSnackBar('Failed to load branches: $e', isError: true);
+      _showSnackBar('Failed to load devices: $e', isError: true);
       setState(() => _isLoading = false);
     }
   }
@@ -72,18 +71,18 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
   }
 
   void _calculateDistances() {
-    if (_currentPosition == null || _branches.isEmpty) return;
+    if (_currentPosition == null || _devices.isEmpty) return;
 
     final newDistances = <String, double>{};
-    for (final branch in _branches) {
-      if (branch.hasValidCoordinates) {
-        final distance = Geolocator.distanceBetween(
+    for (final device in _devices) {
+      if (device.hasValidCoordinates) {
+        final distance = Geolocator.Geolocator.distanceBetween(
           _currentPosition!.latitude,
           _currentPosition!.longitude,
-          branch.latitude!,
-          branch.longitude!,
+          device.latitude!,
+          device.longitude!,
         );
-        newDistances[branch.id] = distance;
+        newDistances[device.id] = distance;
       }
     }
 
@@ -92,29 +91,28 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
     });
   }
 
-  Future<void> _selectBranch(Branch branch) async {
+  Future<void> _selectDevice(AttendanceDevice device) async {
     if (_isSelecting) return;
 
     setState(() {
       _isSelecting = true;
-      _selectedBranch = branch;
+      _selectedDevice = device;
     });
 
     try {
-      await _branchService.setSelectedBranch(branch);
+      await _deviceService.setSelectedDevice(device);
       
-      _showSnackBar('${branch.name} selected successfully');
+      _showSnackBar('${device.deviceName} selected successfully');
       
-      // Wait a moment then navigate back
       await Future.delayed(const Duration(milliseconds: 500));
       
       if (mounted) {
         Navigator.of(context).pop(true);
       }
     } catch (e) {
-      _showSnackBar('Failed to select branch: $e', isError: true);
+      _showSnackBar('Failed to select device: $e', isError: true);
       setState(() {
-        _selectedBranch = null;
+        _selectedDevice = null;
       });
     } finally {
       if (mounted) {
@@ -148,7 +146,7 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
-        title: const Text('Select Branch'),
+        title: const Text('Select Device Location'),
         backgroundColor: backgroundColor,
         foregroundColor: Colors.white,
         elevation: 0,
@@ -157,7 +155,7 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
           onPressed: () => Navigator.of(context).pop(),
         ),
       ),
-      body: _isLoading ? _buildLoadingView() : _buildBranchList(),
+      body: _isLoading ? _buildLoadingView() : _buildDeviceList(),
     );
   }
 
@@ -169,7 +167,7 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
           CircularProgressIndicator(),
           SizedBox(height: 16),
           Text(
-            'Loading branches...',
+            'Loading locations...',
             style: TextStyle(fontSize: 16, color: Colors.grey),
           ),
         ],
@@ -177,14 +175,13 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
     );
   }
 
-  Widget _buildBranchList() {
-    if (_branches.isEmpty) {
+  Widget _buildDeviceList() {
+    if (_devices.isEmpty) {
       return _buildEmptyState();
     }
 
     return Column(
       children: [
-        // Header
         Container(
           width: double.infinity,
           padding: const EdgeInsets.all(20),
@@ -208,7 +205,7 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Choose your work location',
+                'Choose your attendance location',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.8),
                   fontSize: 14,
@@ -245,16 +242,14 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
             ],
           ),
         ),
-
-        // Branch list
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.all(16),
-            itemCount: _branches.length,
+            itemCount: _devices.length,
             itemBuilder: (context, index) {
-              final branch = _branches[index];
-              final distance = _distances[branch.id];
-              final isSelected = _selectedBranch?.id == branch.id;
+              final device = _devices[index];
+              final distance = _distances[device.id];
+              final isSelected = _selectedDevice?.id == device.id;
               
               return Container(
                 margin: const EdgeInsets.only(bottom: 12),
@@ -264,7 +259,7 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
                   shadowColor: isSelected ? primaryColor.withValues(alpha: 0.3) : Colors.black12,
                   child: InkWell(
                     borderRadius: BorderRadius.circular(16),
-                    onTap: _isSelecting ? null : () => _selectBranch(branch),
+                    onTap: _isSelecting ? null : () => _selectDevice(device),
                     child: Container(
                       padding: const EdgeInsets.all(20),
                       decoration: BoxDecoration(
@@ -285,7 +280,7 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Icon(
-                                  Icons.business,
+                                  _getDeviceIcon(device.deviceTypeId), // Adjusted to use deviceTypeId
                                   color: isSelected ? Colors.white : Colors.grey.shade600,
                                   size: 24,
                                 ),
@@ -296,23 +291,24 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      branch.name,
+                                      device.deviceName,
                                       style: TextStyle(
                                         fontSize: 18,
                                         fontWeight: FontWeight.w600,
                                         color: isSelected ? primaryColor : Colors.black87,
                                       ),
                                     ),
-                                    if (branch.code.isNotEmpty && branch.code != branch.name) ...[
+                                    if (device.deviceCode.isNotEmpty && device.deviceCode != device.deviceName) ...[
                                       const SizedBox(height: 2),
                                       Text(
-                                        branch.code,
+                                        device.deviceCode,
                                         style: TextStyle(
                                           fontSize: 12,
                                           color: Colors.grey.shade500,
                                         ),
                                       ),
                                     ],
+                                    // Removed deviceType.name reference since deviceType is not fetched
                                   ],
                                 ),
                               ),
@@ -342,8 +338,8 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
                               ],
                             ],
                           ),
-                          
-                          if (branch.fullAddress.isNotEmpty) ...[
+                          // Display location only if it exists and is not empty
+                          if (device.location != null && device.location!.isNotEmpty) ...[
                             const SizedBox(height: 12),
                             Row(
                               children: [
@@ -355,7 +351,7 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    branch.fullAddress,
+                                    device.location!,
                                     style: TextStyle(
                                       fontSize: 14,
                                       color: Colors.grey.shade600,
@@ -366,9 +362,7 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
                               ],
                             ),
                           ],
-
                           const SizedBox(height: 12),
-                          
                           Row(
                             children: [
                               Container(
@@ -390,7 +384,7 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
                                     ),
                                     const SizedBox(width: 4),
                                     Text(
-                                      '${branch.radiusMeters}m radius',
+                                      '${device.radiusMeters}m radius',
                                       style: TextStyle(
                                         fontSize: 12,
                                         color: Colors.green.shade700,
@@ -400,13 +394,12 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
                                   ],
                                 ),
                               ),
-                              
                               if (distance != null) ...[
                                 const SizedBox(width: 12),
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                   decoration: BoxDecoration(
-                                    color: distance <= branch.radiusMeters 
+                                    color: (distance <= device.radiusMeters) 
                                         ? Colors.blue.shade50 
                                         : Colors.orange.shade50,
                                     borderRadius: BorderRadius.circular(6),
@@ -415,11 +408,11 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Icon(
-                                        distance <= branch.radiusMeters 
+                                        (distance <= device.radiusMeters) 
                                             ? Icons.near_me 
                                             : Icons.location_searching,
                                         size: 12,
-                                        color: distance <= branch.radiusMeters 
+                                        color: (distance <= device.radiusMeters) 
                                             ? Colors.blue.shade600 
                                             : Colors.orange.shade600,
                                       ),
@@ -428,7 +421,7 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
                                         _formatDistance(distance),
                                         style: TextStyle(
                                           fontSize: 12,
-                                          color: distance <= branch.radiusMeters 
+                                          color: (distance <= device.radiusMeters) 
                                               ? Colors.blue.shade700 
                                               : Colors.orange.shade700,
                                           fontWeight: FontWeight.w500,
@@ -449,13 +442,11 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
             },
           ),
         ),
-        
-        // Bottom info
         if (!widget.isRequired)
           Container(
             padding: const EdgeInsets.all(20),
             child: Text(
-              'You can change your branch selection anytime from the profile settings.',
+              'You can change your device selection anytime from the profile settings.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 12,
@@ -494,14 +485,14 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                Icons.business_outlined,
+                Icons.devices_outlined,
                 size: 40,
                 color: Colors.grey.shade400,
               ),
             ),
             const SizedBox(height: 24),
             const Text(
-              'No Branches Available',
+              'No Devices Available',
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
@@ -510,7 +501,7 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
             ),
             const SizedBox(height: 12),
             const Text(
-              'No branches have been configured for your organization yet.',
+              'No attendance devices have been configured for your organization yet.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Colors.grey,
@@ -520,7 +511,7 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
             ),
             const SizedBox(height: 24),
             ElevatedButton.icon(
-              onPressed: _loadBranches,
+              onPressed: _loadDevices,
               icon: const Icon(Icons.refresh),
               label: const Text('Refresh'),
               style: ElevatedButton.styleFrom(
@@ -536,5 +527,24 @@ class _BranchSelectionScreenState extends State<BranchSelectionScreen> {
         ),
       ),
     );
+  }
+
+  IconData _getDeviceIcon(String deviceTypeId) {
+    // Map deviceTypeId to appropriate icons based on your system
+    // Since deviceType is not fetched, use deviceTypeId directly
+    switch (deviceTypeId.toLowerCase()) {
+      case 'rfid':
+        return Icons.credit_card;
+      case 'biometric':
+        return Icons.fingerprint;
+      case 'mobile':
+        return Icons.phone_android;
+      case 'web':
+        return Icons.web;
+      case 'qr_code':
+        return Icons.qr_code;
+      default:
+        return Icons.device_unknown;
+    }
   }
 }

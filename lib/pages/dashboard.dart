@@ -4,13 +4,14 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import '../models/attendance_model.dart' hide Position;
-import '../models/branch_model.dart';
+
 import '../services/attendance_service.dart';
-import '../services/branch_service.dart';
+
 import '../services/camera_service.dart';
 import '../pages/camera_selfie_screen.dart';
 import '../pages/break_page.dart'; 
-import '../pages/branch_selection_screen.dart';
+import '../services/device_service.dart';
+import '../pages/device_selection_screen.dart';
 import 'login.dart';
 import '../helpers/timezone_helper.dart';
 import '../helpers/time_helper.dart';
@@ -52,7 +53,7 @@ class _DashboardContent extends StatefulWidget {
 
 class _DashboardContentState extends State<_DashboardContent> {
   final AttendanceService _attendanceService = AttendanceService();
-  final BranchService _branchService = BranchService();
+  final DeviceService _deviceService = DeviceService();
   bool _isLoading = false;
   bool _isRefreshing = false;
   Position? _currentPosition;
@@ -60,14 +61,14 @@ class _DashboardContentState extends State<_DashboardContent> {
   UserProfile? _userProfile;
   OrganizationMember? _organizationMember;
   SimpleOrganization? _organization;
-  Branch? _selectedBranch;
+  AttendanceDevice? _selectedDevice;
   List<AttendanceRecord> _todayAttendanceRecords = [];
   List<AttendanceRecord> _recentAttendanceRecords = [];
   MemberSchedule? _currentSchedule;
   WorkScheduleDetails? _todayScheduleDetails;
   AttendanceStatus _currentStatus = AttendanceStatus.unknown;
   List<AttendanceAction> _availableActions = [];
-  bool _needsBranchSelection = false;
+  bool _needsDeviceSelection = false;
 
   final List<TimelineItem> _timelineItems = [];
 
@@ -102,13 +103,13 @@ class _DashboardContentState extends State<_DashboardContent> {
   }
 
   Future<void> _initializeServices() async {
-  try {
-    await CameraService.initializeCameras();
-  } catch (e) {
-    debugPrint('Error initializing services: $e');
-    _showSnackBar('Failed to initialize services. Please restart the app.', isError: true);
+    try {
+      await CameraService.initializeCameras();
+    } catch (e) {
+      debugPrint('Error initializing services: $e');
+      _showSnackBar('Failed to initialize services. Please restart the app.', isError: true);
+    }
   }
-}
 
   Future<void> _loadUserData() async {
     setState(() {
@@ -121,8 +122,8 @@ class _DashboardContentState extends State<_DashboardContent> {
         _organizationMember = await _attendanceService.loadOrganizationMember();
         if (_organizationMember != null) {
           await _loadOrganizationInfo();
-          await _checkBranchSelection();
-          if (!_needsBranchSelection) {
+          await _checkDeviceSelection();
+          if (!_needsDeviceSelection) {
             await _loadOrganizationData();
             await _loadScheduleData();
             await _updateAttendanceStatus();
@@ -146,44 +147,44 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
-  Future<void> _checkBranchSelection() async {
+  Future<void> _checkDeviceSelection() async {
     if (_organizationMember == null) return;
 
     try {
-      // Check if branch selection is required
-      final selectionRequired = await _branchService.isSelectionRequired(_organizationMember!.organizationId);
+      // Check if device selection is required
+      final selectionRequired = await _deviceService.isSelectionRequired(_organizationMember!.organizationId);
       
       if (selectionRequired) {
-        // Check if user has already selected a branch
-        final selectedBranch = await _branchService.loadSelectedBranch(_organizationMember!.organizationId);
+        // Check if user has already selected a device
+        final selectedDevice = await _deviceService.loadSelectedDevice(_organizationMember!.organizationId);
         
-        if (selectedBranch == null) {
+        if (selectedDevice == null) {
           setState(() {
-            _needsBranchSelection = true;
+            _needsDeviceSelection = true;
           });
           return;
         }
       }
 
-      // Load the selected branch
-      _selectedBranch = await _branchService.loadSelectedBranch(_organizationMember!.organizationId);
+      // Load the selected device
+      _selectedDevice = await _deviceService.loadSelectedDevice(_organizationMember!.organizationId);
       
       setState(() {
-        _needsBranchSelection = false;
+        _needsDeviceSelection = false;
       });
     } catch (e) {
-      debugPrint('Error checking branch selection: $e');
-      _showSnackBar('Failed to check branch configuration.', isError: true);
+      debugPrint('Error checking device selection: $e');
+      _showSnackBar('Failed to check device configuration.', isError: true);
     }
   }
 
-  Future<void> _navigateToBranchSelection({bool isRequired = false}) async {
+  Future<void> _navigateToDeviceSelection({bool isRequired = false}) async {
     if (_organizationMember == null) return;
 
     final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (context) => BranchSelectionScreen(
+        builder: (context) => DeviceSelectionScreen(
           organizationId: _organizationMember!.organizationId,
           organizationName: _organization?.name ?? 'Organization',
           isRequired: isRequired,
@@ -240,9 +241,9 @@ class _DashboardContentState extends State<_DashboardContent> {
       
       if (_organizationMember != null) {
         await _loadOrganizationInfo();
-        await _checkBranchSelection();
+        await _checkDeviceSelection();
         
-        if (!_needsBranchSelection) {
+        if (!_needsDeviceSelection) {
           await _loadOrganizationData();
           await _loadScheduleData();
           await _updateAttendanceStatus();
@@ -286,7 +287,7 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
- Future<void> _loadScheduleData() async {
+  Future<void> _loadScheduleData() async {
     if (_organizationMember == null) return;
 
     try {
@@ -379,82 +380,82 @@ class _DashboardContentState extends State<_DashboardContent> {
     return items;
   }
 
-String _formatTimeFromDatabase(String timeString) {
-  try {
-    // Use TimeHelper to parse and format the time properly
-    final timeOfDay = TimeHelper.parseTimeString(timeString);
-    return TimeHelper.formatTimeOfDay(timeOfDay);
-  } catch (e) {
-    debugPrint('Error formatting time from database "$timeString": $e');
-    // Fallback: try basic string manipulation
-    if (timeString.contains(':')) {
-      final parts = timeString.split(':');
-      if (parts.length >= 2) {
-        final hour = int.tryParse(parts[0])?.toString().padLeft(2, '0') ?? '00';
-        final minute = int.tryParse(parts[1])?.toString().padLeft(2, '0') ?? '00';
-        return '$hour:$minute';
-      }
-    }
-    return timeString; // Return original if all else fails
-  }
-}
-
-Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
-  List<ScheduleItem> items = [];
-  
-  try {
-    dynamic shiftIdValue;
+  String _formatTimeFromDatabase(String timeString) {
     try {
-      shiftIdValue = int.parse(_currentSchedule!.shiftId!);
+      // Use TimeHelper to parse and format the time properly
+      final timeOfDay = TimeHelper.parseTimeString(timeString);
+      return TimeHelper.formatTimeOfDay(timeOfDay);
     } catch (e) {
-      shiftIdValue = _currentSchedule!.shiftId!;
+      debugPrint('Error formatting time from database "$timeString": $e');
+      // Fallback: try basic string manipulation
+      if (timeString.contains(':')) {
+        final parts = timeString.split(':');
+        if (parts.length >= 2) {
+          final hour = int.tryParse(parts[0])?.toString().padLeft(2, '0') ?? '00';
+          final minute = int.tryParse(parts[1])?.toString().padLeft(2, '0') ?? '00';
+          return '$hour:$minute';
+        }
+      }
+      return timeString; // Return original if all else fails
     }
+  }
 
-    final shiftResponse = await Supabase.instance.client
-        .from('shifts')
-        .select('start_time, end_time, break_duration_minutes')
-        .eq('id', shiftIdValue)
-        .single();
+  Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
+    List<ScheduleItem> items = [];
     
-    if (shiftResponse != null) {
-      items.add(ScheduleItem(
-        time: _formatTimeFromDatabase(shiftResponse['start_time']),
-        label: 'Check In',
-        type: AttendanceActionType.checkIn,
-        subtitle: 'Start work day',
-      ));
+    try {
+      dynamic shiftIdValue;
+      try {
+        shiftIdValue = int.parse(_currentSchedule!.shiftId!);
+      } catch (e) {
+        shiftIdValue = _currentSchedule!.shiftId!;
+      }
+
+      final shiftResponse = await Supabase.instance.client
+          .from('shifts')
+          .select('start_time, end_time, break_duration_minutes')
+          .eq('id', shiftIdValue)
+          .single();
       
-      if (shiftResponse['break_duration_minutes'] != null && 
-          shiftResponse['break_duration_minutes'] > 0) {
+      if (shiftResponse != null) {
+        items.add(ScheduleItem(
+          time: _formatTimeFromDatabase(shiftResponse['start_time']),
+          label: 'Check In',
+          type: AttendanceActionType.checkIn,
+          subtitle: 'Start work day',
+        ));
         
-        final startTime = TimeHelper.parseTimeString(_formatTimeFromDatabase(shiftResponse['start_time']));
-        final endTime = TimeHelper.parseTimeString(_formatTimeFromDatabase(shiftResponse['end_time']));
-        
-        final totalMinutes = TimeHelper.timeToMinutes(endTime) - TimeHelper.timeToMinutes(startTime);
-        final breakStartMinutes = TimeHelper.timeToMinutes(startTime) + (totalMinutes ~/ 2);
+        if (shiftResponse['break_duration_minutes'] != null && 
+            shiftResponse['break_duration_minutes'] > 0) {
+          
+          final startTime = TimeHelper.parseTimeString(_formatTimeFromDatabase(shiftResponse['start_time']));
+          final endTime = TimeHelper.parseTimeString(_formatTimeFromDatabase(shiftResponse['end_time']));
+          
+          final totalMinutes = TimeHelper.timeToMinutes(endTime) - TimeHelper.timeToMinutes(startTime);
+          final breakStartMinutes = TimeHelper.timeToMinutes(startTime) + (totalMinutes ~/ 2);
+          
+          items.add(ScheduleItem(
+            time: TimeHelper.formatTimeOfDay(TimeHelper.minutesToTime(breakStartMinutes)),
+            label: 'Break',
+            type: AttendanceActionType.breakOut,
+            subtitle: 'Take a break',
+          ));
+        }
         
         items.add(ScheduleItem(
-          time: TimeHelper.formatTimeOfDay(TimeHelper.minutesToTime(breakStartMinutes)),
-          label: 'Break',
-          type: AttendanceActionType.breakOut,
-          subtitle: 'Take a break',
+          time: _formatTimeFromDatabase(shiftResponse['end_time']),
+          label: 'Check Out',
+          type: AttendanceActionType.checkOut,
+          subtitle: 'End work day',
         ));
       }
       
-      items.add(ScheduleItem(
-        time: _formatTimeFromDatabase(shiftResponse['end_time']),
-        label: 'Check Out',
-        type: AttendanceActionType.checkOut,
-        subtitle: 'End work day',
-      ));
+    } catch (e) {
+      debugPrint('Error getting schedule from shift: $e');
     }
     
-  } catch (e) {
-    debugPrint('Error getting schedule from shift: $e');
+    return items;
   }
-  
-  return items;
-}
 
   Future<void> _buildDynamicTimeline() async {
     _timelineItems.clear();
@@ -598,6 +599,11 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
       int memberId = int.parse(_organizationMember!.id);
       int? deviceId;
 
+      // Use selected device if available
+      if (_selectedDevice != null) {
+        deviceId = int.tryParse(_selectedDevice!.id);
+      }
+
       final result = await Navigator.push<bool>(
         context,
         MaterialPageRoute(
@@ -635,8 +641,8 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
         return;
       }
 
-      if (_selectedBranch == null || !_selectedBranch!.hasValidCoordinates) {
-        _showSnackBar('Branch location not configured. Please select a valid branch.', isError: true);
+      if (_selectedDevice == null || !_selectedDevice!.hasValidCoordinates) {
+        _showSnackBar('Device location not configured. Please select a valid device.', isError: true);
         return;
       }
 
@@ -646,14 +652,19 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
         return;
       }
 
-      // Use the new branch-specific methods
-      if (!_attendanceService.isWithinBranchRadius(_currentPosition!, _selectedBranch!)) {
-        final distance = _attendanceService.calculateDistanceToBranch(_currentPosition!, _selectedBranch!);
+      // Use the attendance device radius check
+      if (!_attendanceService.isWithinRadius(_currentPosition!, _selectedDevice!)) {
+        final distance = _attendanceService.calculateDistance(
+          _currentPosition!.latitude,
+          _currentPosition!.longitude,
+          _selectedDevice!.latitude,
+          _selectedDevice!.longitude,
+        );
         
         _showSnackBar(
           distance != null
-              ? 'You are outside branch radius (${distance.toStringAsFixed(0)}m from ${_selectedBranch!.radiusMeters}m)'
-              : 'Cannot calculate distance to branch',
+              ? 'You are outside device radius (${distance.toStringAsFixed(0)}m from ${_selectedDevice!.radiusMeters}m)'
+              : 'Cannot calculate distance to device',
           isError: true,
         );
         return;
@@ -686,6 +697,7 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
         organizationMemberId: _organizationMember!.id,
         currentPosition: _currentPosition!,
         photoUrl: photoUrl ?? '',
+        device: _selectedDevice,
         schedule: _currentSchedule,
         todayRecords: _todayAttendanceRecords,
         scheduleDetails: _todayScheduleDetails,
@@ -874,7 +886,7 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
       case 'break_in':
         return 'Work resumed';
       default:
-       return 'Attendance recorded';
+        return 'Attendance recorded';
     }
   }
 
@@ -916,9 +928,9 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
   Widget build(BuildContext context) {
     final displayName = _getDisplayName();
 
-    // Check for branch selection requirement
-    if (_needsBranchSelection) {
-      return _buildBranchSelectionRequiredView();
+    // Check for device selection requirement
+    if (_needsDeviceSelection) {
+      return _buildDeviceSelectionRequiredView();
     }
 
     return Scaffold(
@@ -934,7 +946,7 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
     );
   }
 
-  Widget _buildBranchSelectionRequiredView() {
+  Widget _buildDeviceSelectionRequiredView() {
     final displayName = _getDisplayName();
 
     return Scaffold(
@@ -1068,7 +1080,7 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
                                   ),
                                 ),
                                 const Text(
-                                  'Branch selection required',
+                                  'Device selection required',
                                   style: TextStyle(
                                     color: Colors.orange,
                                     fontSize: 14,
@@ -1111,14 +1123,14 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
                               shape: BoxShape.circle,
                             ),
                             child: Icon(
-                              Icons.location_on, 
+                              Icons.devices, 
                               size: 40, 
                               color: primaryColor,
                             ),
                           ),
                           const SizedBox(height: 24),
                           const Text(
-                            'Select Your Branch',
+                            'Select Your Device',
                             style: TextStyle(
                               fontSize: 22, 
                               fontWeight: FontWeight.bold,
@@ -1128,7 +1140,7 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
                           ),
                           const SizedBox(height: 12),
                           const Text(
-                            'Please select your work branch location before using the attendance system.',
+                            'Please select your attendance device location before using the attendance system.',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               color: Colors.grey,
@@ -1141,7 +1153,7 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
                             children: [
                               Expanded(
                                 child: ElevatedButton.icon(
-                                  onPressed: _isLoading ? null : () => _navigateToBranchSelection(isRequired: true),
+                                  onPressed: _isLoading ? null : () => _navigateToDeviceSelection(isRequired: true),
                                   icon: _isLoading 
                                       ? SizedBox(
                                           width: 16,
@@ -1151,8 +1163,8 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
                                             valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                                           ),
                                         )
-                                      : const Icon(Icons.location_on),
-                                  label: Text(_isLoading ? 'Loading...' : 'Select Branch'),
+                                      : const Icon(Icons.devices),
+                                  label: Text(_isLoading ? 'Loading...' : 'Select Device'),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: primaryColor,
                                     foregroundColor: Colors.white,
@@ -1489,10 +1501,10 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
                   ],
                 ),
               ),
-              // Branch selector button
-              if (_selectedBranch != null)
+              // Device selector button
+              if (_selectedDevice != null)
                 GestureDetector(
-                  onTap: () => _navigateToBranchSelection(),
+                  onTap: () => _navigateToDeviceSelection(),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
@@ -1503,13 +1515,13 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const Icon(
-                          Icons.location_on,
+                          Icons.devices,
                           color: Colors.white,
                           size: 16,
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          _selectedBranch!.name,
+                          _selectedDevice!.deviceName,
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 12,
@@ -1625,31 +1637,31 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
             ),
             const SizedBox(height: 16),
             Column(
-  crossAxisAlignment: CrossAxisAlignment.start,
-  children: [
-    Text(
-      TimezoneHelper.formatOrgTime(
-        TimezoneHelper.nowInOrgTime(),
-        'EEEE, dd MMMM yyyy • HH:mm z'
-      ),
-      style: const TextStyle(
-        fontSize: 14,
-        color: Colors.grey,
-      ),
-    ),
-                if (_selectedBranch != null) ...[
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  TimezoneHelper.formatOrgTime(
+                    TimezoneHelper.nowInOrgTime(),
+                    'EEEE, dd MMMM yyyy • HH:mm z'
+                  ),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey,
+                  ),
+                ),
+                if (_selectedDevice != null) ...[
                   const SizedBox(height: 8),
                   Row(
                     children: [
                       Icon(
-                        Icons.location_on_outlined,
+                        Icons.devices_outlined,
                         size: 14,
                         color: Colors.grey.shade400,
                       ),
                       const SizedBox(width: 4),
                       Expanded(
                         child: Text(
-                          _selectedBranch!.name,
+                          _selectedDevice!.deviceName,
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey.shade600,
@@ -1657,23 +1669,23 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      if (_currentPosition != null && _selectedBranch!.hasValidCoordinates) ...[
+                      if (_currentPosition != null && _selectedDevice!.hasValidCoordinates) ...[
                         const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: _attendanceService.isWithinBranchRadius(_currentPosition!, _selectedBranch!)
+                            color: _attendanceService.isWithinRadius(_currentPosition!, _selectedDevice!)
                                 ? Colors.green.shade50
                                 : Colors.orange.shade50,
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
-                            _attendanceService.isWithinBranchRadius(_currentPosition!, _selectedBranch!)
+                            _attendanceService.isWithinRadius(_currentPosition!, _selectedDevice!)
                                 ? 'In range'
                                 : 'Out of range',
                             style: TextStyle(
                               fontSize: 10,
-                              color: _attendanceService.isWithinBranchRadius(_currentPosition!, _selectedBranch!)
+                              color: _attendanceService.isWithinRadius(_currentPosition!, _selectedDevice!)
                                   ? Colors.green.shade700
                                   : Colors.orange.shade700,
                               fontWeight: FontWeight.w500,

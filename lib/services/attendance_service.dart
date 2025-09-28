@@ -1,10 +1,8 @@
-// services/attendance_service.dart
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import '../models/attendance_model.dart' hide Position;
-import '../models/branch_model.dart';
 import '../helpers/timezone_helper.dart';
 import '../helpers/time_helper.dart';
 
@@ -94,16 +92,15 @@ class AttendanceService {
       Map<String, dynamic>? posDetails;
 
       orgDetails = await _supabase
-    .from('organizations')
-    .select('id, name, code, timezone')
-    .eq('id', memberResponse['organization_id'])
-    .single();
+          .from('organizations')
+          .select('id, name, code, timezone')
+          .eq('id', memberResponse['organization_id'])
+          .single();
 
-// Initialize timezone dari database organization
-if (orgDetails?['timezone'] != null) {
-  TimezoneHelper.initialize(orgDetails!['timezone']);
-  debugPrint('Organization timezone loaded: ${orgDetails['timezone']}');
-}
+      if (orgDetails?['timezone'] != null) {
+        TimezoneHelper.initialize(orgDetails!['timezone']);
+        debugPrint('Organization timezone loaded: ${orgDetails['timezone']}');
+      }
 
       if (memberResponse['department_id'] != null) {
         deptDetails = await _supabase
@@ -137,16 +134,15 @@ if (orgDetails?['timezone'] != null) {
   Future<bool> tryAutoRegisterToOrganization(String userId) async {
     try {
       final defaultOrg = await _supabase
-    .from('organizations')
-    .select('id, code, timezone')
-    .eq('code', 'COMPANY001')
-    .maybeSingle();
+          .from('organizations')
+          .select('id, code, timezone')
+          .eq('code', 'COMPANY001')
+          .maybeSingle();
 
-// Initialize timezone untuk default org
-if (defaultOrg?['timezone'] != null) {
-  TimezoneHelper.initialize(defaultOrg!['timezone']);
-  debugPrint('Default organization timezone loaded: ${defaultOrg['timezone']}');
-}
+      if (defaultOrg?['timezone'] != null) {
+        TimezoneHelper.initialize(defaultOrg!['timezone']);
+        debugPrint('Default organization timezone loaded: ${defaultOrg['timezone']}');
+      }
           
       if (defaultOrg == null) {
         return false;
@@ -191,10 +187,7 @@ if (defaultOrg?['timezone'] != null) {
     try {
       final deviceResponse = await _supabase
           .from('attendance_devices')
-          .select('''
-            *,
-            device_types(name, category)
-          ''')
+          .select('*') // Simplified, removed device_types join
           .eq('organization_id', organizationId)
           .eq('is_active', true)
           .order('created_at')
@@ -211,7 +204,6 @@ if (defaultOrg?['timezone'] != null) {
     }
   }
 
-  // Tambahkan method untuk validasi user authorization
   Future<void> _validateUserAccess(String organizationMemberId) async {
     final user = _supabase.auth.currentUser;
     if (user == null) {
@@ -231,7 +223,6 @@ if (defaultOrg?['timezone'] != null) {
     }
   }
 
-  // Update method dengan user validation
   Future<List<AttendanceRecord>> loadTodayAttendanceRecords(String organizationMemberId) async {
     try {
       await _validateUserAccess(organizationMemberId);
@@ -258,7 +249,6 @@ if (defaultOrg?['timezone'] != null) {
     }
   }
 
-  // Update method dengan user validation
   Future<List<AttendanceRecord>> loadRecentAttendanceRecords(String organizationMemberId) async {
     try {
       await _validateUserAccess(organizationMemberId);
@@ -283,7 +273,6 @@ if (defaultOrg?['timezone'] != null) {
     }
   }
 
-  // Update method dengan user validation
   Future<List<AttendanceLog>> getTodayAttendanceLogs(String organizationMemberId) async {
     try {
       await _validateUserAccess(organizationMemberId);
@@ -310,7 +299,6 @@ if (defaultOrg?['timezone'] != null) {
     }
   }
 
-  // Ganti method loadCurrentSchedule dengan versi enhanced
   Future<MemberSchedule?> loadCurrentSchedule(String organizationMemberId) async {
     try {
       final today = TimezoneHelper.getTodayDateString();
@@ -322,7 +310,6 @@ if (defaultOrg?['timezone'] != null) {
 
       debugPrint('Loading schedule for member: $organizationMemberId, user: ${user.id}');
 
-      // First verify that the organization member belongs to the current user
       final memberVerification = await _supabase
           .from('organization_members')
           .select('id, user_id, organization_id')
@@ -354,12 +341,10 @@ if (defaultOrg?['timezone'] != null) {
         return MemberSchedule.fromJson(scheduleResponse);
       } else {
         debugPrint('No active schedule found, trying to find default schedule');
-        // Try to get organization's default schedule
-        final defaultSchedule = await _getDefaultScheduleForMember(
+        return await _getDefaultScheduleForMember(
           organizationMemberId, 
           memberVerification['organization_id'].toString()
         );
-        return defaultSchedule;
       }
     } catch (e) {
       debugPrint('Error loading current schedule: $e');
@@ -367,7 +352,6 @@ if (defaultOrg?['timezone'] != null) {
     }
   }
 
-  // Tambahkan method helper untuk default schedule
   Future<MemberSchedule?> _getDefaultScheduleForMember(String organizationMemberId, String organizationId) async {
     try {
       final user = _supabase.auth.currentUser;
@@ -375,7 +359,6 @@ if (defaultOrg?['timezone'] != null) {
         throw Exception('No authenticated user');
       }
 
-      // Look for default work schedule
       final defaultWorkSchedule = await _supabase
           .from('work_schedules')
           .select('id, name, code, description, organization_id')
@@ -387,7 +370,6 @@ if (defaultOrg?['timezone'] != null) {
       if (defaultWorkSchedule != null) {
         debugPrint('Found default work schedule: ${defaultWorkSchedule['name']}');
         
-        // Create a virtual member schedule using the default work schedule
         return MemberSchedule(
           id: 'default',
           organizationMemberId: organizationMemberId,
@@ -401,7 +383,6 @@ if (defaultOrg?['timezone'] != null) {
         );
       }
 
-      // If no default work schedule, look for default shift
       final defaultShift = await _supabase
           .from('shifts')
           .select('id, name, start_time, end_time, code, organization_id')
@@ -414,7 +395,6 @@ if (defaultOrg?['timezone'] != null) {
       if (defaultShift != null) {
         debugPrint('Found default shift: ${defaultShift['name']}');
         
-        // Create a virtual member schedule using the default shift
         return MemberSchedule(
           id: 'default_shift',
           organizationMemberId: organizationMemberId,
@@ -436,7 +416,6 @@ if (defaultOrg?['timezone'] != null) {
     }
   }
 
-  // Ganti method loadWorkScheduleDetails dengan versi enhanced
   Future<WorkScheduleDetails?> loadWorkScheduleDetails(String workScheduleId, int dayOfWeek) async {
     try {
       final user = _supabase.auth.currentUser;
@@ -446,13 +425,9 @@ if (defaultOrg?['timezone'] != null) {
 
       debugPrint('Loading work schedule details for schedule: $workScheduleId, day: $dayOfWeek');
 
-      // Verify user has access to this work schedule through organization membership
       final hasAccess = await _supabase
           .from('work_schedules')
-          .select('''
-            id,
-            organization_id
-          ''')
+          .select('id, organization_id')
           .eq('id', workScheduleId)
           .single();
 
@@ -460,7 +435,6 @@ if (defaultOrg?['timezone'] != null) {
         throw Exception('Work schedule not found');
       }
 
-      // Verify user is member of the organization that owns this work schedule
       final memberCheck = await _supabase
           .from('organization_members')
           .select('id')
@@ -498,7 +472,7 @@ if (defaultOrg?['timezone'] != null) {
       final schedule = await loadCurrentSchedule(organizationMemberId);
       if (schedule?.workScheduleId != null) {
         final today = DateTime.now();
-        final dayOfWeek = today.weekday; // Monday=1, ..., Sunday=7
+        final dayOfWeek = today.weekday;
         final scheduleDetails = await loadWorkScheduleDetails(schedule!.workScheduleId!, dayOfWeek);
         return scheduleDetails?.isWorkingDay ?? true;
       }
@@ -545,7 +519,6 @@ if (defaultOrg?['timezone'] != null) {
     return distance;
   }
 
-  // Method for AttendanceDevice compatibility
   bool isWithinRadius(Position currentPosition, AttendanceDevice device) {
     if (!device.hasValidCoordinates) {
       return false;
@@ -562,33 +535,7 @@ if (defaultOrg?['timezone'] != null) {
       return false;
     }
 
-    final withinRadius = distance <= device.radiusMeters;
-    
-    return withinRadius;
-  }
-
-  // New methods for Branch support
-  bool isWithinBranchRadius(Position currentPosition, Branch branch) {
-    if (!branch.hasValidCoordinates) {
-      return false;
-    }
-
-    double? distance = calculateDistanceToBranch(currentPosition, branch);
-
-    if (distance == null) {
-      return false;
-    }
-
-    return distance <= branch.radiusMeters;
-  }
-
-  double? calculateDistanceToBranch(Position currentPosition, Branch branch) {
-    return calculateDistance(
-      currentPosition.latitude,
-      currentPosition.longitude,
-      branch.latitude,
-      branch.longitude,
-    );
+    return distance <= device.radiusMeters;
   }
 
   Future<String?> uploadPhoto(String imagePath) async {
@@ -599,8 +546,8 @@ if (defaultOrg?['timezone'] != null) {
       }
 
       final orgTime = TimezoneHelper.nowInOrgTime();
-final timestamp = orgTime.millisecondsSinceEpoch;
-      final fileName = '${user.id}/${timestamp}.jpg';
+      final timestamp = orgTime.millisecondsSinceEpoch;
+      final fileName = '${user.id}/$timestamp.jpg';
       final file = File(imagePath);
 
       await _supabase.storage
@@ -968,7 +915,6 @@ final timestamp = orgTime.millisecondsSinceEpoch;
     return TimeHelper.isTimeBefore(actual, scheduled) ? diff : 0;
   }
 
-  // Update method dengan user validation
   Future<AttendanceStatus> getCurrentAttendanceStatus(String organizationMemberId) async {
     try {
       await _validateUserAccess(organizationMemberId);
@@ -997,7 +943,6 @@ final timestamp = orgTime.millisecondsSinceEpoch;
     }
   }
 
-  // Update method dengan user validation
   Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) async {
     try {
       await _validateUserAccess(organizationMemberId);
@@ -1145,7 +1090,6 @@ final timestamp = orgTime.millisecondsSinceEpoch;
     }
   }
 
-  // Additional helper methods dari versi original
   Future<List<AttendanceRecord>> loadAttendanceRecordsInRange(
     String organizationMemberId, 
     DateTime startDate, 
@@ -1291,7 +1235,6 @@ final timestamp = orgTime.millisecondsSinceEpoch;
     try {
       await _validateUserAccess(organizationMemberId);
       
-      // Check if member is active and has valid schedule
       final member = await loadOrganizationMember();
       if (member == null || !member.isActive) {
         throw Exception('Member account is not active');
@@ -1302,7 +1245,6 @@ final timestamp = orgTime.millisecondsSinceEpoch;
         throw Exception('No active schedule found');
       }
 
-      // Check if today is a working day
       final isWorkingDay = await isTodayWorkingDay(organizationMemberId);
       if (!isWorkingDay) {
         throw Exception('Today is not a working day');
@@ -1335,19 +1277,19 @@ final timestamp = orgTime.millisecondsSinceEpoch;
       final settings = await getAttendanceSettings(organizationId);
       return settings?['require_location'] ?? true;
     } catch (e) {
-      return true; // Default to requiring location
+      return true;
     }
   }
 
   Future<bool> isPhotoRequired(String organizationId, String attendanceType) async {
     try {
       final settings = await getAttendanceSettings(organizationId);
-      if (settings == null) return true; // Default to requiring photo
+      if (settings == null) return true;
 
       final photoSettings = settings['photo_requirements'] as Map<String, dynamic>?;
       return photoSettings?[attendanceType] ?? true;
     } catch (e) {
-      return true; // Default to requiring photo
+      return true;
     }
   }
 
@@ -1356,7 +1298,7 @@ final timestamp = orgTime.millisecondsSinceEpoch;
       final settings = await getAttendanceSettings(organizationId);
       return settings?['location_tolerance_meters'] ?? 100;
     } catch (e) {
-      return 100; // Default tolerance
+      return 100;
     }
   }
 
@@ -1376,16 +1318,12 @@ final timestamp = orgTime.millisecondsSinceEpoch;
     }
   }
 
-  // Method to clean up old attendance photos (for maintenance)
   Future<void> cleanupOldAttendancePhotos(int daysToKeep) async {
     try {
-      final cutoffDate = DateTime.now().subtract(Duration(days: daysToKeep));
       final user = _supabase.auth.currentUser;
       
       if (user == null) return;
 
-      // This would typically be handled by a server-side cleanup job
-      // For now, just log the cleanup request
       debugPrint('Cleanup request for attendance photos older than $daysToKeep days');
       
     } catch (e) {
@@ -1393,7 +1331,6 @@ final timestamp = orgTime.millisecondsSinceEpoch;
     }
   }
 
-  // Method to validate attendance data integrity
   Future<List<String>> validateAttendanceDataIntegrity(String organizationMemberId) async {
     List<String> issues = [];
 
@@ -1403,7 +1340,6 @@ final timestamp = orgTime.millisecondsSinceEpoch;
       final records = await loadRecentAttendanceRecords(organizationMemberId);
       
       for (final record in records) {
-        // Check for missing check-out after check-in
         if (record.hasCheckedIn && !record.hasCheckedOut) {
           final recordDate = DateTime.parse(record.attendanceDate);
           final daysDiff = DateTime.now().difference(recordDate).inDays;
@@ -1413,12 +1349,10 @@ final timestamp = orgTime.millisecondsSinceEpoch;
           }
         }
 
-        // Check for unrealistic work durations
         if (record.workDurationMinutes != null && record.workDurationMinutes! > 16 * 60) {
           issues.add('Unusually long work duration on ${record.attendanceDate}: ${(record.workDurationMinutes! / 60).toStringAsFixed(1)} hours');
         }
 
-        // Check for missing location data
         if (record.checkInLocation == null && record.hasCheckedIn) {
           issues.add('Missing location data for check-in on ${record.attendanceDate}');
         }
@@ -1455,62 +1389,5 @@ class AttendanceAction {
   @override
   String toString() {
     return 'AttendanceAction(type: $type, label: $label, isEnabled: $isEnabled, reason: $reason)';
-  }
-}
-
-class AttendanceLog {
-  final String id;
-  final String organizationMemberId;
-  final String? attendanceRecordId;
-  final String eventType;
-  final DateTime eventTime;
-  final String? deviceId;
-  final String method;
-  final Map<String, dynamic>? location;
-  final bool isVerified;
-
-  AttendanceLog({
-    required this.id,
-    required this.organizationMemberId,
-    this.attendanceRecordId,
-    required this.eventType,
-    required this.eventTime,
-    this.deviceId,
-    required this.method,
-    this.location,
-    required this.isVerified,
-  });
-
-  factory AttendanceLog.fromJson(Map<String, dynamic> json) {
-    return AttendanceLog(
-      id: json['id']?.toString() ?? '',
-      organizationMemberId: json['organization_member_id']?.toString() ?? '',
-      attendanceRecordId: json['attendance_record_id']?.toString(),
-      eventType: json['event_type']?.toString() ?? '',
-      eventTime: DateTime.parse(json['event_time']),
-      deviceId: json['device_id']?.toString(),
-      method: json['method']?.toString() ?? '',
-      location: json['location'] as Map<String, dynamic>?,
-      isVerified: json['is_verified'] ?? false,
-    );
-  }
-
-  Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'organization_member_id': organizationMemberId,
-      'attendance_record_id': attendanceRecordId,
-      'event_type': eventType,
-      'event_time': eventTime.toIso8601String(),
-      'device_id': deviceId,
-      'method': method,
-      'location': location,
-      'is_verified': isVerified,
-    };
-  }
-
-  @override
-  String toString() {
-    return 'AttendanceLog(id: $id, eventType: $eventType, eventTime: $eventTime, isVerified: $isVerified)';
   }
 }
