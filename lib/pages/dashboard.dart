@@ -72,24 +72,39 @@ class _DashboardContentState extends State<_DashboardContent> {
   List<AttendanceAction> _availableActions = [];
   bool _needsDeviceSelection = false;
   Timer? _debounceTimer; // Timer untuk debounce pembaruan GPS
+  Timer? _periodicLocationTimer; // Timer untuk pembaruan GPS berkala
+  bool _isLocationUpdating = false; // Track location update status
 
   final List<TimelineItem> _timelineItems = [];
 
   static const Color primaryColor = Color(0xFF6366F1);
   static const Color backgroundColor = Color(0xFF1F2937);
   static const double minGpsAccuracy = 20.0; // Akurasi GPS minimum dalam meter
+  static const int maxGpsRetries = 3; // Maximum number of GPS retry attempts
+  static const Duration gpsRetryDelay = Duration(seconds: 2); // Delay between retries
+  static const Duration locationUpdateInterval = Duration(seconds: 30); // Interval for periodic location updates
 
   @override
   void initState() {
     super.initState();
     _initializeServices();
     _loadUserData();
+    _startPeriodicLocationUpdates();
   }
 
   @override
   void dispose() {
     _debounceTimer?.cancel();
+    _periodicLocationTimer?.cancel();
     super.dispose();
+  }
+
+  void _startPeriodicLocationUpdates() {
+    _periodicLocationTimer = Timer.periodic(locationUpdateInterval, (timer) async {
+      if (mounted && !_isLocationUpdating && _selectedDevice != null) {
+        await _updateGpsPositionAndDistance(debounce: false, retryCount: 0);
+      }
+    });
   }
 
   Future<void> refreshUserProfile() async {
@@ -193,7 +208,7 @@ class _DashboardContentState extends State<_DashboardContent> {
       }
 
       // Update GPS position and calculate distance
-      await _updateGpsPositionAndDistance(debounce: false);
+      await _updateGpsPositionAndDistance(debounce: false, retryCount: 0);
 
       setState(() {
         _needsDeviceSelection = false;
@@ -238,57 +253,76 @@ class _DashboardContentState extends State<_DashboardContent> {
         }
         _needsDeviceSelection = false;
       });
-      await _updateGpsPositionAndDistance(debounce: false);
+      await _updateGpsPositionAndDistance(debounce: false, retryCount: 0);
       await _refreshData();
     }
   }
 
-  Future<void> _updateGpsPositionAndDistance({bool debounce = true}) async {
+  Future<void> _updateGpsPositionAndDistance({bool debounce = true, int retryCount = 0}) async {
+    if (_isLocationUpdating) return; // Prevent concurrent location updates
+    setState(() {
+      _isLocationUpdating = true;
+    });
+
     if (debounce) {
-      // Batalkan timer sebelumnya jika ada
       _debounceTimer?.cancel();
-      // Atur timer untuk menunda pembaruan GPS
       _debounceTimer = Timer(const Duration(seconds: 2), () async {
-        await _performGpsUpdate();
+        await _performGpsUpdate(retryCount);
       });
     } else {
-      await _performGpsUpdate();
+      await _performGpsUpdate(retryCount);
     }
   }
 
-  Future<void> _performGpsUpdate() async {
+  Future<void> _performGpsUpdate(int retryCount) async {
     try {
-      // Get actual GPS position with accuracy check
       final position = await _attendanceService.getCurrentLocation();
       if (position != null && position.accuracy <= minGpsAccuracy) {
-        _gpsPosition = position;
-        if (_selectedDevice != null && _selectedDevice!.hasValidCoordinates) {
-          _distanceToDevice = Geolocator.distanceBetween(
-            _gpsPosition!.latitude,
-            _gpsPosition!.longitude,
-            _selectedDevice!.latitude!,
-            _selectedDevice!.longitude!,
-          );
-          _isWithinRadius = _attendanceService.isWithinRadius(_gpsPosition!, _selectedDevice!);
-          debugPrint('Distance to device: ${_distanceToDevice?.toStringAsFixed(0)}m, In range: $_isWithinRadius');
-        } else {
-          _distanceToDevice = null;
-          _isWithinRadius = null;
-        }
+        setState(() {
+          _gpsPosition = position;
+          if (_selectedDevice != null && _selectedDevice!.hasValidCoordinates) {
+            _distanceToDevice = Geolocator.distanceBetween(
+              _gpsPosition!.latitude,
+              _gpsPosition!.longitude,
+              _selectedDevice!.latitude!,
+              _selectedDevice!.longitude!,
+            );
+            _isWithinRadius = _attendanceService.isWithinRadius(_gpsPosition!, _selectedDevice!);
+            debugPrint('Distance to device: ${_distanceToDevice?.toStringAsFixed(0)}m, In range: $_isWithinRadius');
+          } else {
+            _distanceToDevice = null;
+            _isWithinRadius = null;
+          }
+          _isLocationUpdating = false;
+        });
       } else {
         debugPrint('GPS accuracy too low: ${position?.accuracy ?? 'null'}');
-        _distanceToDevice = null;
-        _isWithinRadius = null;
-      }
-      if (mounted) {
-        setState(() {});
+        if (retryCount < maxGpsRetries) {
+          debugPrint('Retrying GPS update, attempt ${retryCount + 1}');
+          await Future.delayed(gpsRetryDelay);
+          await _performGpsUpdate(retryCount + 1);
+        } else {
+          setState(() {
+            _distanceToDevice = null;
+            _isWithinRadius = null;
+            _isLocationUpdating = false;
+          });
+          _showSnackBar('Failed to get accurate location after $maxGpsRetries attempts.', isError: true);
+        }
       }
     } catch (e) {
       debugPrint('Failed to update GPS position: $e');
-      _distanceToDevice = null;
-      _isWithinRadius = null;
-      if (mounted) {
-        setState(() {});
+      if (retryCount < maxGpsRetries) {
+        debugPrint('Retrying GPS update, attempt ${retryCount + 1}');
+        await Future.delayed(gpsRetryDelay);
+        await _performGpsUpdate(retryCount + 1);
+      } else {
+        setState(() {
+          _distanceToDevice = null;
+          _isWithinRadius = null;
+          _isLocationUpdating = false;
+        });
+        _showSnackBar('Failed to get location after $maxGpsRetries attempts: $e', isError: true);
       }
     }
   }
@@ -372,9 +406,8 @@ class _DashboardContentState extends State<_DashboardContent> {
           _recentAttendanceRecords = futures[1] as List<AttendanceRecord>;
           _currentSchedule = futures[2] as MemberSchedule?;
         });
-        // Hanya perbarui GPS jika belum ada status jarak yang valid
-        if (_isWithinRadius == null) {
-          await _updateGpsPositionAndDistance(debounce: true);
+        if (_isWithinRadius == null && _selectedDevice != null) {
+          await _updateGpsPositionAndDistance(debounce: false, retryCount: 0);
         }
       }
     } catch (e) {
@@ -730,14 +763,12 @@ class _DashboardContentState extends State<_DashboardContent> {
         return;
       }
 
-      // Update GPS position to check radius
-      await _updateGpsPositionAndDistance(debounce: false);
+      await _updateGpsPositionAndDistance(debounce: false, retryCount: 0);
       if (_gpsPosition == null) {
         _showSnackBar('Location not found. Ensure GPS is on.', isError: true);
         return;
       }
 
-      // Check if within radius using GPS position
       if (!_attendanceService.isWithinRadius(_gpsPosition!, _selectedDevice!)) {
         final distance = _distanceToDevice;
         _showSnackBar(
@@ -749,7 +780,6 @@ class _DashboardContentState extends State<_DashboardContent> {
         return;
       }
 
-      // Use device coordinates for attendance recording
       if (_selectedDevice!.hasValidCoordinates) {
         _currentPosition = Position(
           longitude: _selectedDevice!.longitude!,
@@ -818,7 +848,7 @@ class _DashboardContentState extends State<_DashboardContent> {
 
   Future<void> _getCurrentLocation() async {
     try {
-      await _updateGpsPositionAndDistance(debounce: true);
+      await _updateGpsPositionAndDistance(debounce: false, retryCount: 0);
     } catch (e) {
       _showSnackBar('Failed to get location: $e', isError: true);
     }
@@ -1766,41 +1796,28 @@ class _DashboardContentState extends State<_DashboardContent> {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      if (_gpsPosition != null && _selectedDevice!.hasValidCoordinates && _distanceToDevice != null && _isWithinRadius != null) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: _isWithinRadius! ? Colors.green.shade50 : Colors.orange.shade50,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            _isWithinRadius! ? 'In range (${_formatDistance(_distanceToDevice)})' : 'Out of range (${_formatDistance(_distanceToDevice)})',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: _isWithinRadius! ? Colors.green.shade700 : Colors.orange.shade700,
-                              fontWeight: FontWeight.w500,
-                            ),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: (_selectedDevice!.hasValidCoordinates && _gpsPosition != null && _isWithinRadius != null)
+                              ? (_isWithinRadius! ? Colors.green.shade50 : Colors.orange.shade50)
+                              : Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          (_selectedDevice!.hasValidCoordinates && _gpsPosition != null && _isWithinRadius != null)
+                              ? (_isWithinRadius! ? 'In range (${_formatDistance(_distanceToDevice)})' : 'Out of range (${_formatDistance(_distanceToDevice)})')
+                              : 'Waiting for location...',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: (_selectedDevice!.hasValidCoordinates && _gpsPosition != null && _isWithinRadius != null)
+                                ? (_isWithinRadius! ? Colors.green.shade700 : Colors.orange.shade700)
+                                : Colors.grey.shade700,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
-                      ] else if (_selectedDevice!.hasValidCoordinates) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade50,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            'Location unavailable',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.grey.shade700,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ],
+                      ),
                     ],
                   ),
                 ],
@@ -2087,7 +2104,6 @@ class _DashboardContentState extends State<_DashboardContent> {
   }
 }
 
-// Helper classes
 class TimelineItem {
   final String time;
   final String label;
