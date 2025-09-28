@@ -22,41 +22,101 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
   static const Color primaryColor = Color(0xFF6366F1);
   static const Color backgroundColor = Color(0xFF1F2937);
 
+  // State variables
   Map<String, dynamic>? _userProfile;
   Map<String, dynamic>? _organizationMember;
   Map<String, dynamic>? _organization;
   List<Map<String, dynamic>> _allAttendanceRecords = [];
   List<Map<String, dynamic>> _filteredData = [];
   DateTime _focusedDay = DateTime.now();
-  DateTime? _selectedDay;
+  DateTime _selectedDay = DateTime.now();
   CalendarFormat _calendarFormat = CalendarFormat.month;
   Map<DateTime, List<Map<String, dynamic>>> _attendanceByDate = {};
   bool _isLoading = true;
+  bool _isInitialized = false;
   int _totalCheckIns = 0;
   int _totalCheckOuts = 0;
 
   @override
   void initState() {
     super.initState();
-    _selectedDay = TimezoneHelper.nowInOrgTime();
-    _focusedDay = _selectedDay!;
-    _loadUserProfile();
-    _loadOrganizationData();
-    _loadAllAttendanceData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initializeData();
+    });
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
+  void _initializeData() async {
+    if (!mounted) return;
+    
+    try {
+      final now = TimezoneHelper.nowInOrgTime();
+      _selectedDay = now;
+      _focusedDay = now;
+      
+      await _loadAllData();
+      
+      if (mounted) {
+        setState(() {
+          _isInitialized = true;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error initializing data: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _isInitialized = true;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadAllData() async {
+    if (!mounted) return;
+
+    try {
+      await _loadUserProfile();
+      await _loadOrganizationData();
+      await _loadAllAttendanceData();
+    } catch (e) {
+      debugPrint('Error loading all data: $e');
+    }
   }
 
   Future<void> refreshData() async {
     debugPrint('AttendanceHistory: refreshData called from external source');
+    if (!mounted) return;
     await _refreshAllData();
   }
 
   Future<void> _refreshAllData() async {
-    await _loadUserProfile();
-    await _loadOrganizationData();
-    await _loadAllAttendanceData();
+    if (!mounted) return;
+    
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      await _loadAllData();
+    } catch (e) {
+      debugPrint('Error refreshing data: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   Future<void> _loadUserProfile() async {
+    if (!mounted) return;
+    
     try {
       final user = supabase.auth.currentUser;
       if (user != null) {
@@ -67,9 +127,7 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
             .single();
 
         if (mounted) {
-          setState(() {
-            _userProfile = response;
-          });
+          _userProfile = response;
         }
       }
     } catch (e) {
@@ -78,6 +136,8 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
   }
 
   Future<void> _loadOrganizationData() async {
+    if (!mounted) return;
+    
     try {
       final user = supabase.auth.currentUser;
       if (user != null) {
@@ -88,11 +148,10 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
             .single();
 
         if (memberResponse != null && mounted) {
-          setState(() {
-            _organizationMember = memberResponse;
-            _organization = memberResponse['organizations'];
-          });
-          // Inisialisasi timezone dari database
+          _organizationMember = memberResponse;
+          _organization = memberResponse['organizations'];
+          
+          // Initialize timezone from database
           if (_organization?['timezone'] != null) {
             TimezoneHelper.initialize(_organization!['timezone']);
           }
@@ -104,12 +163,8 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
   }
 
   Future<void> _loadAllAttendanceData() async {
-    if (mounted) {
-      setState(() {
-        _isLoading = true;
-      });
-    }
-
+    if (!mounted) return;
+    
     try {
       if (_organizationMember == null) {
         if (mounted) {
@@ -122,11 +177,13 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
 
       final memberId = _organizationMember!['id'];
       final records = await _loadAttendanceRecords(memberId);
-      _processAttendanceData(records);
+      
+      if (mounted) {
+        _processAndSetAttendanceData(records);
+      }
 
     } catch (e) {
       debugPrint('Error loading attendance data: $e');
-    } finally {
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -164,7 +221,26 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
     }
   }
 
-  void _processAttendanceData(List<Map<String, dynamic>> records) {
+  void _processAndSetAttendanceData(List<Map<String, dynamic>> records) {
+    if (!mounted) return;
+
+    // Process data
+    final processedData = _processAttendanceData(records);
+    
+    // Update state in one go
+    setState(() {
+      _allAttendanceRecords = records;
+      _attendanceByDate = processedData['attendanceByDate'];
+      _totalCheckIns = processedData['totalCheckIns'];
+      _totalCheckOuts = processedData['totalCheckOuts'];
+      _isLoading = false;
+    });
+    
+    // Filter for selected day
+    _updateFilteredData();
+  }
+
+  Map<String, dynamic> _processAttendanceData(List<Map<String, dynamic>> records) {
     final Map<DateTime, List<Map<String, dynamic>>> groupedData = {};
     int checkIns = 0;
     int checkOuts = 0;
@@ -175,9 +251,7 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
         final orgDate = TimezoneHelper.toOrgTime(date);
         final dateOnly = DateTime(orgDate.year, orgDate.month, orgDate.day);
 
-        if (groupedData[dateOnly] == null) {
-          groupedData[dateOnly] = [];
-        }
+        groupedData[dateOnly] ??= [];
 
         if (record['actual_check_in'] != null) {
           groupedData[dateOnly]!.add({
@@ -211,6 +285,7 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
       }
     }
 
+    // Sort events by time for each date
     for (final dateEvents in groupedData.values) {
       dateEvents.sort((a, b) {
         final timeA = DateTime.parse(a['event_time']);
@@ -219,24 +294,49 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
       });
     }
 
-    if (mounted) {
-      setState(() {
-        _allAttendanceRecords = records;
-        _attendanceByDate = groupedData;
-        _totalCheckIns = checkIns;
-        _totalCheckOuts = checkOuts;
-        _filterAttendanceByDate(_selectedDay!);
-      });
-    }
+    return {
+      'attendanceByDate': groupedData,
+      'totalCheckIns': checkIns,
+      'totalCheckOuts': checkOuts,
+    };
   }
 
-  void _filterAttendanceByDate(DateTime selectedDate) {
-    final dateOnly = DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
-    if (mounted) {
-      setState(() {
-        _filteredData = _attendanceByDate[dateOnly] ?? [];
-      });
-    }
+  void _updateFilteredData() {
+    if (!mounted) return;
+    
+    final dateOnly = DateTime(_selectedDay.year, _selectedDay.month, _selectedDay.day);
+    final newFilteredData = _attendanceByDate[dateOnly] ?? <Map<String, dynamic>>[];
+    
+    setState(() {
+      _filteredData = newFilteredData;
+    });
+  }
+
+  void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
+    if (!mounted) return;
+    
+    setState(() {
+      _selectedDay = selectedDay;
+      _focusedDay = focusedDay;
+    });
+    
+    _updateFilteredData();
+  }
+
+  void _onFormatChanged(CalendarFormat format) {
+    if (!mounted || _calendarFormat == format) return;
+    
+    setState(() {
+      _calendarFormat = format;
+    });
+  }
+
+  void _onPageChanged(DateTime focusedDay) {
+    if (!mounted) return;
+    
+    setState(() {
+      _focusedDay = focusedDay;
+    });
   }
 
   List<Map<String, dynamic>> _getEventsForDay(DateTime day) {
@@ -245,6 +345,8 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
   }
 
   Future<void> _showEventDetails(Map<String, dynamic> event) async {
+    if (!mounted) return;
+    
     final eventTime = DateTime.parse(event['event_time']);
     final orgTime = TimezoneHelper.toOrgTime(eventTime);
 
@@ -320,7 +422,7 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
                       _buildDetailRow(Icons.calendar_today, 'Date',
                           TimezoneHelper.formatOrgTime(orgTime, 'EEEE, dd MMMM yyyy')),
                       _buildDetailRow(Icons.access_time, 'Time',
-                          TimezoneHelper.formatOrgTime(orgTime, 'HH:mm:ss') + ' ${TimezoneHelper.currentTimeZone.name}'),
+                          '${TimezoneHelper.formatOrgTime(orgTime, 'HH:mm:ss')} ${TimezoneHelper.currentTimeZone.name}'),
                       if (event['method'] != null)
                         _buildDetailRow(Icons.fingerprint, 'Method', event['method']),
                       if (event['late_minutes'] != null && event['late_minutes'] > 0)
@@ -367,7 +469,7 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
   }
 
   Widget _buildLocationRow(dynamic location) {
-    if (location == null) return Container();
+    if (location == null) return const SizedBox.shrink();
 
     String locationText = 'Unknown';
     bool isWithinRadius = true;
@@ -389,9 +491,9 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
             color: isWithinRadius ? primaryColor : Colors.red,
           ),
           const SizedBox(width: 8),
-          Text(
+          const Text(
             'Location: ',
-            style: const TextStyle(fontWeight: FontWeight.w500),
+            style: TextStyle(fontWeight: FontWeight.w500),
           ),
           Expanded(
             child: Text(
@@ -466,6 +568,7 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
         (route) => false,
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error logout: $e'),
@@ -476,6 +579,8 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
   }
 
   Future<void> _showLogoutConfirmation() async {
+    if (!mounted) return;
+    
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -516,28 +621,36 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
 
   @override
   Widget build(BuildContext context) {
-    final user = supabase.auth.currentUser;
+    // Early return for loading or uninitialized state
+    if (!_isInitialized || _isLoading) {
+      return Scaffold(
+        backgroundColor: Colors.grey.shade100,
+        body: const Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: refreshData,
-              color: primaryColor,
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                child: Column(
-                  children: [
-                    _buildHeader(),
-                    _buildStatsCard(),
-                    _buildCalendarCard(),
-                    _buildSelectedDayEvents(),
-                    const SizedBox(height: 20),
-                  ],
-                ),
-              ),
-            ),
+      body: RefreshIndicator(
+        onRefresh: refreshData,
+        color: primaryColor,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Column(
+            children: [
+              _buildHeader(),
+              _buildStatsCard(),
+              _buildCalendarCard(),
+              _buildSelectedDayEvents(),
+              const SizedBox(height: 20),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -565,53 +678,7 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
               Expanded(
                 child: Row(
                   children: [
-                    if (_organization?['logo_url'] != null)
-                      Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
-                          color: Colors.white,
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.network(
-                            _organization!['logo_url']!,
-                            width: 32,
-                            height: 32,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Container(
-                                width: 32,
-                                height: 32,
-                                decoration: BoxDecoration(
-                                  color: primaryColor,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: const Icon(
-                                  Icons.business,
-                                  color: Colors.white,
-                                  size: 20,
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      )
-                    else
-                      Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          color: primaryColor,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(
-                          Icons.business,
-                          color: Colors.white,
-                          size: 20,
-                        ),
-                      ),
+                    _buildOrgLogo(),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
@@ -643,6 +710,47 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildOrgLogo() {
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        color: Colors.white,
+      ),
+      child: _organization?['logo_url'] != null
+          ? ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(
+                _organization!['logo_url']!,
+                width: 32,
+                height: 32,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return _buildDefaultLogo();
+                },
+              ),
+            )
+          : _buildDefaultLogo(),
+    );
+  }
+
+  Widget _buildDefaultLogo() {
+    return Container(
+      width: 32,
+      height: 32,
+      decoration: BoxDecoration(
+        color: primaryColor,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Icon(
+        Icons.business,
+        color: Colors.white,
+        size: 20,
       ),
     );
   }
@@ -683,13 +791,13 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
             Row(
               children: [
                 Expanded(
-                  child: _buildStatItem('Check Ins', '$_totalCheckIns', Colors.green),
+                  child: _buildStatItem('Check Ins', _totalCheckIns.toString(), Colors.green),
                 ),
                 Expanded(
-                  child: _buildStatItem('Check Outs', '$_totalCheckOuts', Colors.red),
+                  child: _buildStatItem('Check Outs', _totalCheckOuts.toString(), Colors.red),
                 ),
                 Expanded(
-                  child: _buildStatItem('Records', '${_allAttendanceRecords.length}', Colors.blue),
+                  child: _buildStatItem('Records', _allAttendanceRecords.length.toString(), Colors.blue),
                 ),
               ],
             ),
@@ -772,25 +880,9 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
             selectedDayPredicate: (day) {
               return isSameDay(_selectedDay, day);
             },
-            onDaySelected: (selectedDay, focusedDay) {
-              if (!isSameDay(_selectedDay, selectedDay)) {
-                setState(() {
-                  _selectedDay = selectedDay;
-                  _focusedDay = focusedDay;
-                });
-                _filterAttendanceByDate(selectedDay);
-              }
-            },
-            onFormatChanged: (format) {
-              if (_calendarFormat != format) {
-                setState(() {
-                  _calendarFormat = format;
-                });
-              }
-            },
-            onPageChanged: (focusedDay) {
-              _focusedDay = focusedDay;
-            },
+            onDaySelected: _onDaySelected,
+            onFormatChanged: _onFormatChanged,
+            onPageChanged: _onPageChanged,
             calendarStyle: CalendarStyle(
               outsideDaysVisible: false,
               selectedDecoration: BoxDecoration(
@@ -802,7 +894,7 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
                 shape: BoxShape.circle,
               ),
               markersMaxCount: 3,
-              markerDecoration: BoxDecoration(
+              markerDecoration: const BoxDecoration(
                 color: Colors.orange,
                 shape: BoxShape.circle,
               ),
@@ -828,37 +920,7 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
 
   Widget _buildSelectedDayEvents() {
     if (_filteredData.isEmpty) {
-      return Container(
-        margin: const EdgeInsets.all(16),
-        padding: const EdgeInsets.all(30),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Center(
-          child: Column(
-            children: [
-              Icon(Icons.event_busy, color: Colors.grey, size: 48),
-              const SizedBox(height: 12),
-              Text(
-                'No attendance data for ${TimezoneHelper.formatOrgTime(_selectedDay!, 'dd MMM yyyy')}',
-                style: const TextStyle(
-                  color: Colors.grey,
-                  fontSize: 16,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      );
+      return _buildEmptyState();
     }
 
     return Container(
@@ -884,7 +946,7 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
                 Icon(Icons.event, color: primaryColor),
                 const SizedBox(width: 8),
                 Text(
-                  'Events on ${TimezoneHelper.formatOrgTime(_selectedDay!, 'dd MMM yyyy')}',
+                  'Events on ${TimezoneHelper.formatOrgTime(_selectedDay, 'dd MMM yyyy')}',
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w600,
@@ -899,114 +961,161 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
             itemCount: _filteredData.length,
             separatorBuilder: (context, index) => const Divider(height: 1),
             itemBuilder: (context, index) {
-              final event = _filteredData[index];
-              final eventTime = DateTime.parse(event['event_time']);
-              final orgTime = TimezoneHelper.toOrgTime(eventTime);
-              final eventColor = _getEventColor(event['type']);
-
-              return ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                leading: Container(
-                  width: 45,
-                  height: 45,
-                  decoration: BoxDecoration(
-                    color: eventColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: event['photo_url'] != null
-                      ? ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: CachedNetworkImage(
-                            imageUrl: event['photo_url'],
-                            width: 45,
-                            height: 45,
-                            fit: BoxFit.cover,
-                            placeholder: (context, url) => Icon(
-                              _getEventIcon(event['type']),
-                              color: eventColor,
-                              size: 20,
-                            ),
-                            errorWidget: (context, url, error) => Icon(
-                              _getEventIcon(event['type']),
-                              color: eventColor,
-                              size: 20,
-                            ),
-                          ),
-                        )
-                      : Icon(
-                          _getEventIcon(event['type']),
-                          color: eventColor,
-                          size: 20,
-                        ),
-                ),
-                title: Text(
-                  _getEventLabel(event['type']),
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w500,
-                    fontSize: 16,
-                  ),
-                ),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const SizedBox(height: 4),
-                    Text(
-                      TimezoneHelper.formatOrgTime(orgTime, 'HH:mm:ss') + ' ${TimezoneHelper.currentTimeZone.name}',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: Colors.grey,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.blue.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Text(
-                            'Record',
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.blue,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                        if (event['status'] != null) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: _getStatusColor(event['status']).withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              event['status'].toString().toUpperCase(),
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: _getStatusColor(event['status']),
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ],
-                ),
-                trailing: event['photo_url'] != null || event['location'] != null
-                    ? Icon(Icons.info_outline, color: primaryColor, size: 20)
-                    : null,
-                onTap: () => _showEventDetails(event),
-              );
+              return _buildEventListItem(_filteredData[index]);
             },
           ),
           const SizedBox(height: 10),
         ],
       ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(30),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Center(
+        child: Column(
+          children: [
+            const Icon(Icons.event_busy, color: Colors.grey, size: 48),
+            const SizedBox(height: 12),
+            Text(
+              'No attendance data for ${TimezoneHelper.formatOrgTime(_selectedDay, 'dd MMM yyyy')}',
+              style: const TextStyle(
+                color: Colors.grey,
+                fontSize: 16,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEventListItem(Map<String, dynamic> event) {
+    final eventTime = DateTime.parse(event['event_time']);
+    final orgTime = TimezoneHelper.toOrgTime(eventTime);
+    final eventColor = _getEventColor(event['type']);
+
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      leading: Container(
+        width: 45,
+        height: 45,
+        decoration: BoxDecoration(
+          color: eventColor.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: _buildEventLeadingWidget(event, eventColor),
+      ),
+      title: Text(
+        _getEventLabel(event['type']),
+        style: const TextStyle(
+          fontWeight: FontWeight.w500,
+          fontSize: 16,
+        ),
+      ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 4),
+          Text(
+            '${TimezoneHelper.formatOrgTime(orgTime, 'HH:mm:ss')} ${TimezoneHelper.currentTimeZone.name}',
+            style: const TextStyle(
+              fontSize: 14,
+              color: Colors.grey,
+            ),
+          ),
+          const SizedBox(height: 2),
+          _buildEventStatusRow(event),
+        ],
+      ),
+      trailing: (event['photo_url'] != null || event['location'] != null)
+          ? Icon(Icons.info_outline, color: primaryColor, size: 20)
+          : null,
+      onTap: () => _showEventDetails(event),
+    );
+  }
+
+  Widget _buildEventLeadingWidget(Map<String, dynamic> event, Color eventColor) {
+    if (event['photo_url'] != null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: CachedNetworkImage(
+          imageUrl: event['photo_url'],
+          width: 45,
+          height: 45,
+          fit: BoxFit.cover,
+          placeholder: (context, url) => Icon(
+            _getEventIcon(event['type']),
+            color: eventColor,
+            size: 20,
+          ),
+          errorWidget: (context, url, error) => Icon(
+            _getEventIcon(event['type']),
+            color: eventColor,
+            size: 20,
+          ),
+        ),
+      );
+    }
+
+    return Icon(
+      _getEventIcon(event['type']),
+      color: eventColor,
+      size: 20,
+    );
+  }
+
+  Widget _buildEventStatusRow(Map<String, dynamic> event) {
+    return Row(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.blue.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: const Text(
+            'Record',
+            style: TextStyle(
+              fontSize: 10,
+              color: Colors.blue,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+        if (event['status'] != null) ...[
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: _getStatusColor(event['status']).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              event['status'].toString().toUpperCase(),
+              style: TextStyle(
+                fontSize: 10,
+                color: _getStatusColor(event['status']),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
