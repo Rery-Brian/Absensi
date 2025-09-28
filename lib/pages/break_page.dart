@@ -1,4 +1,3 @@
-// screens/break_page.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -9,7 +8,7 @@ import '../services/attendance_service.dart';
 class BreakPage extends StatefulWidget {
   final int organizationMemberId;
   final int? deviceId;
-  
+
   const BreakPage({
     super.key,
     required this.organizationMemberId,
@@ -31,7 +30,7 @@ class _BreakPageState extends State<BreakPage> {
   Duration _remainingTime = Duration.zero;
   Duration _totalBreakDuration = Duration.zero;
   String _breakStartTimeText = '';
-  
+
   @override
   void initState() {
     super.initState();
@@ -52,7 +51,7 @@ class _BreakPageState extends State<BreakPage> {
     try {
       await _loadTodayBreakSchedule();
       await _checkCurrentBreakStatus();
-      
+
       if (_isOnBreak && _breakStartTime != null) {
         _calculateRemainingTime();
         _startTimer();
@@ -69,15 +68,15 @@ class _BreakPageState extends State<BreakPage> {
 
   Future<void> _loadTodayBreakSchedule() async {
     try {
-      final today = DateTime.now();
+      final today = TimezoneHelper.nowInOrgTime();
       final dayOfWeek = today.weekday == 7 ? 0 : today.weekday;
-      
+
       final memberResponse = await Supabase.instance.client
           .from('organization_members')
           .select('organization_id')
           .eq('id', widget.organizationMemberId)
           .single();
-      
+
       final scheduleResponse = await Supabase.instance.client
           .from('member_schedules')
           .select('''
@@ -106,50 +105,47 @@ class _BreakPageState extends State<BreakPage> {
           orElse: () => null,
         );
 
-        if (todaySchedule != null && 
-            todaySchedule['break_start'] != null && 
+        if (todaySchedule != null &&
+            todaySchedule['break_start'] != null &&
             todaySchedule['break_end'] != null) {
-          
           final breakStartStr = todaySchedule['break_start'] as String;
           final breakEndStr = todaySchedule['break_end'] as String;
-          
-          _scheduledBreakStart = _parseTimeToDateTime(breakStartStr);
-          _scheduledBreakEnd = _parseTimeToDateTime(breakEndStr);
+
+          _scheduledBreakStart = _parseTimeToDateTime(breakStartStr, today);
+          _scheduledBreakEnd = _parseTimeToDateTime(breakEndStr, today);
           _totalBreakDuration = _scheduledBreakEnd!.difference(_scheduledBreakStart!);
-          
+
           debugPrint('Break schedule: $breakStartStr - $breakEndStr');
         }
       }
-      
+
       if (_scheduledBreakStart == null || _scheduledBreakEnd == null) {
-        final now = DateTime.now();
+        final now = TimezoneHelper.nowInOrgTime();
         _scheduledBreakStart = DateTime(now.year, now.month, now.day, 12, 0);
         _scheduledBreakEnd = DateTime(now.year, now.month, now.day, 13, 0);
         _totalBreakDuration = Duration(hours: 1);
         debugPrint('Using default break schedule: 12:00 - 13:00');
       }
-      
     } catch (e) {
       debugPrint('Error loading break schedule: $e');
-      final now = DateTime.now();
+      final now = TimezoneHelper.nowInOrgTime();
       _scheduledBreakStart = DateTime(now.year, now.month, now.day, 12, 0);
       _scheduledBreakEnd = DateTime(now.year, now.month, now.day, 13, 0);
       _totalBreakDuration = Duration(hours: 1);
     }
   }
 
-  DateTime _parseTimeToDateTime(String timeStr) {
-    final now = DateTime.now();
+  DateTime _parseTimeToDateTime(String timeStr, DateTime baseDate) {
     final parts = timeStr.split(':');
     final hour = int.parse(parts[0]);
     final minute = int.parse(parts[1]);
-    return DateTime(now.year, now.month, now.day, hour, minute);
+    return DateTime(baseDate.year, baseDate.month, baseDate.day, hour, minute);
   }
 
   Future<void> _checkCurrentBreakStatus() async {
     try {
-      final today = DateTime.now().toIso8601String().split('T')[0];
-      
+      final today = DateFormat('yyyy-MM-dd').format(TimezoneHelper.nowInOrgTime());
+
       final logsResponse = await Supabase.instance.client
           .from('attendance_logs')
           .select('event_type, event_time')
@@ -160,10 +156,10 @@ class _BreakPageState extends State<BreakPage> {
           .order('event_time', ascending: true);
 
       final logs = logsResponse as List;
-      
+
       if (logs.isNotEmpty) {
         final lastLog = logs.last;
-        
+
         if (lastLog['event_type'] == 'break_out') {
           _isOnBreak = true;
           _breakStartTime = DateTime.parse(lastLog['event_time']);
@@ -174,7 +170,6 @@ class _BreakPageState extends State<BreakPage> {
           debugPrint('Break has ended');
         }
       }
-      
     } catch (e) {
       debugPrint('Error checking break status: $e');
       _showSnackBar('Failed to check break status. Please try again.', isError: true);
@@ -183,8 +178,8 @@ class _BreakPageState extends State<BreakPage> {
 
   void _calculateRemainingTime() {
     if (_scheduledBreakEnd == null) return;
-    
-    final now = DateTime.now();
+
+    final now = TimezoneHelper.nowInOrgTime();
     if (now.isBefore(_scheduledBreakEnd!)) {
       _remainingTime = _scheduledBreakEnd!.difference(now);
     } else {
@@ -196,16 +191,16 @@ class _BreakPageState extends State<BreakPage> {
     _timer?.cancel();
     _timer = Timer.periodic(Duration(seconds: 1), (timer) {
       if (!mounted) return;
-      
+
       _calculateRemainingTime();
-      
+
       if (_remainingTime.inSeconds <= 0) {
         _timer?.cancel();
         if (_isOnBreak) {
           _autoEndBreak();
         }
       }
-      
+
       setState(() {});
     });
   }
@@ -216,8 +211,8 @@ class _BreakPageState extends State<BreakPage> {
     });
 
     try {
-      final now = TimezoneHelper.nowInJakarta();
-      
+      final now = TimezoneHelper.nowInOrgTime();
+
       await Supabase.instance.client
           .from('attendance_logs')
           .insert({
@@ -234,17 +229,16 @@ class _BreakPageState extends State<BreakPage> {
       _isOnBreak = true;
       _breakStartTime = now;
       _breakStartTimeText = DateFormat('HH:mm').format(now);
-      
+
       if (now.isBefore(_scheduledBreakEnd!)) {
         _remainingTime = _scheduledBreakEnd!.difference(now);
       } else {
         _remainingTime = Duration.zero;
       }
-      
+
       _startTimer();
-      
+
       _showSnackBar('Break started successfully');
-      
     } catch (e) {
       debugPrint('Error starting break: $e');
       _showSnackBar('Failed to start break. Please try again.', isError: true);
@@ -261,8 +255,8 @@ class _BreakPageState extends State<BreakPage> {
     });
 
     try {
-      final now = TimezoneHelper.nowInJakarta();
-      
+      final now = TimezoneHelper.nowInOrgTime();
+
       await Supabase.instance.client
           .from('attendance_logs')
           .insert({
@@ -278,17 +272,16 @@ class _BreakPageState extends State<BreakPage> {
 
       _timer?.cancel();
       _isOnBreak = false;
-      
+
       if (_breakStartTime != null) {
         final actualBreakDuration = now.difference(_breakStartTime!);
         await _attendanceService.updateBreakDuration(widget.organizationMemberId, actualBreakDuration.inMinutes);
-        await _showBreakSummary(actualBreakDuration);
+        await _showBreakSummary(actualBreakDuration, now);
       }
-      
+
       if (!isAutoEnd) {
         _showSnackBar('Break ended successfully');
       }
-      
     } catch (e) {
       debugPrint('Error ending break: $e');
       _showSnackBar('Failed to end break. Please try again.', isError: true);
@@ -304,7 +297,7 @@ class _BreakPageState extends State<BreakPage> {
     _showSnackBar('Break time is over. Break ended automatically.');
   }
 
-  Future<void> _showBreakSummary(Duration actualDuration) async {
+  Future<void> _showBreakSummary(Duration actualDuration, DateTime endTime) async {
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -345,7 +338,7 @@ class _BreakPageState extends State<BreakPage> {
                   ),
                   SizedBox(height: 8),
                   Text(
-                    'Ended at: ${DateFormat('HH:mm').format(DateTime.now())}',
+                    'Ended at: ${DateFormat('HH:mm').format(endTime)}',
                     style: TextStyle(color: Colors.white70, fontSize: 16),
                   ),
                   SizedBox(height: 8),
@@ -475,10 +468,10 @@ class _BreakPageState extends State<BreakPage> {
   }
 
   Widget _buildStartBreakSection() {
-    final now = DateTime.now();
-    final canStartBreak = _scheduledBreakStart != null && 
-                         now.isAfter(_scheduledBreakStart!.subtract(Duration(minutes: 15)));
-    
+    final now = TimezoneHelper.nowInOrgTime();
+    final canStartBreak = _scheduledBreakStart != null &&
+        now.isAfter(_scheduledBreakStart!.subtract(Duration(minutes: 15)));
+
     return Column(
       children: [
         Icon(
@@ -661,7 +654,7 @@ class _SlideToConfirmState extends State<SlideToConfirm>
   double _maxDrag = 0;
   bool _isDragging = false;
   bool _isConfirmed = false;
-  
+
   late AnimationController _slideController;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
@@ -677,7 +670,7 @@ class _SlideToConfirmState extends State<SlideToConfirm>
       duration: Duration(milliseconds: 1000),
       vsync: this,
     )..repeat(reverse: true);
-    
+
     _pulseAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
@@ -698,7 +691,7 @@ class _SlideToConfirmState extends State<SlideToConfirm>
 
   void _handleDragUpdate(DragUpdateDetails details) {
     if (!widget.enabled || _isConfirmed) return;
-    
+
     setState(() {
       _dragPosition += details.delta.dx;
       _dragPosition = _dragPosition.clamp(0, _maxDrag);
@@ -711,7 +704,7 @@ class _SlideToConfirmState extends State<SlideToConfirm>
 
   void _handleDragEnd(DragEndDetails details) {
     if (!widget.enabled || _isConfirmed) return;
-    
+
     _isDragging = false;
     if (_dragPosition < _maxDrag * 0.9) {
       _slideController.reverse().then((_) {
@@ -727,12 +720,12 @@ class _SlideToConfirmState extends State<SlideToConfirm>
 
   void _confirmSlide() {
     if (_isConfirmed) return;
-    
+
     setState(() {
       _isConfirmed = true;
       _dragPosition = _maxDrag;
     });
-    
+
     _pulseController.stop();
     widget.onConfirm();
   }
@@ -742,7 +735,7 @@ class _SlideToConfirmState extends State<SlideToConfirm>
     return LayoutBuilder(
       builder: (context, constraints) {
         _maxDrag = constraints.maxWidth - 60;
-        
+
         return GestureDetector(
           onPanStart: _handleDragStart,
           onPanUpdate: _handleDragUpdate,

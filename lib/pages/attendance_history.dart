@@ -7,24 +7,21 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../helpers/timezone_helper.dart';
 import 'login.dart';
 
-// Make the class public by removing underscore (if it was private)
 class AttendanceHistoryPage extends StatefulWidget {
-  final VoidCallback? onAttendanceUpdated; // Add callback
+  final VoidCallback? onAttendanceUpdated;
 
-  const AttendanceHistoryPage({super.key, this.onAttendanceUpdated}); // Add callback to constructor
+  const AttendanceHistoryPage({super.key, this.onAttendanceUpdated});
 
   @override
-  State<AttendanceHistoryPage> createState() => AttendanceHistoryPageState(); // Make state class public
+  State<AttendanceHistoryPage> createState() => AttendanceHistoryPageState();
 }
 
-// Make the state class public by removing underscore (if it was private)
 class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
   final supabase = Supabase.instance.client;
-  
-  // Theme colors matching dashboard
-  static const Color primaryColor = Color(0xFF6366F1); // Purple
-  static const Color backgroundColor = Color(0xFF1F2937); // Dark gray
-  
+
+  static const Color primaryColor = Color(0xFF6366F1);
+  static const Color backgroundColor = Color(0xFF1F2937);
+
   Map<String, dynamic>? _userProfile;
   Map<String, dynamic>? _organizationMember;
   Map<String, dynamic>? _organization;
@@ -37,25 +34,22 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
   bool _isLoading = true;
   int _totalCheckIns = 0;
   int _totalCheckOuts = 0;
-  
+
   @override
   void initState() {
     super.initState();
-    _selectedDay = TimezoneHelper.nowInJakarta();
+    _selectedDay = TimezoneHelper.nowInOrgTime();
     _focusedDay = _selectedDay!;
     _loadUserProfile();
     _loadOrganizationData();
     _loadAllAttendanceData();
   }
 
-  // Add public method for external refresh calls
   Future<void> refreshData() async {
     debugPrint('AttendanceHistory: refreshData called from external source');
     await _refreshAllData();
-    // widget.onAttendanceUpdated?.call(); // Remove to prevent infinite loop
   }
 
-  // Private method for internal refresh
   Future<void> _refreshAllData() async {
     await _loadUserProfile();
     await _loadOrganizationData();
@@ -71,7 +65,7 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
             .select()
             .eq('id', user.id)
             .single();
-        
+
         if (mounted) {
           setState(() {
             _userProfile = response;
@@ -87,18 +81,21 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
     try {
       final user = supabase.auth.currentUser;
       if (user != null) {
-        // Load organization member data
         final memberResponse = await supabase
             .from('organization_members')
-            .select('id, organization_id, employee_id, organizations!inner(id, name, logo_url)')
+            .select('id, organization_id, employee_id, organizations!inner(id, name, logo_url, timezone)')
             .eq('user_id', user.id)
             .single();
-        
+
         if (memberResponse != null && mounted) {
           setState(() {
             _organizationMember = memberResponse;
             _organization = memberResponse['organizations'];
           });
+          // Inisialisasi timezone dari database
+          if (_organization?['timezone'] != null) {
+            TimezoneHelper.initialize(_organization!['timezone']);
+          }
         }
       }
     } catch (e) {
@@ -124,13 +121,9 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
       }
 
       final memberId = _organizationMember!['id'];
-      
-      // Load only attendance records
       final records = await _loadAttendanceRecords(memberId);
-      
-      // Process attendance data
       _processAttendanceData(records);
-      
+
     } catch (e) {
       debugPrint('Error loading attendance data: $e');
     } finally {
@@ -163,7 +156,7 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
           ''')
           .eq('organization_member_id', memberId)
           .order('attendance_date', ascending: false);
-      
+
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
       debugPrint('Error loading attendance records: $e');
@@ -171,28 +164,21 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
     }
   }
 
-  Future<List<Map<String, dynamic>>> _loadAttendanceLogs(int memberId) async {
-    // This method is removed since we only want records
-    return [];
-  }
-
   void _processAttendanceData(List<Map<String, dynamic>> records) {
     final Map<DateTime, List<Map<String, dynamic>>> groupedData = {};
     int checkIns = 0;
     int checkOuts = 0;
-    
-    // Process only attendance records
+
     for (final record in records) {
       if (record['attendance_date'] != null) {
         final date = DateTime.parse(record['attendance_date']);
-        final jakartaDate = TimezoneHelper.toJakartaTime(date);
-        final dateOnly = DateTime(jakartaDate.year, jakartaDate.month, jakartaDate.day);
-        
+        final orgDate = TimezoneHelper.toOrgTime(date);
+        final dateOnly = DateTime(orgDate.year, orgDate.month, orgDate.day);
+
         if (groupedData[dateOnly] == null) {
           groupedData[dateOnly] = [];
         }
-        
-        // Add check-in event if exists
+
         if (record['actual_check_in'] != null) {
           groupedData[dateOnly]!.add({
             'type': 'check_in',
@@ -207,8 +193,7 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
           });
           checkIns++;
         }
-        
-        // Add check-out event if exists
+
         if (record['actual_check_out'] != null) {
           groupedData[dateOnly]!.add({
             'type': 'check_out',
@@ -225,8 +210,7 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
         }
       }
     }
-    
-    // Sort events by time for each date
+
     for (final dateEvents in groupedData.values) {
       dateEvents.sort((a, b) {
         final timeA = DateTime.parse(a['event_time']);
@@ -234,7 +218,7 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
         return timeA.compareTo(timeB);
       });
     }
-    
+
     if (mounted) {
       setState(() {
         _allAttendanceRecords = records;
@@ -262,8 +246,8 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
 
   Future<void> _showEventDetails(Map<String, dynamic> event) async {
     final eventTime = DateTime.parse(event['event_time']);
-    final jakartaTime = TimezoneHelper.toJakartaTime(eventTime);
-    
+    final orgTime = TimezoneHelper.toOrgTime(eventTime);
+
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -301,8 +285,6 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
                   ],
                 ),
                 const SizedBox(height: 20),
-                
-                // Show photo if available
                 if (event['photo_url'] != null) ...[
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
@@ -327,8 +309,6 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
                   ),
                   const SizedBox(height: 20),
                 ],
-                
-                // Event details
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -337,20 +317,20 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
                   ),
                   child: Column(
                     children: [
-                      _buildDetailRow(Icons.calendar_today, 'Date', 
-                          TimezoneHelper.formatJakartaTime(jakartaTime, 'EEEE, dd MMMM yyyy')),
-                      _buildDetailRow(Icons.access_time, 'Time', 
-                          TimezoneHelper.formatJakartaTime(jakartaTime, 'HH:mm:ss') + ' WIB'),
+                      _buildDetailRow(Icons.calendar_today, 'Date',
+                          TimezoneHelper.formatOrgTime(orgTime, 'EEEE, dd MMMM yyyy')),
+                      _buildDetailRow(Icons.access_time, 'Time',
+                          TimezoneHelper.formatOrgTime(orgTime, 'HH:mm:ss') + ' ${TimezoneHelper.currentTimeZone.name}'),
                       if (event['method'] != null)
                         _buildDetailRow(Icons.fingerprint, 'Method', event['method']),
                       if (event['late_minutes'] != null && event['late_minutes'] > 0)
-                        _buildDetailRow(Icons.schedule, 'Late', 
+                        _buildDetailRow(Icons.schedule, 'Late',
                             '${event['late_minutes']} minutes'),
                       if (event['early_leave_minutes'] != null && event['early_leave_minutes'] > 0)
-                        _buildDetailRow(Icons.schedule, 'Early Leave', 
+                        _buildDetailRow(Icons.schedule, 'Early Leave',
                             '${event['early_leave_minutes']} minutes'),
                       if (event['work_duration_minutes'] != null)
-                        _buildDetailRow(Icons.work, 'Work Duration', 
+                        _buildDetailRow(Icons.work, 'Work Duration',
                             '${(event['work_duration_minutes'] / 60).toStringAsFixed(1)} hours'),
                       _buildLocationRow(event['location']),
                     ],
@@ -388,17 +368,17 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
 
   Widget _buildLocationRow(dynamic location) {
     if (location == null) return Container();
-    
+
     String locationText = 'Unknown';
     bool isWithinRadius = true;
-    
+
     if (location is Map) {
       if (location['latitude'] != null && location['longitude'] != null) {
         locationText = '${location['latitude']?.toString().substring(0, 8)}, ${location['longitude']?.toString().substring(0, 8)}';
       }
       isWithinRadius = location['is_within_radius'] ?? true;
     }
-    
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -537,13 +517,13 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
   @override
   Widget build(BuildContext context) {
     final user = supabase.auth.currentUser;
-    
+
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: refreshData, // Use the public method for consistency
+              onRefresh: refreshData,
               color: primaryColor,
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
@@ -561,112 +541,111 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
     );
   }
 
- Widget _buildHeader() {
-  return Container(
-    width: double.infinity,
-    padding: const EdgeInsets.fromLTRB(20, 50, 20, 30),
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        colors: [backgroundColor, backgroundColor.withOpacity(0.8)],
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-      ),
-      borderRadius: const BorderRadius.only(
-        bottomLeft: Radius.circular(30),
-        bottomRight: Radius.circular(30),
-      ),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            // Organization info
-            Expanded(
-              child: Row(
-                children: [
-                  if (_organization?['logo_url'] != null)
-                    Container(
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(8),
-                        color: Colors.white,
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.network(
-                          _organization!['logo_url']!,
-                          width: 32,
-                          height: 32,
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              width: 32,
-                              height: 32,
-                              decoration: BoxDecoration(
-                                color: primaryColor,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: const Icon(
-                                Icons.business,
-                                color: Colors.white,
-                                size: 20,
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    )
-                  else
-                    Container(
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        color: primaryColor,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(
-                        Icons.business,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                    ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Attendance History',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        Text(
-                          _organization?['name'] ?? 'Unknown Organization',
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+  Widget _buildHeader() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 50, 20, 30),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [backgroundColor, backgroundColor.withOpacity(0.8)],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
         ),
-      ],
-    ),
-  );
-}
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(30),
+          bottomRight: Radius.circular(30),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    if (_organization?['logo_url'] != null)
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          color: Colors.white,
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.network(
+                            _organization!['logo_url']!,
+                            width: 32,
+                            height: 32,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                width: 32,
+                                height: 32,
+                                decoration: BoxDecoration(
+                                  color: primaryColor,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Icon(
+                                  Icons.business,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      )
+                    else
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: primaryColor,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(
+                          Icons.business,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Attendance History',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          Text(
+                            _organization?['name'] ?? 'Unknown Organization',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildStatsCard() {
     return Transform.translate(
@@ -869,7 +848,7 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
               Icon(Icons.event_busy, color: Colors.grey, size: 48),
               const SizedBox(height: 12),
               Text(
-                'No attendance data for ${TimezoneHelper.formatJakartaTime(_selectedDay!, 'dd MMM yyyy')}',
+                'No attendance data for ${TimezoneHelper.formatOrgTime(_selectedDay!, 'dd MMM yyyy')}',
                 style: const TextStyle(
                   color: Colors.grey,
                   fontSize: 16,
@@ -905,7 +884,7 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
                 Icon(Icons.event, color: primaryColor),
                 const SizedBox(width: 8),
                 Text(
-                  'Events on ${TimezoneHelper.formatJakartaTime(_selectedDay!, 'dd MMM yyyy')}',
+                  'Events on ${TimezoneHelper.formatOrgTime(_selectedDay!, 'dd MMM yyyy')}',
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w600,
@@ -922,9 +901,9 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
             itemBuilder: (context, index) {
               final event = _filteredData[index];
               final eventTime = DateTime.parse(event['event_time']);
-              final jakartaTime = TimezoneHelper.toJakartaTime(eventTime);
+              final orgTime = TimezoneHelper.toOrgTime(eventTime);
               final eventColor = _getEventColor(event['type']);
-              
+
               return ListTile(
                 contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                 leading: Container(
@@ -972,7 +951,7 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
                   children: [
                     const SizedBox(height: 4),
                     Text(
-                      TimezoneHelper.formatJakartaTime(jakartaTime, 'HH:mm:ss') + ' WIB',
+                      TimezoneHelper.formatOrgTime(orgTime, 'HH:mm:ss') + ' ${TimezoneHelper.currentTimeZone.name}',
                       style: const TextStyle(
                         fontSize: 14,
                         color: Colors.grey,

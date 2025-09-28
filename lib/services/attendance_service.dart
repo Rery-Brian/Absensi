@@ -94,10 +94,16 @@ class AttendanceService {
       Map<String, dynamic>? posDetails;
 
       orgDetails = await _supabase
-          .from('organizations')
-          .select('id, name, code')
-          .eq('id', memberResponse['organization_id'])
-          .single();
+    .from('organizations')
+    .select('id, name, code, timezone')
+    .eq('id', memberResponse['organization_id'])
+    .single();
+
+// Initialize timezone dari database organization
+if (orgDetails?['timezone'] != null) {
+  TimezoneHelper.initialize(orgDetails!['timezone']);
+  debugPrint('Organization timezone loaded: ${orgDetails['timezone']}');
+}
 
       if (memberResponse['department_id'] != null) {
         deptDetails = await _supabase
@@ -131,10 +137,16 @@ class AttendanceService {
   Future<bool> tryAutoRegisterToOrganization(String userId) async {
     try {
       final defaultOrg = await _supabase
-          .from('organizations')
-          .select('id, code')
-          .eq('code', 'COMPANY001')
-          .maybeSingle();
+    .from('organizations')
+    .select('id, code, timezone')
+    .eq('code', 'COMPANY001')
+    .maybeSingle();
+
+// Initialize timezone untuk default org
+if (defaultOrg?['timezone'] != null) {
+  TimezoneHelper.initialize(defaultOrg!['timezone']);
+  debugPrint('Default organization timezone loaded: ${defaultOrg['timezone']}');
+}
           
       if (defaultOrg == null) {
         return false;
@@ -586,8 +598,8 @@ class AttendanceService {
         throw Exception('No authenticated user');
       }
 
-      final jakartaTime = TimezoneHelper.nowInJakarta();
-      final timestamp = jakartaTime.millisecondsSinceEpoch;
+      final orgTime = TimezoneHelper.nowInOrgTime();
+final timestamp = orgTime.millisecondsSinceEpoch;
       final fileName = '${user.id}/${timestamp}.jpg';
       final file = File(imagePath);
 
@@ -620,7 +632,7 @@ class AttendanceService {
   }) async {
     try {
       final today = TimezoneHelper.getTodayDateString();
-      final now = TimezoneHelper.nowInJakarta();
+      final now = TimezoneHelper.nowInOrgTime();
 
       final todayLogs = await getTodayAttendanceLogs(organizationMemberId);
       final existingRecord = todayRecords?.isNotEmpty == true ? todayRecords!.first : null;

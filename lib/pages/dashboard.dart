@@ -19,17 +19,15 @@ class UserDashboard extends StatefulWidget {
   const UserDashboard({super.key});
 
   @override
-  State<UserDashboard> createState() => UserDashboardState(); // Remove underscore for public access
+  State<UserDashboard> createState() => UserDashboardState();
 }
 
-class UserDashboardState extends State<UserDashboard> { // Remove underscore for public access
+class UserDashboardState extends State<UserDashboard> {
   static const Color primaryColor = Color(0xFF6366F1);
   static const Color backgroundColor = Color(0xFF1F2937);
 
-  // Add GlobalKey for accessing DashboardContent
   final GlobalKey<_DashboardContentState> _dashboardContentKey = GlobalKey<_DashboardContentState>();
 
-  // Public method to refresh user profile
   void refreshUserProfile() {
     debugPrint('UserDashboard: refreshUserProfile called');
     if (_dashboardContentKey.currentState != null) {
@@ -46,7 +44,7 @@ class UserDashboardState extends State<UserDashboard> { // Remove underscore for
 }
 
 class _DashboardContent extends StatefulWidget {
-  const _DashboardContent({super.key}); // Add key parameter
+  const _DashboardContent({super.key});
 
   @override
   State<_DashboardContent> createState() => _DashboardContentState();
@@ -83,7 +81,6 @@ class _DashboardContentState extends State<_DashboardContent> {
     _loadUserData();
   }
 
-  // Public method to refresh user profile from external sources
   Future<void> refreshUserProfile() async {
     debugPrint('DashboardContent: refreshUserProfile called');
     try {
@@ -99,21 +96,19 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
-  // Add public method to refresh attendance history (for callback from dashboard)
   void triggerAttendanceHistoryRefresh() {
     debugPrint('Dashboard: Attendance completed - should refresh history');
     // This callback can be implemented if needed
   }
 
   Future<void> _initializeServices() async {
-    try {
-      TimezoneHelper.initialize();
-      await CameraService.initializeCameras();
-    } catch (e) {
-      debugPrint('Error initializing services: $e');
-      _showSnackBar('Failed to initialize services. Please restart the app.', isError: true);
-    }
+  try {
+    await CameraService.initializeCameras();
+  } catch (e) {
+    debugPrint('Error initializing services: $e');
+    _showSnackBar('Failed to initialize services. Please restart the app.', isError: true);
   }
+}
 
   Future<void> _loadUserData() async {
     setState(() {
@@ -122,14 +117,11 @@ class _DashboardContentState extends State<_DashboardContent> {
 
     try {
       _userProfile = await _attendanceService.loadUserProfile();
-      
       if (_userProfile != null) {
         _organizationMember = await _attendanceService.loadOrganizationMember();
-        
         if (_organizationMember != null) {
           await _loadOrganizationInfo();
           await _checkBranchSelection();
-          
           if (!_needsBranchSelection) {
             await _loadOrganizationData();
             await _loadScheduleData();
@@ -760,7 +752,7 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
   Future<void> _showSuccessAttendancePopup(String type) async {
     if (!mounted) return;
     
-    final jakartaTime = TimezoneHelper.nowInJakarta();
+    final orgTime = TimezoneHelper.nowInOrgTime();
 
     return showDialog<void>(
       context: context,
@@ -833,7 +825,7 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        TimezoneHelper.formatAttendanceDateTime(jakartaTime),
+                        TimezoneHelper.formatAttendanceDateTime(orgTime),
                         style: const TextStyle(
                           color: Colors.white70,
                           fontSize: 14,
@@ -1633,15 +1625,18 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
             ),
             const SizedBox(height: 16),
             Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  TimezoneHelper.formatJakartaTime(DateTime.now(), 'EEEE, dd MMMM yyyy • HH:mm WIB'),
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey,
-                  ),
-                ),
+  crossAxisAlignment: CrossAxisAlignment.start,
+  children: [
+    Text(
+      TimezoneHelper.formatOrgTime(
+        TimezoneHelper.nowInOrgTime(),
+        'EEEE, dd MMMM yyyy • HH:mm z'
+      ),
+      style: const TextStyle(
+        fontSize: 14,
+        color: Colors.grey,
+      ),
+    ),
                 if (_selectedBranch != null) ...[
                   const SizedBox(height: 8),
                   Row(

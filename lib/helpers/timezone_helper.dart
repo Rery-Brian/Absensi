@@ -3,39 +3,38 @@ import 'package:timezone/timezone.dart' as tz;
 import 'package:intl/intl.dart';
 
 class TimezoneHelper {
-  static late tz.Location jakartaTimeZone;
-  
-  static void initialize() {
+  static late tz.Location currentTimeZone;
+
+  static void initialize(String timezone) {
     tz.initializeTimeZones();
-    jakartaTimeZone = tz.getLocation('Asia/Jakarta');
+    currentTimeZone = tz.getLocation(timezone);
   }
-  
-  static DateTime nowInJakarta() {
-    return tz.TZDateTime.now(jakartaTimeZone);
+
+  static DateTime nowInOrgTime() {
+    return tz.TZDateTime.now(currentTimeZone);
   }
-  
-  static DateTime toJakartaTime(DateTime dateTime) {
-    return tz.TZDateTime.from(dateTime, jakartaTimeZone);
+
+  static DateTime toOrgTime(DateTime dateTime) {
+    return tz.TZDateTime.from(dateTime, currentTimeZone);
   }
-  
-  static String formatJakartaTime(DateTime dateTime, String pattern) {
-    final jakartaTime = tz.TZDateTime.from(dateTime, jakartaTimeZone);
-    return DateFormat(pattern, 'id_ID').format(jakartaTime);
+
+  static String formatOrgTime(DateTime dateTime, String pattern) {
+    final orgTime = tz.TZDateTime.from(dateTime, currentTimeZone);
+    return DateFormat(pattern, 'id_ID').format(orgTime);
   }
-  
-  // Additional helper methods
+
   static String getTodayDateString() {
-    final today = nowInJakarta();
+    final today = nowInOrgTime();
     return DateFormat('yyyy-MM-dd').format(today);
   }
-  
+
   static String getCurrentTimeString() {
-    final now = nowInJakarta();
+    final now = nowInOrgTime();
     return DateFormat('HH:mm:ss').format(now);
   }
-  
+
   static String formatAttendanceDateTime(DateTime dateTime) {
-    final jakartaTime = tz.TZDateTime.from(dateTime, jakartaTimeZone);
-    return DateFormat('dd MMM yyyy, HH:mm WIB', 'id_ID').format(jakartaTime);
+    final orgTime = tz.TZDateTime.from(dateTime, currentTimeZone);
+    return DateFormat('dd MMM yyyy, HH:mm', 'id_ID').format(orgTime) + ' ${currentTimeZone.name}';
   }
 }

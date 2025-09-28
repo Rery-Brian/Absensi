@@ -7,9 +7,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize timezone sebelum Supabase
-  TimezoneHelper.initialize();
-
   await Supabase.initialize(
     url: 'https://mgidfodeiedfyaczqjng.supabase.co',
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1naWRmb2RlaWVkZnlhY3pxam5nIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyNTEyNjcsImV4cCI6MjA3MzgyNzI2N30.yAhh8dXILji3OZqXdBHaZJmoJ4z316U-jfCNhMDi7c8',
