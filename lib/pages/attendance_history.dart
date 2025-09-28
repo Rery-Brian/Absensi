@@ -7,14 +7,18 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../helpers/timezone_helper.dart';
 import 'login.dart';
 
+// Make the class public by removing underscore (if it was private)
 class AttendanceHistoryPage extends StatefulWidget {
-  const AttendanceHistoryPage({super.key});
+  final VoidCallback? onAttendanceUpdated; // Add callback
+
+  const AttendanceHistoryPage({super.key, this.onAttendanceUpdated}); // Add callback to constructor
 
   @override
-  State<AttendanceHistoryPage> createState() => _AttendanceHistoryPageState();
+  State<AttendanceHistoryPage> createState() => AttendanceHistoryPageState(); // Make state class public
 }
 
-class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
+// Make the state class public by removing underscore (if it was private)
+class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
   final supabase = Supabase.instance.client;
   
   // Theme colors matching dashboard
@@ -44,6 +48,20 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
     _loadAllAttendanceData();
   }
 
+  // Add public method for external refresh calls
+  Future<void> refreshData() async {
+    debugPrint('AttendanceHistory: refreshData called from external source');
+    await _refreshAllData();
+    // widget.onAttendanceUpdated?.call(); // Remove to prevent infinite loop
+  }
+
+  // Private method for internal refresh
+  Future<void> _refreshAllData() async {
+    await _loadUserProfile();
+    await _loadOrganizationData();
+    await _loadAllAttendanceData();
+  }
+
   Future<void> _loadUserProfile() async {
     try {
       final user = supabase.auth.currentUser;
@@ -54,12 +72,14 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
             .eq('id', user.id)
             .single();
         
-        setState(() {
-          _userProfile = response;
-        });
+        if (mounted) {
+          setState(() {
+            _userProfile = response;
+          });
+        }
       }
     } catch (e) {
-      print('Error loading profile: $e');
+      debugPrint('Error loading profile: $e');
     }
   }
 
@@ -74,7 +94,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
             .eq('user_id', user.id)
             .single();
         
-        if (memberResponse != null) {
+        if (memberResponse != null && mounted) {
           setState(() {
             _organizationMember = memberResponse;
             _organization = memberResponse['organizations'];
@@ -82,20 +102,24 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
         }
       }
     } catch (e) {
-      print('Error loading organization data: $e');
+      debugPrint('Error loading organization data: $e');
     }
   }
 
   Future<void> _loadAllAttendanceData() async {
-    setState(() {
-      _isLoading = true;
-    });
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
 
     try {
       if (_organizationMember == null) {
-        setState(() {
-          _isLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
         return;
       }
 
@@ -108,11 +132,13 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
       _processAttendanceData(records);
       
     } catch (e) {
-      print('Error loading attendance data: $e');
+      debugPrint('Error loading attendance data: $e');
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -140,7 +166,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
       
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      print('Error loading attendance records: $e');
+      debugPrint('Error loading attendance records: $e');
       return [];
     }
   }
@@ -209,20 +235,24 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
       });
     }
     
-    setState(() {
-      _allAttendanceRecords = records;
-      _attendanceByDate = groupedData;
-      _totalCheckIns = checkIns;
-      _totalCheckOuts = checkOuts;
-      _filterAttendanceByDate(_selectedDay!);
-    });
+    if (mounted) {
+      setState(() {
+        _allAttendanceRecords = records;
+        _attendanceByDate = groupedData;
+        _totalCheckIns = checkIns;
+        _totalCheckOuts = checkOuts;
+        _filterAttendanceByDate(_selectedDay!);
+      });
+    }
   }
 
   void _filterAttendanceByDate(DateTime selectedDate) {
     final dateOnly = DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
-    setState(() {
-      _filteredData = _attendanceByDate[dateOnly] ?? [];
-    });
+    if (mounted) {
+      setState(() {
+        _filteredData = _attendanceByDate[dateOnly] ?? [];
+      });
+    }
   }
 
   List<Map<String, dynamic>> _getEventsForDay(DateTime day) {
@@ -513,11 +543,7 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: () async {
-                await _loadUserProfile();
-                await _loadOrganizationData();
-                await _loadAllAttendanceData();
-              },
+              onRefresh: refreshData, // Use the public method for consistency
               color: primaryColor,
               child: SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),
@@ -609,14 +635,27 @@ class _AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
                     ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: Text(
-                      _organization?['name'] ?? 'Unknown Organization',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      overflow: TextOverflow.ellipsis,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Attendance History',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          _organization?['name'] ?? 'Unknown Organization',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
                     ),
                   ),
                 ],

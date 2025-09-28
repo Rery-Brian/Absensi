@@ -12,8 +12,6 @@ import '../pages/camera_selfie_screen.dart';
 import '../pages/break_page.dart'; 
 import '../pages/branch_selection_screen.dart';
 import 'login.dart';
-import 'attendance_history.dart';
-import 'profile.dart';
 import '../helpers/timezone_helper.dart';
 import '../helpers/time_helper.dart';
 
@@ -21,88 +19,35 @@ class UserDashboard extends StatefulWidget {
   const UserDashboard({super.key});
 
   @override
-  State<UserDashboard> createState() => _UserDashboardState();
+  State<UserDashboard> createState() => UserDashboardState(); // Remove underscore for public access
 }
 
-class _UserDashboardState extends State<UserDashboard> {
-  int _currentIndex = 0;
+class UserDashboardState extends State<UserDashboard> { // Remove underscore for public access
   static const Color primaryColor = Color(0xFF6366F1);
   static const Color backgroundColor = Color(0xFF1F2937);
 
-  final List<BottomNavigationBarItem> _bottomNavItems = [
-    const BottomNavigationBarItem(
-      icon: Icon(Icons.home_outlined),
-      activeIcon: Icon(Icons.home),
-      label: 'Home',
-    ),
-    const BottomNavigationBarItem(
-      icon: Icon(Icons.history_outlined),
-      activeIcon: Icon(Icons.history),
-      label: 'History',
-    ),
-    const BottomNavigationBarItem(
-      icon: Icon(Icons.person_outline),
-      activeIcon: Icon(Icons.person),
-      label: 'Profile',
-    ),
-  ];
+  // Add GlobalKey for accessing DashboardContent
+  final GlobalKey<_DashboardContentState> _dashboardContentKey = GlobalKey<_DashboardContentState>();
+
+  // Public method to refresh user profile
+  void refreshUserProfile() {
+    debugPrint('UserDashboard: refreshUserProfile called');
+    if (_dashboardContentKey.currentState != null) {
+      _dashboardContentKey.currentState!.refreshUserProfile();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: [
-          _DashboardContent(),
-          const AttendanceHistoryPage(),
-          const ProfilePage(),
-        ],
-      ),
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 20,
-              offset: const Offset(0, -5),
-            ),
-          ],
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
-            child: BottomNavigationBar(
-              type: BottomNavigationBarType.fixed,
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-              currentIndex: _currentIndex,
-              onTap: (index) {
-                setState(() {
-                  _currentIndex = index;
-                });
-              },
-              selectedItemColor: primaryColor,
-              unselectedItemColor: Colors.grey.shade400,
-              selectedFontSize: 12,
-              unselectedFontSize: 12,
-              iconSize: 24,
-              selectedLabelStyle: const TextStyle(
-                fontWeight: FontWeight.w600,
-              ),
-              unselectedLabelStyle: const TextStyle(
-                fontWeight: FontWeight.w500,
-              ),
-              items: _bottomNavItems,
-            ),
-          ),
-        ),
-      ),
+      body: _DashboardContent(key: _dashboardContentKey),
     );
   }
 }
 
 class _DashboardContent extends StatefulWidget {
+  const _DashboardContent({super.key}); // Add key parameter
+
   @override
   State<_DashboardContent> createState() => _DashboardContentState();
 }
@@ -136,6 +81,28 @@ class _DashboardContentState extends State<_DashboardContent> {
     super.initState();
     _initializeServices();
     _loadUserData();
+  }
+
+  // Public method to refresh user profile from external sources
+  Future<void> refreshUserProfile() async {
+    debugPrint('DashboardContent: refreshUserProfile called');
+    try {
+      final updatedProfile = await _attendanceService.loadUserProfile();
+      if (updatedProfile != null && mounted) {
+        setState(() {
+          _userProfile = updatedProfile;
+        });
+        debugPrint('Profile photo updated: ${_userProfile?.profilePhotoUrl}');
+      }
+    } catch (e) {
+      debugPrint('Failed to refresh user profile: $e');
+    }
+  }
+
+  // Add public method to refresh attendance history (for callback from dashboard)
+  void triggerAttendanceHistoryRefresh() {
+    debugPrint('Dashboard: Attendance completed - should refresh history');
+    // This callback can be implemented if needed
   }
 
   Future<void> _initializeServices() async {
@@ -276,6 +243,9 @@ class _DashboardContentState extends State<_DashboardContent> {
     });
 
     try {
+      // Also refresh user profile during data refresh
+      _userProfile = await _attendanceService.loadUserProfile();
+      
       if (_organizationMember != null) {
         await _loadOrganizationInfo();
         await _checkBranchSelection();
@@ -417,8 +387,6 @@ class _DashboardContentState extends State<_DashboardContent> {
     return items;
   }
 
- // Tambahkan method-method ini ke dalam class _DashboardContentState
-
 String _formatTimeFromDatabase(String timeString) {
   try {
     // Use TimeHelper to parse and format the time properly
@@ -522,7 +490,7 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
           subtitle: scheduleItem.subtitle,
           type: scheduleItem.type,
           status: status,
-          action: _getActionForItem(scheduleItem, status),
+          statusDescription: _getStatusDescription(scheduleItem.type, status),
         ));
       }
       
@@ -566,35 +534,20 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
     return TimelineStatus.upcoming;
   }
 
-  AttendanceAction? _getActionForItem(ScheduleItem item, TimelineStatus status) {
-    final actionType = _getActionTypeString(item.type);
-    try {
-      return _availableActions.firstWhere((action) => action.type == actionType);
-    } catch (e) {
-      return AttendanceAction(
-        type: actionType,
-        label: item.label,
-        isEnabled: false,
-        reason: 'Not available now',
-      );
-    }
-  }
-
-  String _getActionTypeString(AttendanceActionType type) {
-    switch (type) {
-      case AttendanceActionType.checkIn:
-        return 'check_in';
-      case AttendanceActionType.checkOut:
-        return 'check_out';
-      case AttendanceActionType.breakOut:
-        return 'break_out';
-      case AttendanceActionType.breakIn:
-        return 'break_in';
+  String _getStatusDescription(AttendanceActionType type, TimelineStatus status) {
+    switch (status) {
+      case TimelineStatus.completed:
+        return 'Completed';
+      case TimelineStatus.active:
+        return 'Available now';
+      case TimelineStatus.upcoming:
+        return 'Not yet available';
     }
   }
 
   bool _needsPhoto(String actionType) {
-    return actionType == 'check_in' || actionType == 'check_out';
+    // Only check-in requires photo, checkout doesn't
+    return actionType == 'check_in';
   }
 
   int _getPresenceDays() {
@@ -719,7 +672,7 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
       if (_needsPhoto(actionType)) {
         String? imagePath = await _takeSelfie();
         if (imagePath == null) {
-          _showSnackBar('Photo required for ${actionType == 'check_in' ? 'check-in' : 'check-out'}', isError: true);
+          _showSnackBar('Photo required for check-in', isError: true);
           return;
         }
 
@@ -749,6 +702,9 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
       if (success) {
         await _showSuccessAttendancePopup(actionType);
         await _refreshData();
+        
+        // Call the callback to trigger attendance history refresh
+        triggerAttendanceHistoryRefresh();
       }
 
     } catch (e) {
@@ -1623,7 +1579,7 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
       ),
     );
   }
-
+  
   Widget _buildStatusCard() {
     return Transform.translate(
       offset: const Offset(0, -20),
@@ -1949,8 +1905,22 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    if (item.action != null)
-                      _buildActionButton(item),
+                    // Status description instead of action button
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: _getItemStatusColor(item.status).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        item.statusDescription,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: _getItemStatusColor(item.status),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -1969,77 +1939,6 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
     );
   }
 
-  Widget _buildActionButton(TimelineItem item) {
-    final action = item.action!;
-    
-    if (!action.isEnabled) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Text(
-          action.reason ?? 'Not available',
-          style: const TextStyle(
-            fontSize: 12,
-            color: Colors.grey,
-          ),
-        ),
-      );
-    }
-
-    if (action.type == 'break_out') {
-      return ElevatedButton(
-        onPressed: _isLoading ? null : _navigateToBreakPage,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: Colors.blue,
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          minimumSize: const Size(0, 0),
-        ),
-        child: _isLoading
-            ? SizedBox(
-                width: 12,
-                height: 12,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                ),
-              )
-            : Text(
-                action.label,
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-              ),
-      );
-    }
-
-    return ElevatedButton(
-      onPressed: _isLoading ? null : () => _performAttendance(action.type),
-      style: ElevatedButton.styleFrom(
-        backgroundColor: primaryColor,
-        foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        minimumSize: const Size(0, 0),
-      ),
-      child: _isLoading
-          ? SizedBox(
-              width: 12,
-              height: 12,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-              ),
-            )
-          : Text(
-              action.label,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
-            ),
-    );
-  }
-
   Color _getItemStatusColor(TimelineStatus status) {
     switch (status) {
       case TimelineStatus.completed:
@@ -2047,7 +1946,7 @@ Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
       case TimelineStatus.active:
         return primaryColor;
       case TimelineStatus.upcoming:
-        return Colors.grey.shade200;
+        return Colors.grey.shade400;
     }
   }
 
@@ -2072,7 +1971,7 @@ class TimelineItem {
   final String subtitle;
   final AttendanceActionType type;
   final TimelineStatus status;
-  final AttendanceAction? action;
+  final String statusDescription;
 
   TimelineItem({
     required this.time,
@@ -2080,7 +1979,7 @@ class TimelineItem {
     required this.subtitle,
     required this.type,
     required this.status,
-    this.action,
+    required this.statusDescription,
   });
 }
 

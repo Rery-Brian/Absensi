@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'signup.dart';
 import 'dashboard.dart';
+import 'main_dashboard.dart';
 
 class Login extends StatefulWidget {
   const Login({super.key});
@@ -137,7 +138,7 @@ class _LoginState extends State<Login> {
         // Navigasi ke dashboard
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const UserDashboard()),
+          MaterialPageRoute(builder: (context) => const MainDashboard()), // Use MainDashboard for bottom navigation
         );
       } else {
         throw Exception('Login gagal: User null dari Supabase');
@@ -195,7 +196,7 @@ class _LoginState extends State<Login> {
         if (!mounted) return;
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const UserDashboard()),
+          MaterialPageRoute(builder: (context) => const MainDashboard()), // Use MainDashboard for bottom navigation
         );
       } else {
         if (!mounted) return;

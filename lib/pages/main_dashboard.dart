@@ -16,10 +16,36 @@ class _MainDashboardState extends State<MainDashboard> {
   
   static const Color primaryColor = Color(0xFF6366F1);
   
-  final List<Widget> _pages = [
-    const UserDashboard(),
-    const AttendanceHistoryPage(),
-    const ProfilePage(),
+  // Add GlobalKey for accessing UserDashboard and AttendanceHistoryPage
+  final GlobalKey<UserDashboardState> _dashboardKey = GlobalKey<UserDashboardState>();
+  final GlobalKey<AttendanceHistoryPageState> _historyKey = GlobalKey<AttendanceHistoryPageState>();
+  
+  // Method to refresh dashboard profile
+  void _refreshDashboardProfile() {
+    debugPrint('MainDashboard: Profile updated callback received');
+    if (_dashboardKey.currentState != null) {
+      _dashboardKey.currentState!.refreshUserProfile();
+    }
+  }
+  
+  // Method to refresh attendance history
+  void _refreshAttendanceHistory() {
+    debugPrint('MainDashboard: Refreshing attendance history');
+    if (_historyKey.currentState != null) {
+      _historyKey.currentState!.refreshData();
+    }
+  }
+  
+  // Build pages with keys and callbacks
+  List<Widget> get _pages => [
+    UserDashboard(key: _dashboardKey),
+    AttendanceHistoryPage(
+      key: _historyKey,
+      onAttendanceUpdated: _refreshAttendanceHistory, // New callback
+    ),
+    ProfilePage(
+      onProfileUpdated: _refreshDashboardProfile, // Add callback
+    ),
   ];
 
   final List<BottomNavigationBarItem> _bottomNavItems = [
@@ -70,6 +96,17 @@ class _MainDashboardState extends State<MainDashboard> {
                 setState(() {
                   _currentIndex = index;
                 });
+                
+                // Handle different tab selections
+                if (index == 0 && _dashboardKey.currentState != null) {
+                  // Refresh profile when returning to Home tab
+                  debugPrint('Returning to home tab - refreshing profile');
+                  _dashboardKey.currentState!.refreshUserProfile();
+                } else if (index == 1) {
+                  // Refresh attendance history when History tab is selected
+                  debugPrint('History tab selected - refreshing attendance history');
+                  _refreshAttendanceHistory();
+                }
               },
               selectedItemColor: primaryColor,
               unselectedItemColor: Colors.grey.shade400,

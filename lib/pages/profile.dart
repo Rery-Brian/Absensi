@@ -8,7 +8,12 @@ import '../models/attendance_model.dart';
 import '../services/attendance_service.dart';
 
 class ProfilePage extends StatefulWidget {
-  const ProfilePage({super.key});
+  final VoidCallback? onProfileUpdated; // Add callback parameter
+  
+  const ProfilePage({
+    super.key,
+    this.onProfileUpdated, // Add to constructor
+  });
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -301,6 +306,12 @@ class _ProfilePageState extends State<ProfilePage> {
             // Reload user data to reflect changes
             await _loadUserData();
             _showSnackBar('Profile photo updated successfully!');
+            
+            // Call the callback to notify parent widget
+            if (widget.onProfileUpdated != null) {
+              debugPrint('Calling profile update callback');
+              widget.onProfileUpdated!();
+            }
           }
         } else {
           _showSnackBar('Failed to upload image', isError: true);
@@ -356,6 +367,12 @@ class _ProfilePageState extends State<ProfilePage> {
       });
 
       _showSnackBar('Profile updated successfully!');
+      
+      // Call the callback to notify parent widget about profile update
+      if (widget.onProfileUpdated != null) {
+        debugPrint('Calling profile update callback after saving profile');
+        widget.onProfileUpdated!();
+      }
     } catch (e) {
       debugPrint('Error saving profile: $e');
       _showSnackBar('Failed to update profile: $e', isError: true);
@@ -504,7 +521,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Widget _buildHeader(String displayName, String email) {
+   Widget _buildHeader(String displayName, String email) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(20, 50, 20, 40),
@@ -537,8 +554,9 @@ class _ProfilePageState extends State<ProfilePage> {
               CircleAvatar(
                 radius: 50,
                 backgroundColor: Colors.orange.shade400,
+                // Add timestamp to prevent caching issues
                 backgroundImage: _userProfile?.profilePhotoUrl != null
-                    ? NetworkImage(_userProfile!.profilePhotoUrl!)
+                    ? NetworkImage('${_userProfile!.profilePhotoUrl!}?t=${DateTime.now().millisecondsSinceEpoch}')
                     : null,
                 child: _userProfile?.profilePhotoUrl == null
                     ? const Icon(Icons.person, color: Colors.white, size: 50)
