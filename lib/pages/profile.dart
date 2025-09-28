@@ -150,9 +150,9 @@ class _ProfilePageState extends State<ProfilePage> {
       if (_userProfile?.profilePhotoUrl != null) {
         try {
           final oldFileName = _userProfile!.profilePhotoUrl!
-              .split('/profile-photos/')[1];
+              .split('/profile-photos/profiles')[1];
           await Supabase.instance.client.storage
-              .from('profile-photos')
+              .from('profile-photos/profiles')
               .remove([oldFileName]);
         } catch (e) {
           debugPrint('Could not delete old photo: $e');
@@ -161,7 +161,7 @@ class _ProfilePageState extends State<ProfilePage> {
       
       // Upload new photo
       await Supabase.instance.client.storage
-          .from('profile-photos')
+          .from('profile-photos/profiles')
           .uploadBinary(fileName, bytes, 
             fileOptions: const FileOptions(
               cacheControl: '3600',
@@ -170,7 +170,7 @@ class _ProfilePageState extends State<ProfilePage> {
           );
 
       final imageUrl = Supabase.instance.client.storage
-          .from('profile-photos')
+          .from('profile-photos/profiles')
           .getPublicUrl(fileName);
 
       return imageUrl;
