@@ -23,9 +23,10 @@ class DeviceSelectionScreen extends StatefulWidget {
 class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
   final DeviceService _deviceService = DeviceService();
   final AttendanceService _attendanceService = AttendanceService();
-  
+
   List<AttendanceDevice> _devices = [];
   AttendanceDevice? _selectedDevice;
+  AttendanceDevice? _previouslySelectedDevice; // Track previous selection
   bool _isLoading = true;
   bool _isSelecting = false;
   Geolocator.Position? _currentPosition;
@@ -44,13 +45,14 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
   Future<void> _loadDevices() async {
     try {
       setState(() => _isLoading = true);
-      
+
       final devices = await _deviceService.loadDevices(widget.organizationId);
       final selectedDevice = await _deviceService.loadSelectedDevice(widget.organizationId);
 
       setState(() {
         _devices = devices;
         _selectedDevice = selectedDevice;
+        _previouslySelectedDevice = selectedDevice; // Store initial selection
         _isLoading = false;
       });
 
@@ -101,18 +103,46 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
 
     try {
       await _deviceService.setSelectedDevice(device);
-      
+      debugPrint('Device selected: ${device.deviceName}');
+
+      // Update current position to device coordinates if available
+      if (device.hasValidCoordinates) {
+        setState(() {
+          _currentPosition = Geolocator.Position(
+            longitude: device.longitude!,
+            latitude: device.latitude!,
+            timestamp: DateTime.now(),
+            accuracy: 0.0,
+            altitude: 0.0,
+            heading: 0.0,
+            speed: 0.0,
+            speedAccuracy: 0.0,
+            altitudeAccuracy: 0.0,
+            headingAccuracy: 0.0,
+          );
+        });
+        debugPrint('Updated position to device coordinates: ${device.latitude}, ${device.longitude}');
+      }
+
       _showSnackBar('${device.deviceName} selected successfully');
-      
+
       await Future.delayed(const Duration(milliseconds: 500));
-      
+
+      // Check if device actually changed
+      final deviceChanged = _previouslySelectedDevice?.id != device.id;
+
       if (mounted) {
-        Navigator.of(context).pop(true);
+        // Return both success status and whether device changed
+        Navigator.of(context).pop({
+          'success': true,
+          'deviceChanged': deviceChanged,
+          'selectedDevice': device,
+        });
       }
     } catch (e) {
       _showSnackBar('Failed to select device: $e', isError: true);
       setState(() {
-        _selectedDevice = null;
+        _selectedDevice = _previouslySelectedDevice; // Restore previous selection
       });
     } finally {
       if (mounted) {
@@ -150,10 +180,15 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
         backgroundColor: backgroundColor,
         foregroundColor: Colors.white,
         elevation: 0,
-        leading: widget.isRequired ? null : IconButton(
-          icon: const Icon(Icons.close),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
+        leading: widget.isRequired
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.of(context).pop({
+                  'success': false, 
+                  'deviceChanged': false
+                }),
+              ),
       ),
       body: _isLoading ? _buildLoadingView() : _buildDeviceList(),
     );
@@ -250,7 +285,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
               final device = _devices[index];
               final distance = _distances[device.id];
               final isSelected = _selectedDevice?.id == device.id;
-              
+
               return Container(
                 margin: const EdgeInsets.only(bottom: 12),
                 child: Material(
@@ -280,7 +315,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Icon(
-                                  _getDeviceIcon(device.deviceTypeId), // Adjusted to use deviceTypeId
+                                  _getDeviceIcon(device.deviceTypeId),
                                   color: isSelected ? Colors.white : Colors.grey.shade600,
                                   size: 24,
                                 ),
@@ -308,7 +343,6 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
                                         ),
                                       ),
                                     ],
-                                    // Removed deviceType.name reference since deviceType is not fetched
                                   ],
                                 ),
                               ),
@@ -338,7 +372,6 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
                               ],
                             ],
                           ),
-                          // Display location only if it exists and is not empty
                           if (device.location != null && device.location!.isNotEmpty) ...[
                             const SizedBox(height: 12),
                             Row(
@@ -399,8 +432,8 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                   decoration: BoxDecoration(
-                                    color: (distance <= device.radiusMeters) 
-                                        ? Colors.blue.shade50 
+                                    color: (distance <= device.radiusMeters)
+                                        ? Colors.blue.shade50
                                         : Colors.orange.shade50,
                                     borderRadius: BorderRadius.circular(6),
                                   ),
@@ -408,12 +441,12 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
                                       Icon(
-                                        (distance <= device.radiusMeters) 
-                                            ? Icons.near_me 
+                                        (distance <= device.radiusMeters)
+                                            ? Icons.near_me
                                             : Icons.location_searching,
                                         size: 12,
-                                        color: (distance <= device.radiusMeters) 
-                                            ? Colors.blue.shade600 
+                                        color: (distance <= device.radiusMeters)
+                                            ? Colors.blue.shade600
                                             : Colors.orange.shade600,
                                       ),
                                       const SizedBox(width: 4),
@@ -421,8 +454,8 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
                                         _formatDistance(distance),
                                         style: TextStyle(
                                           fontSize: 12,
-                                          color: (distance <= device.radiusMeters) 
-                                              ? Colors.blue.shade700 
+                                          color: (distance <= device.radiusMeters)
+                                              ? Colors.blue.shade700
                                               : Colors.orange.shade700,
                                           fontWeight: FontWeight.w500,
                                         ),
@@ -530,8 +563,6 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
   }
 
   IconData _getDeviceIcon(String deviceTypeId) {
-    // Map deviceTypeId to appropriate icons based on your system
-    // Since deviceType is not fetched, use deviceTypeId directly
     switch (deviceTypeId.toLowerCase()) {
       case 'rfid':
         return Icons.credit_card;

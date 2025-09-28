@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -6,10 +7,9 @@ import 'package:intl/intl.dart';
 import '../models/attendance_model.dart' hide Position;
 
 import '../services/attendance_service.dart';
-
 import '../services/camera_service.dart';
 import '../pages/camera_selfie_screen.dart';
-import '../pages/break_page.dart'; 
+import '../pages/break_page.dart';
 import '../services/device_service.dart';
 import '../pages/device_selection_screen.dart';
 import 'login.dart';
@@ -56,8 +56,10 @@ class _DashboardContentState extends State<_DashboardContent> {
   final DeviceService _deviceService = DeviceService();
   bool _isLoading = false;
   bool _isRefreshing = false;
-  Position? _currentPosition;
-
+  Position? _currentPosition; // Untuk koordinat perangkat (digunakan untuk absen)
+  Position? _gpsPosition; // Untuk lokasi GPS pengguna (digunakan untuk pemeriksaan jarak)
+  double? _distanceToDevice; // Jarak ke perangkat yang dipilih
+  bool? _isWithinRadius; // Cache status jarak
   UserProfile? _userProfile;
   OrganizationMember? _organizationMember;
   SimpleOrganization? _organization;
@@ -69,17 +71,25 @@ class _DashboardContentState extends State<_DashboardContent> {
   AttendanceStatus _currentStatus = AttendanceStatus.unknown;
   List<AttendanceAction> _availableActions = [];
   bool _needsDeviceSelection = false;
+  Timer? _debounceTimer; // Timer untuk debounce pembaruan GPS
 
   final List<TimelineItem> _timelineItems = [];
 
   static const Color primaryColor = Color(0xFF6366F1);
   static const Color backgroundColor = Color(0xFF1F2937);
+  static const double minGpsAccuracy = 20.0; // Akurasi GPS minimum dalam meter
 
   @override
   void initState() {
     super.initState();
     _initializeServices();
     _loadUserData();
+  }
+
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> refreshUserProfile() async {
@@ -99,7 +109,6 @@ class _DashboardContentState extends State<_DashboardContent> {
 
   void triggerAttendanceHistoryRefresh() {
     debugPrint('Dashboard: Attendance completed - should refresh history');
-    // This callback can be implemented if needed
   }
 
   Future<void> _initializeServices() async {
@@ -151,13 +160,11 @@ class _DashboardContentState extends State<_DashboardContent> {
     if (_organizationMember == null) return;
 
     try {
-      // Check if device selection is required
       final selectionRequired = await _deviceService.isSelectionRequired(_organizationMember!.organizationId);
-      
+
       if (selectionRequired) {
-        // Check if user has already selected a device
         final selectedDevice = await _deviceService.loadSelectedDevice(_organizationMember!.organizationId);
-        
+
         if (selectedDevice == null) {
           setState(() {
             _needsDeviceSelection = true;
@@ -166,9 +173,28 @@ class _DashboardContentState extends State<_DashboardContent> {
         }
       }
 
-      // Load the selected device
       _selectedDevice = await _deviceService.loadSelectedDevice(_organizationMember!.organizationId);
-      
+
+      // Update current position for attendance (device coordinates)
+      if (_selectedDevice != null && _selectedDevice!.hasValidCoordinates) {
+        _currentPosition = Position(
+          longitude: _selectedDevice!.longitude!,
+          latitude: _selectedDevice!.latitude!,
+          timestamp: DateTime.now(),
+          accuracy: 0.0,
+          altitude: 0.0,
+          heading: 0.0,
+          speed: 0.0,
+          speedAccuracy: 0.0,
+          altitudeAccuracy: 0.0,
+          headingAccuracy: 0.0,
+        );
+        debugPrint('Initial position updated to device coordinates: ${_selectedDevice!.latitude}, ${_selectedDevice!.longitude}');
+      }
+
+      // Update GPS position and calculate distance
+      await _updateGpsPositionAndDistance(debounce: false);
+
       setState(() {
         _needsDeviceSelection = false;
       });
@@ -181,7 +207,7 @@ class _DashboardContentState extends State<_DashboardContent> {
   Future<void> _navigateToDeviceSelection({bool isRequired = false}) async {
     if (_organizationMember == null) return;
 
-    final result = await Navigator.push<bool>(
+    final result = await Navigator.push<Map<String, dynamic>>(
       context,
       MaterialPageRoute(
         builder: (context) => DeviceSelectionScreen(
@@ -192,8 +218,78 @@ class _DashboardContentState extends State<_DashboardContent> {
       ),
     );
 
-    if (result == true) {
+    if (result != null && result['success'] == true) {
+      setState(() {
+        _selectedDevice = result['selectedDevice'] as AttendanceDevice?;
+        if (_selectedDevice != null && _selectedDevice!.hasValidCoordinates) {
+          _currentPosition = Position(
+            longitude: _selectedDevice!.longitude!,
+            latitude: _selectedDevice!.latitude!,
+            timestamp: DateTime.now(),
+            accuracy: 0.0,
+            altitude: 0.0,
+            heading: 0.0,
+            speed: 0.0,
+            speedAccuracy: 0.0,
+            altitudeAccuracy: 0.0,
+            headingAccuracy: 0.0,
+          );
+          debugPrint('Updated position to device coordinates: ${_selectedDevice!.latitude}, ${_selectedDevice!.longitude}');
+        }
+        _needsDeviceSelection = false;
+      });
+      await _updateGpsPositionAndDistance(debounce: false);
       await _refreshData();
+    }
+  }
+
+  Future<void> _updateGpsPositionAndDistance({bool debounce = true}) async {
+    if (debounce) {
+      // Batalkan timer sebelumnya jika ada
+      _debounceTimer?.cancel();
+      // Atur timer untuk menunda pembaruan GPS
+      _debounceTimer = Timer(const Duration(seconds: 2), () async {
+        await _performGpsUpdate();
+      });
+    } else {
+      await _performGpsUpdate();
+    }
+  }
+
+  Future<void> _performGpsUpdate() async {
+    try {
+      // Get actual GPS position with accuracy check
+      final position = await _attendanceService.getCurrentLocation();
+      if (position != null && position.accuracy <= minGpsAccuracy) {
+        _gpsPosition = position;
+        if (_selectedDevice != null && _selectedDevice!.hasValidCoordinates) {
+          _distanceToDevice = Geolocator.distanceBetween(
+            _gpsPosition!.latitude,
+            _gpsPosition!.longitude,
+            _selectedDevice!.latitude!,
+            _selectedDevice!.longitude!,
+          );
+          _isWithinRadius = _attendanceService.isWithinRadius(_gpsPosition!, _selectedDevice!);
+          debugPrint('Distance to device: ${_distanceToDevice?.toStringAsFixed(0)}m, In range: $_isWithinRadius');
+        } else {
+          _distanceToDevice = null;
+          _isWithinRadius = null;
+        }
+      } else {
+        debugPrint('GPS accuracy too low: ${position?.accuracy ?? 'null'}');
+        _distanceToDevice = null;
+        _isWithinRadius = null;
+      }
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (e) {
+      debugPrint('Failed to update GPS position: $e');
+      _distanceToDevice = null;
+      _isWithinRadius = null;
+      if (mounted) {
+        setState(() {});
+      }
     }
   }
 
@@ -201,7 +297,6 @@ class _DashboardContentState extends State<_DashboardContent> {
     if (_organizationMember == null) return;
 
     try {
-      // Handle both string and int organizationId
       dynamic orgIdValue;
       try {
         orgIdValue = int.parse(_organizationMember!.organizationId);
@@ -236,13 +331,12 @@ class _DashboardContentState extends State<_DashboardContent> {
     });
 
     try {
-      // Also refresh user profile during data refresh
       _userProfile = await _attendanceService.loadUserProfile();
-      
+
       if (_organizationMember != null) {
         await _loadOrganizationInfo();
         await _checkDeviceSelection();
-        
+
         if (!_needsDeviceSelection) {
           await _loadOrganizationData();
           await _loadScheduleData();
@@ -270,7 +364,6 @@ class _DashboardContentState extends State<_DashboardContent> {
         _attendanceService.loadTodayAttendanceRecords(_organizationMember!.id),
         _attendanceService.loadRecentAttendanceRecords(_organizationMember!.id),
         _attendanceService.loadCurrentSchedule(_organizationMember!.id),
-        _attendanceService.getCurrentLocation(),
       ]);
 
       if (mounted) {
@@ -278,8 +371,11 @@ class _DashboardContentState extends State<_DashboardContent> {
           _todayAttendanceRecords = futures[0] as List<AttendanceRecord>;
           _recentAttendanceRecords = futures[1] as List<AttendanceRecord>;
           _currentSchedule = futures[2] as MemberSchedule?;
-          _currentPosition = futures[3] as Position?;
         });
+        // Hanya perbarui GPS jika belum ada status jarak yang valid
+        if (_isWithinRadius == null) {
+          await _updateGpsPositionAndDistance(debounce: true);
+        }
       }
     } catch (e) {
       debugPrint('Error loading organization data: $e');
@@ -291,15 +387,13 @@ class _DashboardContentState extends State<_DashboardContent> {
     if (_organizationMember == null) return;
 
     try {
-      // Get current schedule first
       _currentSchedule = await _attendanceService.loadCurrentSchedule(_organizationMember!.id);
-      
+
       if (_currentSchedule?.workScheduleId != null) {
-        // If we have a work schedule, get today's details
         final dayOfWeek = TimeHelper.getCurrentDayOfWeek();
         _todayScheduleDetails = await _attendanceService.loadWorkScheduleDetails(
-          _currentSchedule!.workScheduleId!, 
-          dayOfWeek
+          _currentSchedule!.workScheduleId!,
+          dayOfWeek,
         );
         debugPrint('Loaded work schedule details: ${_todayScheduleDetails?.toJson()}');
       } else {
@@ -332,10 +426,9 @@ class _DashboardContentState extends State<_DashboardContent> {
 
   Future<List<ScheduleItem>> _getScheduleItemsFromDatabase() async {
     List<ScheduleItem> items = [];
-    
+
     try {
       if (_todayScheduleDetails != null && _todayScheduleDetails!.isWorkingDay) {
-        
         if (_todayScheduleDetails!.startTime != null) {
           items.add(ScheduleItem(
             time: _formatTimeFromDatabase(_todayScheduleDetails!.startTime!),
@@ -344,7 +437,7 @@ class _DashboardContentState extends State<_DashboardContent> {
             subtitle: 'Start work day',
           ));
         }
-        
+
         if (_todayScheduleDetails!.breakStart != null) {
           items.add(ScheduleItem(
             time: _formatTimeFromDatabase(_todayScheduleDetails!.breakStart!),
@@ -353,7 +446,7 @@ class _DashboardContentState extends State<_DashboardContent> {
             subtitle: 'Take a break',
           ));
         }
-        
+
         if (_todayScheduleDetails!.endTime != null) {
           items.add(ScheduleItem(
             time: _formatTimeFromDatabase(_todayScheduleDetails!.endTime!),
@@ -362,7 +455,6 @@ class _DashboardContentState extends State<_DashboardContent> {
             subtitle: 'End work day',
           ));
         }
-        
       } else {
         if (_currentSchedule?.shiftId != null) {
           items = await _getScheduleItemsFromShift();
@@ -371,23 +463,20 @@ class _DashboardContentState extends State<_DashboardContent> {
           return [];
         }
       }
-      
     } catch (e) {
       debugPrint('Error getting schedule items from database: $e');
       _showSnackBar('Failed to load schedule items.', isError: true);
     }
-    
+
     return items;
   }
 
   String _formatTimeFromDatabase(String timeString) {
     try {
-      // Use TimeHelper to parse and format the time properly
       final timeOfDay = TimeHelper.parseTimeString(timeString);
       return TimeHelper.formatTimeOfDay(timeOfDay);
     } catch (e) {
       debugPrint('Error formatting time from database "$timeString": $e');
-      // Fallback: try basic string manipulation
       if (timeString.contains(':')) {
         final parts = timeString.split(':');
         if (parts.length >= 2) {
@@ -396,13 +485,13 @@ class _DashboardContentState extends State<_DashboardContent> {
           return '$hour:$minute';
         }
       }
-      return timeString; // Return original if all else fails
+      return timeString;
     }
   }
 
   Future<List<ScheduleItem>> _getScheduleItemsFromShift() async {
     List<ScheduleItem> items = [];
-    
+
     try {
       dynamic shiftIdValue;
       try {
@@ -416,7 +505,7 @@ class _DashboardContentState extends State<_DashboardContent> {
           .select('start_time, end_time, break_duration_minutes')
           .eq('id', shiftIdValue)
           .single();
-      
+
       if (shiftResponse != null) {
         items.add(ScheduleItem(
           time: _formatTimeFromDatabase(shiftResponse['start_time']),
@@ -424,16 +513,15 @@ class _DashboardContentState extends State<_DashboardContent> {
           type: AttendanceActionType.checkIn,
           subtitle: 'Start work day',
         ));
-        
-        if (shiftResponse['break_duration_minutes'] != null && 
+
+        if (shiftResponse['break_duration_minutes'] != null &&
             shiftResponse['break_duration_minutes'] > 0) {
-          
           final startTime = TimeHelper.parseTimeString(_formatTimeFromDatabase(shiftResponse['start_time']));
           final endTime = TimeHelper.parseTimeString(_formatTimeFromDatabase(shiftResponse['end_time']));
-          
+
           final totalMinutes = TimeHelper.timeToMinutes(endTime) - TimeHelper.timeToMinutes(startTime);
           final breakStartMinutes = TimeHelper.timeToMinutes(startTime) + (totalMinutes ~/ 2);
-          
+
           items.add(ScheduleItem(
             time: TimeHelper.formatTimeOfDay(TimeHelper.minutesToTime(breakStartMinutes)),
             label: 'Break',
@@ -441,7 +529,7 @@ class _DashboardContentState extends State<_DashboardContent> {
             subtitle: 'Take a break',
           ));
         }
-        
+
         items.add(ScheduleItem(
           time: _formatTimeFromDatabase(shiftResponse['end_time']),
           label: 'Check Out',
@@ -449,20 +537,19 @@ class _DashboardContentState extends State<_DashboardContent> {
           subtitle: 'End work day',
         ));
       }
-      
     } catch (e) {
       debugPrint('Error getting schedule from shift: $e');
     }
-    
+
     return items;
   }
 
   Future<void> _buildDynamicTimeline() async {
     _timelineItems.clear();
-    
+
     try {
       final scheduleItems = await _getScheduleItemsFromDatabase();
-      
+
       if (scheduleItems.isEmpty) {
         debugPrint('No schedule items found for today');
         if (mounted) {
@@ -470,13 +557,13 @@ class _DashboardContentState extends State<_DashboardContent> {
         }
         return;
       }
-      
+
       final currentTime = TimeHelper.getCurrentTime();
 
       for (var scheduleItem in scheduleItems) {
         final scheduleTime = TimeHelper.parseTimeString(scheduleItem.time);
         final status = _getItemStatus(scheduleItem, scheduleTime, currentTime);
-        
+
         _timelineItems.add(TimelineItem(
           time: scheduleItem.time,
           label: scheduleItem.label,
@@ -486,11 +573,10 @@ class _DashboardContentState extends State<_DashboardContent> {
           statusDescription: _getStatusDescription(scheduleItem.type, status),
         ));
       }
-      
+
       if (mounted) {
         setState(() {});
       }
-      
     } catch (e) {
       debugPrint('Error building dynamic timeline: $e');
       _showSnackBar('Failed to build timeline.', isError: true);
@@ -519,7 +605,7 @@ class _DashboardContentState extends State<_DashboardContent> {
 
     final currentMinutes = TimeHelper.timeToMinutes(currentTime);
     final scheduleMinutes = TimeHelper.timeToMinutes(scheduleTime);
-    
+
     if (currentMinutes >= scheduleMinutes - 15 && currentMinutes <= scheduleMinutes + 15) {
       return TimelineStatus.active;
     }
@@ -539,7 +625,6 @@ class _DashboardContentState extends State<_DashboardContent> {
   }
 
   bool _needsPhoto(String actionType) {
-    // Only check-in requires photo, checkout doesn't
     return actionType == 'check_in';
   }
 
@@ -599,7 +684,6 @@ class _DashboardContentState extends State<_DashboardContent> {
       int memberId = int.parse(_organizationMember!.id);
       int? deviceId;
 
-      // Use selected device if available
       if (_selectedDevice != null) {
         deviceId = int.tryParse(_selectedDevice!.id);
       }
@@ -625,12 +709,12 @@ class _DashboardContentState extends State<_DashboardContent> {
 
   Future<void> _performAttendance(String actionType) async {
     if (!mounted) return;
-    
+
     if (actionType == 'break_out') {
       await _navigateToBreakPage();
       return;
     }
-    
+
     setState(() {
       _isLoading = true;
     });
@@ -646,21 +730,16 @@ class _DashboardContentState extends State<_DashboardContent> {
         return;
       }
 
-      await _getCurrentLocation();
-      if (_currentPosition == null) {
+      // Update GPS position to check radius
+      await _updateGpsPositionAndDistance(debounce: false);
+      if (_gpsPosition == null) {
         _showSnackBar('Location not found. Ensure GPS is on.', isError: true);
         return;
       }
 
-      // Use the attendance device radius check
-      if (!_attendanceService.isWithinRadius(_currentPosition!, _selectedDevice!)) {
-        final distance = _attendanceService.calculateDistance(
-          _currentPosition!.latitude,
-          _currentPosition!.longitude,
-          _selectedDevice!.latitude,
-          _selectedDevice!.longitude,
-        );
-        
+      // Check if within radius using GPS position
+      if (!_attendanceService.isWithinRadius(_gpsPosition!, _selectedDevice!)) {
+        final distance = _distanceToDevice;
         _showSnackBar(
           distance != null
               ? 'You are outside device radius (${distance.toStringAsFixed(0)}m from ${_selectedDevice!.radiusMeters}m)'
@@ -668,6 +747,23 @@ class _DashboardContentState extends State<_DashboardContent> {
           isError: true,
         );
         return;
+      }
+
+      // Use device coordinates for attendance recording
+      if (_selectedDevice!.hasValidCoordinates) {
+        _currentPosition = Position(
+          longitude: _selectedDevice!.longitude!,
+          latitude: _selectedDevice!.latitude!,
+          timestamp: DateTime.now(),
+          accuracy: 0.0,
+          altitude: 0.0,
+          heading: 0.0,
+          speed: 0.0,
+          speedAccuracy: 0.0,
+          altitudeAccuracy: 0.0,
+          headingAccuracy: 0.0,
+        );
+        debugPrint('Using device coordinates for attendance: ${_selectedDevice!.latitude}, ${_selectedDevice!.longitude}');
       }
 
       String? photoUrl;
@@ -706,11 +802,8 @@ class _DashboardContentState extends State<_DashboardContent> {
       if (success) {
         await _showSuccessAttendancePopup(actionType);
         await _refreshData();
-        
-        // Call the callback to trigger attendance history refresh
         triggerAttendanceHistoryRefresh();
       }
-
     } catch (e) {
       debugPrint('Error performing attendance: $e');
       _showSnackBar('Failed to perform attendance: $e', isError: true);
@@ -725,10 +818,7 @@ class _DashboardContentState extends State<_DashboardContent> {
 
   Future<void> _getCurrentLocation() async {
     try {
-      _currentPosition = await _attendanceService.getCurrentLocation();
-      if (mounted) {
-        setState(() {});
-      }
+      await _updateGpsPositionAndDistance(debounce: true);
     } catch (e) {
       _showSnackBar('Failed to get location: $e', isError: true);
     }
@@ -763,7 +853,7 @@ class _DashboardContentState extends State<_DashboardContent> {
 
   Future<void> _showSuccessAttendancePopup(String type) async {
     if (!mounted) return;
-    
+
     final orgTime = TimezoneHelper.nowInOrgTime();
 
     return showDialog<void>(
@@ -904,31 +994,39 @@ class _DashboardContentState extends State<_DashboardContent> {
 
   String _getDisplayName() {
     final user = Supabase.instance.client.auth.currentUser;
-    
+
     if (_userProfile?.displayName != null && _userProfile!.displayName!.isNotEmpty) {
       return _userProfile!.displayName!;
     }
-    
+
     if (_userProfile?.fullName != null && _userProfile!.fullName!.isNotEmpty) {
       return _userProfile!.fullName!;
     }
-    
+
     if (_userProfile?.firstName != null && _userProfile!.firstName!.isNotEmpty) {
       return _userProfile!.firstName!;
     }
-    
+
     if (user?.email != null) {
       return user!.email!.split('@')[0];
     }
-    
+
     return 'User';
+  }
+
+  String _formatDistance(double? distanceInMeters) {
+    if (distanceInMeters == null) return 'Unknown distance';
+    if (distanceInMeters < 1000) {
+      return '${distanceInMeters.toInt()}m away';
+    } else {
+      return '${(distanceInMeters / 1000).toStringAsFixed(1)}km away';
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final displayName = _getDisplayName();
 
-    // Check for device selection requirement
     if (_needsDeviceSelection) {
       return _buildDeviceSelectionRequiredView();
     }
@@ -1095,7 +1193,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                     ],
                   ),
                 ),
-                
+
                 Expanded(
                   child: Center(
                     child: Container(
@@ -1123,8 +1221,8 @@ class _DashboardContentState extends State<_DashboardContent> {
                               shape: BoxShape.circle,
                             ),
                             child: Icon(
-                              Icons.devices, 
-                              size: 40, 
+                              Icons.devices,
+                              size: 40,
                               color: primaryColor,
                             ),
                           ),
@@ -1132,7 +1230,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                           const Text(
                             'Select Your Device',
                             style: TextStyle(
-                              fontSize: 22, 
+                              fontSize: 22,
                               fontWeight: FontWeight.bold,
                               color: Colors.black87,
                             ),
@@ -1154,7 +1252,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                               Expanded(
                                 child: ElevatedButton.icon(
                                   onPressed: _isLoading ? null : () => _navigateToDeviceSelection(isRequired: true),
-                                  icon: _isLoading 
+                                  icon: _isLoading
                                       ? SizedBox(
                                           width: 16,
                                           height: 16,
@@ -1272,7 +1370,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                   ],
                 ),
               ),
-              
+
               Expanded(
                 child: Center(
                   child: Container(
@@ -1300,8 +1398,8 @@ class _DashboardContentState extends State<_DashboardContent> {
                             shape: BoxShape.circle,
                           ),
                           child: Icon(
-                            Icons.business_outlined, 
-                            size: 40, 
+                            Icons.business_outlined,
+                            size: 40,
                             color: Colors.orange.shade400,
                           ),
                         ),
@@ -1309,7 +1407,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                         const Text(
                           'Organization Setup Required',
                           style: TextStyle(
-                            fontSize: 22, 
+                            fontSize: 22,
                             fontWeight: FontWeight.bold,
                             color: Colors.black87,
                           ),
@@ -1360,7 +1458,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                             Expanded(
                               child: OutlinedButton.icon(
                                 onPressed: _isLoading ? null : _loadUserData,
-                                icon: _isLoading 
+                                icon: _isLoading
                                     ? SizedBox(
                                         width: 16,
                                         height: 16,
@@ -1501,7 +1599,6 @@ class _DashboardContentState extends State<_DashboardContent> {
                   ],
                 ),
               ),
-              // Device selector button
               if (_selectedDevice != null)
                 GestureDetector(
                   onTap: () => _navigateToDeviceSelection(),
@@ -1583,7 +1680,7 @@ class _DashboardContentState extends State<_DashboardContent> {
       ),
     );
   }
-  
+
   Widget _buildStatusCard() {
     return Transform.translate(
       offset: const Offset(0, -20),
@@ -1642,7 +1739,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                 Text(
                   TimezoneHelper.formatOrgTime(
                     TimezoneHelper.nowInOrgTime(),
-                    'EEEE, dd MMMM yyyy • HH:mm z'
+                    'EEEE, dd MMMM yyyy • HH:mm z',
                   ),
                   style: const TextStyle(
                     fontSize: 14,
@@ -1669,25 +1766,36 @@ class _DashboardContentState extends State<_DashboardContent> {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      if (_currentPosition != null && _selectedDevice!.hasValidCoordinates) ...[
+                      if (_gpsPosition != null && _selectedDevice!.hasValidCoordinates && _distanceToDevice != null && _isWithinRadius != null) ...[
                         const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: _attendanceService.isWithinRadius(_currentPosition!, _selectedDevice!)
-                                ? Colors.green.shade50
-                                : Colors.orange.shade50,
+                            color: _isWithinRadius! ? Colors.green.shade50 : Colors.orange.shade50,
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text(
-                            _attendanceService.isWithinRadius(_currentPosition!, _selectedDevice!)
-                                ? 'In range'
-                                : 'Out of range',
+                            _isWithinRadius! ? 'In range (${_formatDistance(_distanceToDevice)})' : 'Out of range (${_formatDistance(_distanceToDevice)})',
                             style: TextStyle(
                               fontSize: 10,
-                              color: _attendanceService.isWithinRadius(_currentPosition!, _selectedDevice!)
-                                  ? Colors.green.shade700
-                                  : Colors.orange.shade700,
+                              color: _isWithinRadius! ? Colors.green.shade700 : Colors.orange.shade700,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ] else if (_selectedDevice!.hasValidCoordinates) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'Location unavailable',
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.grey.shade700,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
@@ -1705,10 +1813,16 @@ class _DashboardContentState extends State<_DashboardContent> {
                 runSpacing: 8,
                 children: _availableActions.take(2).map((action) {
                   return ElevatedButton(
-                    onPressed: action.isEnabled && !_isLoading ? () => _performAttendance(action.type) : null,
+                    onPressed: action.isEnabled && !_isLoading && (_isWithinRadius ?? false)
+                        ? () => _performAttendance(action.type)
+                        : null,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: action.isEnabled ? primaryColor : Colors.grey.shade300,
-                      foregroundColor: action.isEnabled ? Colors.white : Colors.grey,
+                      backgroundColor: action.isEnabled && (_isWithinRadius ?? false)
+                          ? primaryColor
+                          : Colors.grey.shade300,
+                      foregroundColor: action.isEnabled && (_isWithinRadius ?? false)
+                          ? Colors.white
+                          : Colors.grey,
                       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
@@ -1734,12 +1848,12 @@ class _DashboardContentState extends State<_DashboardContent> {
               Container(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: _navigateToBreakPage,
+                  onPressed: (_isWithinRadius ?? false) ? _navigateToBreakPage : null,
                   icon: const Icon(Icons.coffee, size: 18),
                   label: const Text('Take Break'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.blue,
-                    side: const BorderSide(color: Colors.blue),
+                    foregroundColor: (_isWithinRadius ?? false) ? Colors.blue : Colors.grey,
+                    side: BorderSide(color: (_isWithinRadius ?? false) ? Colors.blue : Colors.grey),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
@@ -1892,8 +2006,11 @@ class _DashboardContentState extends State<_DashboardContent> {
             ),
             child: Icon(
               _getItemIcon(item.type),
-              color: item.status == TimelineStatus.active ? Colors.white : 
-                    item.status == TimelineStatus.completed ? Colors.white : Colors.grey,
+              color: item.status == TimelineStatus.active
+                  ? Colors.white
+                  : item.status == TimelineStatus.completed
+                      ? Colors.white
+                      : Colors.grey,
               size: 20,
             ),
           ),
@@ -1912,7 +2029,6 @@ class _DashboardContentState extends State<_DashboardContent> {
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    // Status description instead of action button
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
