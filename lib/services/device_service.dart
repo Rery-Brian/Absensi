@@ -1,6 +1,7 @@
 // services/device_service.dart
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter/foundation.dart';
 import '../models/attendance_model.dart';
 
 class DeviceService {
@@ -37,6 +38,7 @@ class DeviceService {
   /// Load a specific device by ID
   Future<AttendanceDevice?> loadDeviceById(String deviceId) async {
     try {
+      debugPrint('DeviceService: Loading device by ID: $deviceId');
       final response = await _supabase
           .from('attendance_devices')
           .select('''
@@ -48,10 +50,14 @@ class DeviceService {
           .maybeSingle();
 
       if (response != null) {
-        return AttendanceDevice.fromJson(response);
+        final device = AttendanceDevice.fromJson(response);
+        debugPrint('DeviceService: Device found: ${device.deviceName} (ID: ${device.id}, OrgID: ${device.organizationId})');
+        return device;
       }
+      debugPrint('DeviceService: Device not found for ID: $deviceId');
       return null;
     } catch (e) {
+      debugPrint('DeviceService: Error loading device: $e');
       throw Exception('Error loading device: $e');
     }
   }
@@ -63,45 +69,67 @@ class DeviceService {
       
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_selectedDeviceKey, device.id);
+      
+      debugPrint('DeviceService: Device saved to preferences: ${device.deviceName} (ID: ${device.id})');
+      
+      // Verify it was saved
+      final savedId = prefs.getString(_selectedDeviceKey);
+      debugPrint('DeviceService: Verified saved ID: $savedId');
     } catch (e) {
+      debugPrint('DeviceService: Error setting selected device: $e');
       throw Exception('Error setting selected device: $e');
     }
   }
 
-  /// Load the previously selected device from preferences
+ /// Load the previously selected device from preferences
   Future<AttendanceDevice?> loadSelectedDevice(String organizationId) async {
     try {
-      if (_selectedDevice != null && _selectedDevice!.organizationId == organizationId) {
-        return _selectedDevice;
-      }
-
+      debugPrint('DeviceService: Loading selected device for org: $organizationId');
+      
+      // ALWAYS load from SharedPreferences first to ensure we get the latest saved device
       final prefs = await SharedPreferences.getInstance();
       final savedDeviceId = prefs.getString(_selectedDeviceKey);
       
+      debugPrint('DeviceService: Saved device ID in preferences: $savedDeviceId');
+      debugPrint('DeviceService: Current cache: ${_selectedDevice?.deviceName} (ID: ${_selectedDevice?.id})');
+      
       if (savedDeviceId != null) {
         final device = await loadDeviceById(savedDeviceId);
-        if (device != null && device.organizationId == organizationId) {
-          _selectedDevice = device;
-          return device;
+        if (device != null) {
+          debugPrint('DeviceService: Loaded device org ID: ${device.organizationId}, requested org ID: $organizationId');
+          if (device.organizationId == organizationId) {
+            _selectedDevice = device;
+            debugPrint('DeviceService: Device loaded and cached: ${device.deviceName}');
+            return device;
+          } else {
+            debugPrint('DeviceService: WARNING - Device org ID mismatch! Device org: ${device.organizationId}, current org: $organizationId');
+            return null;
+          }
         } else {
-          await clearSelectedDevice();
+          debugPrint('DeviceService: Device not found in database for saved ID: $savedDeviceId');
+          return null;
         }
       }
 
+      debugPrint('DeviceService: No device saved in preferences');
       return null;
     } catch (e) {
+      debugPrint('DeviceService: Error loading selected device: $e');
       throw Exception('Error loading selected device: $e');
     }
   }
-
   /// Clear the selected device
   Future<void> clearSelectedDevice() async {
     try {
+      debugPrint('DeviceService: Clearing selected device');
       _selectedDevice = null;
       
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_selectedDeviceKey);
+      
+      debugPrint('DeviceService: Selected device cleared from cache and preferences');
     } catch (e) {
+      debugPrint('DeviceService: Error clearing selected device: $e');
       throw Exception('Error clearing selected device: $e');
     }
   }
@@ -109,22 +137,29 @@ class DeviceService {
   /// Check if a device selection is required for the organization
   Future<bool> isSelectionRequired(String organizationId) async {
     try {
+      debugPrint('DeviceService: Checking if selection required for org: $organizationId');
       final devices = await loadDevices(organizationId);
+      
+      debugPrint('DeviceService: Found ${devices.length} devices');
       
       // If there are multiple devices, selection is required
       if (devices.length > 1) {
+        debugPrint('DeviceService: Multiple devices found - selection required');
         return true;
       }
       
       // If there's exactly one device, auto-select it
       if (devices.length == 1) {
+        debugPrint('DeviceService: Single device found - auto-selecting: ${devices.first.deviceName}');
         await setSelectedDevice(devices.first);
         return false;
       }
       
       // No devices available - selection not required
+      debugPrint('DeviceService: No devices found');
       return false;
     } catch (e) {
+      debugPrint('DeviceService: Error checking selection requirement: $e');
       throw Exception('Error checking selection requirement: $e');
     }
   }

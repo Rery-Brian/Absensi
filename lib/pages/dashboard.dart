@@ -183,12 +183,20 @@ class _DashboardContentState extends State<_DashboardContent> {
         if (selectedDevice == null) {
           setState(() {
             _needsDeviceSelection = true;
+            _selectedDevice = null;
+            _currentPosition = null;
+            _gpsPosition = null;
+            _distanceToDevice = null;
+            _isWithinRadius = null;
           });
           return;
         }
       }
 
-      _selectedDevice = await _deviceService.loadSelectedDevice(_organizationMember!.organizationId);
+      final loadedDevice = await _deviceService.loadSelectedDevice(_organizationMember!.organizationId);
+      final deviceChanged = _selectedDevice?.id != loadedDevice?.id;
+      
+      _selectedDevice = loadedDevice;
 
       // Update current position for attendance (device coordinates)
       if (_selectedDevice != null && _selectedDevice!.hasValidCoordinates) {
@@ -204,7 +212,7 @@ class _DashboardContentState extends State<_DashboardContent> {
           altitudeAccuracy: 0.0,
           headingAccuracy: 0.0,
         );
-        debugPrint('Initial position updated to device coordinates: ${_selectedDevice!.latitude}, ${_selectedDevice!.longitude}');
+        debugPrint('Device coordinates loaded: ${_selectedDevice!.latitude}, ${_selectedDevice!.longitude}');
       }
 
       // Update GPS position and calculate distance
@@ -213,6 +221,10 @@ class _DashboardContentState extends State<_DashboardContent> {
       setState(() {
         _needsDeviceSelection = false;
       });
+      
+      if (deviceChanged) {
+        debugPrint('Device changed detected in _checkDeviceSelection');
+      }
     } catch (e) {
       debugPrint('Error checking device selection: $e');
       _showSnackBar('Failed to check device configuration.', isError: true);
@@ -234,9 +246,25 @@ class _DashboardContentState extends State<_DashboardContent> {
     );
 
     if (result != null && result['success'] == true) {
+      final newSelectedDevice = result['selectedDevice'] as AttendanceDevice?;
+      final deviceChanged = result['deviceChanged'] as bool? ?? false;
+      
+      debugPrint('Device selection result: ${result.toString()}');
+      debugPrint('Device changed: $deviceChanged');
+      debugPrint('New device: ${newSelectedDevice?.deviceName}');
+
+      // Clear old data first
       setState(() {
-        _selectedDevice = result['selectedDevice'] as AttendanceDevice?;
-        if (_selectedDevice != null && _selectedDevice!.hasValidCoordinates) {
+        _currentPosition = null;
+        _gpsPosition = null;
+        _distanceToDevice = null;
+        _isWithinRadius = null;
+        _selectedDevice = newSelectedDevice;
+      });
+
+      // Update device coordinates if valid
+      if (_selectedDevice != null && _selectedDevice!.hasValidCoordinates) {
+        setState(() {
           _currentPosition = Position(
             longitude: _selectedDevice!.longitude!,
             latitude: _selectedDevice!.latitude!,
@@ -249,12 +277,61 @@ class _DashboardContentState extends State<_DashboardContent> {
             altitudeAccuracy: 0.0,
             headingAccuracy: 0.0,
           );
-          debugPrint('Updated position to device coordinates: ${_selectedDevice!.latitude}, ${_selectedDevice!.longitude}');
-        }
+        });
+        debugPrint('Updated position to new device coordinates: ${_selectedDevice!.latitude}, ${_selectedDevice!.longitude}');
+      }
+
+      setState(() {
         _needsDeviceSelection = false;
       });
+      
+      // Force GPS update and refresh all data
       await _updateGpsPositionAndDistance(debounce: false, retryCount: 0);
-      await _refreshData();
+      
+      // Only refresh if device actually changed or if this was required selection
+      if (deviceChanged || isRequired) {
+        await _forceDataReload();
+      }
+      
+      // Show success message
+      if (deviceChanged) {
+        _showSnackBar('Device changed to ${_selectedDevice?.deviceName ?? "Unknown"}');
+      }
+    }
+  }
+
+  Future<void> _forceDataReload() async {
+    debugPrint('Forcing complete data reload...');
+    
+    setState(() {
+      _isLoading = true;
+      // Clear all cached data
+      _todayAttendanceRecords.clear();
+      _recentAttendanceRecords.clear();
+      _currentSchedule = null;
+      _todayScheduleDetails = null;
+      _currentStatus = AttendanceStatus.unknown;
+      _availableActions.clear();
+      _timelineItems.clear();
+    });
+
+    try {
+      // Reload everything from scratch
+      await _loadOrganizationData();
+      await _loadScheduleData();
+      await _updateAttendanceStatus();
+      await _buildDynamicTimeline();
+      
+      debugPrint('Force data reload completed');
+    } catch (e) {
+      debugPrint('Error in force data reload: $e');
+      _showSnackBar('Failed to reload data: $e', isError: true);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -360,35 +437,101 @@ class _DashboardContentState extends State<_DashboardContent> {
   }
 
   Future<void> _refreshData() async {
-    setState(() {
-      _isRefreshing = true;
-    });
+  setState(() {
+    _isRefreshing = true;
+  });
 
-    try {
-      _userProfile = await _attendanceService.loadUserProfile();
+  try {
+    // Refresh user profile
+    _userProfile = await _attendanceService.loadUserProfile();
 
-      if (_organizationMember != null) {
-        await _loadOrganizationInfo();
-        await _checkDeviceSelection();
+    if (_organizationMember != null) {
+      // Reload organization info
+      await _loadOrganizationInfo();
+      
+      // Store current device ID BEFORE checking device selection
+      final previousSelectedDeviceId = _selectedDevice?.id;
+      
+      debugPrint('Before device check - Previous device ID: $previousSelectedDeviceId');
+      
+      // Re-check device selection to get latest device from SharedPreferences
+      await _checkDeviceSelection();
+      
+      debugPrint('After device check - Current device ID: ${_selectedDevice?.id}');
+      debugPrint('Device changed during refresh: ${_selectedDevice?.id != previousSelectedDeviceId}');
 
-        if (!_needsDeviceSelection) {
-          await _loadOrganizationData();
-          await _loadScheduleData();
-          await _updateAttendanceStatus();
-          await _buildDynamicTimeline();
-        }
-      }
-    } catch (e) {
-      debugPrint('Error refreshing data: $e');
-      _showSnackBar('Failed to refresh data. Please try again.', isError: true);
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isRefreshing = false;
-        });
+      if (!_needsDeviceSelection) {
+        // Load all organization data
+        await _loadOrganizationData();
+        
+        // Load schedule data
+        await _loadScheduleData();
+        
+        // Update attendance status
+        await _updateAttendanceStatus();
+        
+        // Rebuild timeline with latest data
+        await _buildDynamicTimeline();
+        
+        debugPrint('Data refresh completed successfully');
+        debugPrint('Selected device: ${_selectedDevice?.deviceName}');
+        debugPrint('Current position: ${_currentPosition?.latitude}, ${_currentPosition?.longitude}');
+        debugPrint('GPS position: ${_gpsPosition?.latitude}, ${_gpsPosition?.longitude}');
+        debugPrint('Distance to device: ${_distanceToDevice?.toStringAsFixed(0)}m');
+        debugPrint('Is within radius: $_isWithinRadius');
+      } else {
+        debugPrint('Device selection required - skipping full data load');
       }
     }
+  } catch (e) {
+    debugPrint('Error refreshing data: $e');
+    _showSnackBar('Failed to refresh data. Please try again.', isError: true);
+  } finally {
+    if (mounted) {
+      setState(() {
+        _isRefreshing = false;
+      });
+    }
   }
+}
+// New method that checks device selection without updating coordinates
+Future<void> _checkDeviceSelectionWithoutCoordinateUpdate() async {
+  if (_organizationMember == null) return;
+
+  try {
+    final selectionRequired = await _deviceService.isSelectionRequired(_organizationMember!.organizationId);
+
+    if (selectionRequired) {
+      final selectedDevice = await _deviceService.loadSelectedDevice(_organizationMember!.organizationId);
+
+      if (selectedDevice == null) {
+        setState(() {
+          _needsDeviceSelection = true;
+          _selectedDevice = null;
+          _currentPosition = null;
+          _gpsPosition = null;
+          _distanceToDevice = null;
+          _isWithinRadius = null;
+        });
+        return;
+      }
+    }
+
+    final loadedDevice = await _deviceService.loadSelectedDevice(_organizationMember!.organizationId);
+    
+    // Only update the selected device reference, DO NOT update coordinates here
+    _selectedDevice = loadedDevice;
+
+    setState(() {
+      _needsDeviceSelection = false;
+    });
+    
+    debugPrint('Device selection checked without coordinate update - device: ${_selectedDevice?.deviceName}');
+  } catch (e) {
+    debugPrint('Error checking device selection: $e');
+    _showSnackBar('Failed to check device configuration.', isError: true);
+  }
+}
 
   Future<void> _loadOrganizationData() async {
     if (_organizationMember == null) return;
@@ -780,6 +923,7 @@ class _DashboardContentState extends State<_DashboardContent> {
         return;
       }
 
+      // Always use device coordinates for attendance
       if (_selectedDevice!.hasValidCoordinates) {
         _currentPosition = Position(
           longitude: _selectedDevice!.longitude!,
@@ -1051,6 +1195,85 @@ class _DashboardContentState extends State<_DashboardContent> {
     } else {
       return '${(distanceInMeters / 1000).toStringAsFixed(1)}km away';
     }
+  }
+
+  Widget _buildDeviceInfoChip() {
+    if (_selectedDevice == null) {
+      return GestureDetector(
+        onTap: () => _navigateToDeviceSelection(),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.orange.withValues(alpha: 0.2),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.warning,
+                color: Colors.orange,
+                size: 16,
+              ),
+              const SizedBox(width: 4),
+              const Text(
+                'No Device',
+                style: TextStyle(
+                  color: Colors.orange,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Icon(
+                Icons.keyboard_arrow_down,
+                color: Colors.orange,
+                size: 16,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return GestureDetector(
+      onTap: () => _navigateToDeviceSelection(),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.2),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.devices,
+              color: Colors.white,
+              size: 16,
+            ),
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text(
+                _selectedDevice!.deviceName,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(
+              Icons.keyboard_arrow_down,
+              color: Colors.white,
+              size: 16,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -1629,42 +1852,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                   ],
                 ),
               ),
-              if (_selectedDevice != null)
-                GestureDetector(
-                  onTap: () => _navigateToDeviceSelection(),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.devices,
-                          color: Colors.white,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          _selectedDevice!.deviceName,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        const Icon(
-                          Icons.keyboard_arrow_down,
-                          color: Colors.white,
-                          size: 16,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+              _buildDeviceInfoChip(),
             ],
           ),
           const SizedBox(height: 20),
