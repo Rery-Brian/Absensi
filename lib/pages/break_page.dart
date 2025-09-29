@@ -64,7 +64,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    // Handle app lifecycle changes to ensure timer accuracy
     if (state == AppLifecycleState.resumed && _isOnBreak) {
       _updateElapsedTime();
     }
@@ -102,7 +101,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       final today = TimezoneHelper.nowInOrgTime();
       final dayOfWeek = today.weekday == 7 ? 0 : today.weekday;
 
-      // Get member's current schedule
       final scheduleResponse = await Supabase.instance.client
           .from('member_schedules')
           .select('''
@@ -146,7 +144,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
         }
       }
 
-      // Set default break schedule if none found
       if (_scheduledBreakStart == null || _scheduledBreakEnd == null) {
         final now = TimezoneHelper.nowInOrgTime();
         _scheduledBreakStart = DateTime(now.year, now.month, now.day, 12, 0);
@@ -156,7 +153,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       }
     } catch (e) {
       debugPrint('Error loading break schedule: $e');
-      // Set default fallback schedule
       final now = TimezoneHelper.nowInOrgTime();
       _scheduledBreakStart = DateTime(now.year, now.month, now.day, 12, 0);
       _scheduledBreakEnd = DateTime(now.year, now.month, now.day, 13, 0);
@@ -166,14 +162,15 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
 
   Future<void> _loadTodayBreakSessions() async {
     try {
-      final today = DateFormat('yyyy-MM-dd').format(TimezoneHelper.nowInOrgTime());
+      final today = TimezoneHelper.nowInOrgTime();
+      final todayStr = DateFormat('yyyy-MM-dd').format(today);
 
       final logsResponse = await Supabase.instance.client
           .from('attendance_logs')
           .select('event_type, event_time')
           .eq('organization_member_id', widget.organizationMemberId)
-          .gte('event_time', '${today}T00:00:00')
-          .lte('event_time', '${today}T23:59:59')
+          .gte('event_time', '${todayStr}T00:00:00')
+          .lte('event_time', '${todayStr}T23:59:59')
           .inFilter('event_type', ['break_out', 'break_in'])
           .order('event_time', ascending: true);
 
@@ -181,13 +178,14 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       _todayBreakSessions.clear();
       _totalBreakMinutesToday = 0;
 
-      // Process completed break sessions
       DateTime? currentBreakStart;
       for (var log in logs) {
         if (log['event_type'] == 'break_out') {
-          currentBreakStart = DateTime.parse(log['event_time']);
+          // Convert UTC to organization timezone
+          currentBreakStart = TimezoneHelper.toOrgTime(DateTime.parse(log['event_time']));
         } else if (log['event_type'] == 'break_in' && currentBreakStart != null) {
-          final breakEnd = DateTime.parse(log['event_time']);
+          // Convert UTC to organization timezone
+          final breakEnd = TimezoneHelper.toOrgTime(DateTime.parse(log['event_time']));
           final duration = breakEnd.difference(currentBreakStart).inMinutes;
           _totalBreakMinutesToday += duration;
           
@@ -216,14 +214,15 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
 
   Future<void> _checkCurrentBreakStatus() async {
     try {
-      final today = DateFormat('yyyy-MM-dd').format(TimezoneHelper.nowInOrgTime());
+      final today = TimezoneHelper.nowInOrgTime();
+      final todayStr = DateFormat('yyyy-MM-dd').format(today);
 
       final logsResponse = await Supabase.instance.client
           .from('attendance_logs')
           .select('event_type, event_time')
           .eq('organization_member_id', widget.organizationMemberId)
-          .gte('event_time', '${today}T00:00:00')
-          .lte('event_time', '${today}T23:59:59')
+          .gte('event_time', '${todayStr}T00:00:00')
+          .lte('event_time', '${todayStr}T23:59:59')
           .inFilter('event_type', ['break_out', 'break_in'])
           .order('event_time', ascending: false)
           .limit(1);
@@ -235,8 +234,9 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
 
         if (lastLog['event_type'] == 'break_out') {
           _isOnBreak = true;
-          _breakStartTime = DateTime.parse(lastLog['event_time']);
-          _breakStartTimeText = DateFormat('HH:mm').format(_breakStartTime!);
+          // Convert UTC to organization timezone
+          _breakStartTime = TimezoneHelper.toOrgTime(DateTime.parse(lastLog['event_time']));
+          _breakStartTimeText = TimezoneHelper.formatOrgTime(_breakStartTime!, 'HH.mm');
           _updateElapsedTime();
           debugPrint('User is currently on break since: $_breakStartTimeText');
         } else {
@@ -256,7 +256,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       _elapsedTime = now.difference(_breakStartTime!);
       _currentBreakMinutes = _elapsedTime.inMinutes;
       
-      // Check if approaching limit or exceeded
       final warningThreshold = _maxBreakDuration.inMinutes - 5;
       _showWarning = _currentBreakMinutes >= warningThreshold && _currentBreakMinutes < _maxBreakDuration.inMinutes;
       _hasExceeded = _currentBreakMinutes > _maxBreakDuration.inMinutes;
@@ -270,7 +269,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
 
       _updateElapsedTime();
 
-      // Show warning notification when approaching limit
       if (_showWarning && !_hasExceeded) {
         _scheduleWarningNotification();
       }
@@ -291,7 +289,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
   bool _canStartBreak() {
     final now = TimezoneHelper.nowInOrgTime();
     
-    // Check if within break window (30 minutes before to 30 minutes after scheduled start)
     if (_scheduledBreakStart != null) {
       final earliestStart = _scheduledBreakStart!.subtract(const Duration(minutes: 30));
       final latestStart = _scheduledBreakEnd!;
@@ -301,9 +298,8 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       }
     }
 
-    // Check if max daily break time reached
     final remainingBreakMinutes = _maxBreakDuration.inMinutes - _totalBreakMinutesToday;
-    if (remainingBreakMinutes <= 5) { // Must have at least 5 minutes remaining
+    if (remainingBreakMinutes <= 5) {
       return false;
     }
 
@@ -324,7 +320,7 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       final now = TimezoneHelper.nowInOrgTime();
       
       if (_scheduledBreakStart != null && now.isBefore(_scheduledBreakStart!.subtract(const Duration(minutes: 30)))) {
-        return 'Break available at ${DateFormat('HH:mm').format(_scheduledBreakStart!)}';
+        return 'Break available at ${DateFormat('HH.mm', 'id_ID').format(_scheduledBreakStart!)}';
       }
       
       final remainingBreakMinutes = _maxBreakDuration.inMinutes - _totalBreakMinutesToday;
@@ -346,7 +342,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       debugPrint('Location obtained for break: ${_currentLocation?.latitude}, ${_currentLocation?.longitude}');
     } catch (e) {
       debugPrint('Failed to get location for break: $e');
-      // Continue without location for break (breaks might not require strict location)
     }
   }
 
@@ -360,7 +355,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       
       final now = TimezoneHelper.nowInOrgTime();
 
-      // Insert break_out log
       await Supabase.instance.client.from('attendance_logs').insert({
         'organization_member_id': widget.organizationMemberId,
         'event_type': 'break_out',
@@ -375,10 +369,9 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
         'verification_method': 'manual',
       });
 
-      // Update state
       _isOnBreak = true;
       _breakStartTime = now;
-      _breakStartTimeText = DateFormat('HH:mm').format(now);
+      _breakStartTimeText = TimezoneHelper.formatOrgTime(now, 'HH.mm');
       _elapsedTime = Duration.zero;
       _currentBreakMinutes = 0;
       _showWarning = false;
@@ -413,7 +406,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       final now = TimezoneHelper.nowInOrgTime();
       final actualBreakDuration = now.difference(_breakStartTime!);
 
-      // Insert break_in log
       await Supabase.instance.client.from('attendance_logs').insert({
         'organization_member_id': widget.organizationMemberId,
         'event_type': 'break_in',
@@ -428,7 +420,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
         'verification_method': 'manual',
       });
 
-      // Update attendance record with break duration
       try {
         await _attendanceService.updateBreakDuration(
           widget.organizationMemberId,
@@ -437,14 +428,11 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
         debugPrint('Break duration updated in attendance record: ${actualBreakDuration.inMinutes} minutes');
       } catch (e) {
         debugPrint('Failed to update attendance record break duration: $e');
-        // Continue anyway as the log is already recorded
       }
 
-      // Stop timer
       _timer?.cancel();
       _warningTimer?.cancel();
       
-      // Show summary before returning
       await _showBreakSummary(actualBreakDuration, now);
       
       debugPrint('Break ended successfully. Duration: ${actualBreakDuration.inMinutes} minutes');
@@ -561,8 +549,8 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
                     ),
                     child: Column(
                       children: [
-                        _buildSummaryRow('Started', _breakStartTimeText),
-                        _buildSummaryRow('Ended', DateFormat('HH:mm').format(endTime)),
+                        _buildSummaryRow('Started', TimezoneHelper.formatOrgTime(_breakStartTime!, 'HH.mm')),
+                        _buildSummaryRow('Ended', TimezoneHelper.formatOrgTime(endTime, 'HH.mm')),
                         _buildSummaryRow('Duration', _formatDuration(actualDuration)),
                         _buildSummaryRow('Allowed', _formatDuration(_maxBreakDuration)),
                         if (wasExceeded)
@@ -607,8 +595,8 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
                       Expanded(
                         child: ElevatedButton(
                           onPressed: () {
-                            Navigator.of(context).pop(); // Close dialog
-                            Navigator.of(context).pop(true); // Return to dashboard with refresh
+                            Navigator.of(context).pop();
+                            Navigator.of(context).pop(true);
                           },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: summaryColor,
@@ -699,14 +687,19 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
           ),
         ),
         child: SafeArea(
-          child: _isLoading && !_isOnBreak
-              ? const Center(child: CircularProgressIndicator(color: primaryColor))
-              : Column(
-                  children: [
-                    _buildAppBar(),
-                    Expanded(child: _buildBreakContent()),
-                  ],
-                ),
+          child: Column(
+            children: [
+              _buildAppBar(),
+              Expanded(
+                child: _isLoading && !_isOnBreak
+                    ? const Center(child: CircularProgressIndicator(color: primaryColor))
+                    : SingleChildScrollView(
+                        physics: const BouncingScrollPhysics(),
+                        child: _buildBreakContent(),
+                      ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -755,16 +748,7 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
   Widget _buildBreakContent() {
     return Padding(
       padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          if (!_isOnBreak) ...[
-            _buildStartBreakSection(),
-          ] else ...[
-            _buildActiveBreakSection(),
-          ],
-        ],
-      ),
+      child: !_isOnBreak ? _buildStartBreakSection() : _buildActiveBreakSection(),
     );
   }
 
@@ -806,7 +790,7 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
-              '${DateFormat('HH:mm').format(_scheduledBreakStart!)} - ${DateFormat('HH:mm').format(_scheduledBreakEnd!)}',
+              '${DateFormat('HH.mm', 'id_ID').format(_scheduledBreakStart!)} - ${DateFormat('HH.mm', 'id_ID').format(_scheduledBreakEnd!)}',
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 28,
@@ -869,7 +853,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
           ),
         ],
         const SizedBox(height: 40),
-        // Action button
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
@@ -944,7 +927,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
 
     return Column(
       children: [
-        // Timer display
         Container(
           width: 200,
           height: 200,
@@ -959,7 +941,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
           child: Stack(
             alignment: Alignment.center,
             children: [
-              // Progress indicator
               SizedBox(
                 width: 180,
                 height: 180,
@@ -970,7 +951,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
                   backgroundColor: Colors.white.withOpacity(0.1),
                 ),
               ),
-              // Time display
               Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -998,7 +978,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
         ),
         const SizedBox(height: 32),
         
-        // Break info
         Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
@@ -1015,7 +994,7 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
                     style: TextStyle(color: Colors.white70, fontSize: 16),
                   ),
                   Text(
-                    _breakStartTimeText,
+                    TimezoneHelper.formatOrgTime(_breakStartTime!, 'HH.mm'),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 20,
@@ -1042,7 +1021,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
           ),
         ),
         
-        // Status messages
         if (_hasExceeded) ...[
           const SizedBox(height: 16),
           Container(
@@ -1095,7 +1073,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
         
         const SizedBox(height: 32),
         
-        // End break button
         SizedBox(
           width: double.infinity,
           child: ElevatedButton(
@@ -1170,20 +1147,31 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Icon(Icons.coffee, color: Colors.white70, size: 16),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '${DateFormat('HH:mm').format(start)} - ${DateFormat('HH:mm').format(end)}',
-                        style: const TextStyle(color: Colors.white70, fontSize: 12),
-                      ),
+                    Row(
+                      children: [
+                        Icon(Icons.coffee, color: Colors.white70, size: 16),
+                        const SizedBox(width: 8),
+                        Text(
+                          DateFormat('HH.mm', 'id_ID').format(start),
+                          style: const TextStyle(color: Colors.white70, fontSize: 14),
+                        ),
+                        const Text(
+                          ' - ',
+                          style: TextStyle(color: Colors.white70, fontSize: 14),
+                        ),
+                        Text(
+                          DateFormat('HH.mm', 'id_ID').format(end),
+                          style: const TextStyle(color: Colors.white70, fontSize: 14),
+                        ),
+                      ],
                     ),
                     Text(
                       '${duration}m',
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 12,
+                        fontSize: 14,
                         fontWeight: FontWeight.bold,
                       ),
                     ),

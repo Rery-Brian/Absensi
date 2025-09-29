@@ -1,7 +1,7 @@
 import 'package:absensiwajah/pages/login.dart';
-import 'package:absensiwajah/helpers/timezone_helper.dart'; // Tambahkan import ini
+import 'package:absensiwajah/pages/main_dashboard.dart'; // pakai MainDashboard
 import 'package:flutter/material.dart';
-import 'package:intl/date_symbol_data_local.dart'; 
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
@@ -13,7 +13,7 @@ Future<void> main() async {
   );
 
   await initializeDateFormatting('id_ID', null);
-  runApp(MyApp());
+  runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
@@ -21,6 +21,8 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final session = Supabase.instance.client.auth.currentSession;
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Absensi Wajah',
@@ -28,7 +30,8 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
         useMaterial3: true,
       ),
-      home: Login(),
+      // 🔑 Kalau sudah login -> MainDashboard, kalau belum -> Login
+      home: session != null ? const MainDashboard() : const Login(),
     );
   }
 }

@@ -1,5 +1,5 @@
-// screens/main_dashboard.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dashboard.dart';
 import 'attendance_history.dart';
 import 'profile.dart';
@@ -13,114 +13,133 @@ class MainDashboard extends StatefulWidget {
 
 class _MainDashboardState extends State<MainDashboard> {
   int _currentIndex = 0;
-  
+
   static const Color primaryColor = Color(0xFF6366F1);
-  
-  // Add GlobalKey for accessing UserDashboard and AttendanceHistoryPage
-  final GlobalKey<UserDashboardState> _dashboardKey = GlobalKey<UserDashboardState>();
-  final GlobalKey<AttendanceHistoryPageState> _historyKey = GlobalKey<AttendanceHistoryPageState>();
-  
-  // Method to refresh dashboard profile
+  static const Color accentColor = Color(0xFF22D3EE);
+
+  final GlobalKey<UserDashboardState> _dashboardKey =
+      GlobalKey<UserDashboardState>();
+  final GlobalKey<AttendanceHistoryPageState> _historyKey =
+      GlobalKey<AttendanceHistoryPageState>();
+
+  late PageController _pageController;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageController = PageController(initialPage: _currentIndex);
+  }
+
   void _refreshDashboardProfile() {
-    debugPrint('MainDashboard: Profile updated callback received');
-    if (_dashboardKey.currentState != null) {
-      _dashboardKey.currentState!.refreshUserProfile();
-    }
+    _dashboardKey.currentState?.refreshUserProfile();
   }
-  
-  // Method to refresh attendance history
+
   void _refreshAttendanceHistory() {
-    debugPrint('MainDashboard: Refreshing attendance history');
-    if (_historyKey.currentState != null) {
-      _historyKey.currentState!.refreshData();
-    }
+    _historyKey.currentState?.refreshData();
   }
-  
-  // Build pages with keys and callbacks
+
   List<Widget> get _pages => [
-    UserDashboard(key: _dashboardKey),
-    AttendanceHistoryPage(
-      key: _historyKey,
-      onAttendanceUpdated: _refreshAttendanceHistory, // New callback
-    ),
-    ProfilePage(
-      onProfileUpdated: _refreshDashboardProfile, // Add callback
-    ),
+        UserDashboard(key: _dashboardKey),
+        AttendanceHistoryPage(
+          key: _historyKey,
+          onAttendanceUpdated: _refreshAttendanceHistory,
+        ),
+        ProfilePage(onProfileUpdated: _refreshDashboardProfile),
+      ];
+
+  final List<IconData> _icons = [
+    Icons.home_outlined,
+    Icons.history_outlined,
+    Icons.person_outline,
   ];
 
-  final List<BottomNavigationBarItem> _bottomNavItems = [
-    const BottomNavigationBarItem(
-      icon: Icon(Icons.home_outlined),
-      activeIcon: Icon(Icons.home),
-      label: 'Home',
-    ),
-    const BottomNavigationBarItem(
-      icon: Icon(Icons.history_outlined),
-      activeIcon: Icon(Icons.history),
-      label: 'History',
-    ),
-    const BottomNavigationBarItem(
-      icon: Icon(Icons.person_outline),
-      activeIcon: Icon(Icons.person),
-      label: 'Profile',
-    ),
-  ];
+  final List<String> _labels = ["Home", "History", "Profile"];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
+      extendBody: true,
+      body: PageView(
+        controller: _pageController,
+        physics: const BouncingScrollPhysics(),
+        onPageChanged: (index) {
+          setState(() => _currentIndex = index);
+          if (index == 0) _dashboardKey.currentState?.refreshUserProfile();
+          if (index == 1) _refreshAttendanceHistory();
+        },
         children: _pages,
       ),
       bottomNavigationBar: Container(
+        margin: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
         decoration: BoxDecoration(
           color: Colors.white,
+          borderRadius: BorderRadius.circular(28),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 20,
-              offset: const Offset(0, -5),
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 25,
+              offset: const Offset(0, 8),
             ),
           ],
         ),
         child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
-            child: BottomNavigationBar(
-              type: BottomNavigationBarType.fixed,
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-              currentIndex: _currentIndex,
-              onTap: (index) {
-                setState(() {
-                  _currentIndex = index;
-                });
-                
-                // Handle different tab selections
-                if (index == 0 && _dashboardKey.currentState != null) {
-                  // Refresh profile when returning to Home tab
-                  debugPrint('Returning to home tab - refreshing profile');
-                  _dashboardKey.currentState!.refreshUserProfile();
-                } else if (index == 1) {
-                  // Refresh attendance history when History tab is selected
-                  debugPrint('History tab selected - refreshing attendance history');
-                  _refreshAttendanceHistory();
-                }
-              },
-              selectedItemColor: primaryColor,
-              unselectedItemColor: Colors.grey.shade400,
-              selectedFontSize: 12,
-              unselectedFontSize: 12,
-              iconSize: 24,
-              selectedLabelStyle: const TextStyle(
-                fontWeight: FontWeight.w600,
-              ),
-              unselectedLabelStyle: const TextStyle(
-                fontWeight: FontWeight.w500,
-              ),
-              items: _bottomNavItems,
-            ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: List.generate(_icons.length, (index) {
+              final isActive = _currentIndex == index;
+
+              return GestureDetector(
+                behavior: HitTestBehavior.translucent, // area tap lebih luas
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  setState(() => _currentIndex = index);
+                  _pageController.jumpToPage(index);
+                },
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 250),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isActive ? 20 : 14,
+                      vertical: 10,
+                    ),
+                    decoration: isActive
+                        ? BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [primaryColor, accentColor],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(20),
+                          )
+                        : null,
+                    child: Row(
+                      children: [
+                        Icon(
+                          _icons[index],
+                          size: isActive ? 26 : 24,
+                          color:
+                              isActive ? Colors.white : Colors.grey.shade600,
+                        ),
+                        if (isActive) ...[
+                          const SizedBox(width: 6),
+                          Text(
+                            _labels[index],
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ]
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
           ),
         ),
       ),

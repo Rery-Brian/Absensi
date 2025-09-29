@@ -646,7 +646,8 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
               _buildStatsCard(),
               _buildCalendarCard(),
               _buildSelectedDayEvents(),
-              const SizedBox(height: 20),
+              // Tambahkan padding di bagian bawah untuk menghindari terpotong navigation bar
+              const SizedBox(height: 100),
             ],
           ),
         ),

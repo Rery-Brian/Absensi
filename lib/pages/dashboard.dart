@@ -56,10 +56,10 @@ class _DashboardContentState extends State<_DashboardContent> {
   final DeviceService _deviceService = DeviceService();
   bool _isLoading = false;
   bool _isRefreshing = false;
-  Position? _currentPosition; // Device coordinates for attendance
-  Position? _gpsPosition; // User GPS position for distance checking
-  double? _distanceToDevice; // Distance to selected device
-  bool? _isWithinRadius; // Cache status of distance check
+  Position? _currentPosition;
+  Position? _gpsPosition;
+  double? _distanceToDevice;
+  bool? _isWithinRadius;
   UserProfile? _userProfile;
   OrganizationMember? _organizationMember;
   SimpleOrganization? _organization;
@@ -71,10 +71,10 @@ class _DashboardContentState extends State<_DashboardContent> {
   AttendanceStatus _currentStatus = AttendanceStatus.unknown;
   List<AttendanceAction> _availableActions = [];
   bool _needsDeviceSelection = false;
-  Timer? _debounceTimer; // Timer for debounce GPS updates
-  Timer? _periodicLocationTimer; // Timer for periodic GPS updates
-  bool _isLocationUpdating = false; // Track location update status
-  Map<String, dynamic>? _breakInfo; // Current break information
+  Timer? _debounceTimer;
+  Timer? _periodicLocationTimer;
+  bool _isLocationUpdating = false;
+  Map<String, dynamic>? _breakInfo;
 
   final List<TimelineItem> _timelineItems = [];
 
@@ -83,10 +83,10 @@ class _DashboardContentState extends State<_DashboardContent> {
   static const Color successColor = Color(0xFF10B981);
   static const Color warningColor = Color(0xFFF59E0B);
   static const Color errorColor = Color(0xFFEF4444);
-  static const double minGpsAccuracy = 20.0; // Minimum GPS accuracy in meters
-  static const int maxGpsRetries = 3; // Maximum number of GPS retry attempts
-  static const Duration gpsRetryDelay = Duration(seconds: 2); // Delay between retries
-  static const Duration locationUpdateInterval = Duration(seconds: 30); // Interval for periodic location updates
+  static const double minGpsAccuracy = 20.0;
+  static const int maxGpsRetries = 3;
+  static const Duration gpsRetryDelay = Duration(seconds: 2);
+  static const Duration locationUpdateInterval = Duration(seconds: 30);
 
   @override
   void initState() {
@@ -155,7 +155,7 @@ class _DashboardContentState extends State<_DashboardContent> {
             await _loadOrganizationData();
             await _loadScheduleData();
             await _updateAttendanceStatus();
-            await _loadBreakInfo(); // Load break information
+            await _loadBreakInfo();
             await _buildDynamicTimeline();
           }
         } else {
@@ -184,7 +184,6 @@ class _DashboardContentState extends State<_DashboardContent> {
       debugPrint('Break info loaded: $_breakInfo');
     } catch (e) {
       debugPrint('Error loading break info: $e');
-      // Don't show error to user as this is supplementary information
     }
   }
 
@@ -215,7 +214,6 @@ class _DashboardContentState extends State<_DashboardContent> {
       
       _selectedDevice = loadedDevice;
 
-      // Update current position for attendance (device coordinates)
       if (_selectedDevice != null && _selectedDevice!.hasValidCoordinates) {
         _currentPosition = Position(
           longitude: _selectedDevice!.longitude!,
@@ -232,7 +230,6 @@ class _DashboardContentState extends State<_DashboardContent> {
         debugPrint('Device coordinates loaded: ${_selectedDevice!.latitude}, ${_selectedDevice!.longitude}');
       }
 
-      // Update GPS position and calculate distance
       await _updateGpsPositionAndDistance(debounce: false, retryCount: 0);
 
       setState(() {
@@ -270,7 +267,6 @@ class _DashboardContentState extends State<_DashboardContent> {
       debugPrint('Device changed: $deviceChanged');
       debugPrint('New device: ${newSelectedDevice?.deviceName}');
 
-      // Clear old data first
       setState(() {
         _currentPosition = null;
         _gpsPosition = null;
@@ -279,7 +275,6 @@ class _DashboardContentState extends State<_DashboardContent> {
         _selectedDevice = newSelectedDevice;
       });
 
-      // Update device coordinates if valid
       if (_selectedDevice != null && _selectedDevice!.hasValidCoordinates) {
         setState(() {
           _currentPosition = Position(
@@ -302,15 +297,12 @@ class _DashboardContentState extends State<_DashboardContent> {
         _needsDeviceSelection = false;
       });
       
-      // Force GPS update and refresh all data
       await _updateGpsPositionAndDistance(debounce: false, retryCount: 0);
       
-      // Only refresh if device actually changed or if this was required selection
       if (deviceChanged || isRequired) {
         await _forceDataReload();
       }
       
-      // Show success message
       if (deviceChanged) {
         _showSnackBar('Device changed to ${_selectedDevice?.deviceName ?? "Unknown"}');
       }
@@ -322,7 +314,6 @@ class _DashboardContentState extends State<_DashboardContent> {
     
     setState(() {
       _isLoading = true;
-      // Clear all cached data
       _todayAttendanceRecords.clear();
       _recentAttendanceRecords.clear();
       _currentSchedule = null;
@@ -334,7 +325,6 @@ class _DashboardContentState extends State<_DashboardContent> {
     });
 
     try {
-      // Reload everything from scratch
       await _loadOrganizationData();
       await _loadScheduleData();
       await _updateAttendanceStatus();
@@ -355,7 +345,7 @@ class _DashboardContentState extends State<_DashboardContent> {
   }
 
   Future<void> _updateGpsPositionAndDistance({bool debounce = true, int retryCount = 0}) async {
-    if (_isLocationUpdating) return; // Prevent concurrent location updates
+    if (_isLocationUpdating) return;
     setState(() {
       _isLocationUpdating = true;
     });
@@ -461,38 +451,25 @@ class _DashboardContentState extends State<_DashboardContent> {
     });
 
     try {
-      // Refresh user profile
       _userProfile = await _attendanceService.loadUserProfile();
 
       if (_organizationMember != null) {
-        // Reload organization info
         await _loadOrganizationInfo();
         
-        // Store current device ID BEFORE checking device selection
         final previousSelectedDeviceId = _selectedDevice?.id;
         
         debugPrint('Before device check - Previous device ID: $previousSelectedDeviceId');
         
-        // Re-check device selection to get latest device from SharedPreferences
         await _checkDeviceSelection();
         
         debugPrint('After device check - Current device ID: ${_selectedDevice?.id}');
         debugPrint('Device changed during refresh: ${_selectedDevice?.id != previousSelectedDeviceId}');
 
         if (!_needsDeviceSelection) {
-          // Load all organization data
           await _loadOrganizationData();
-          
-          // Load schedule data
           await _loadScheduleData();
-          
-          // Update attendance status
           await _updateAttendanceStatus();
-          
-          // Load break information
           await _loadBreakInfo();
-          
-          // Rebuild timeline with latest data
           await _buildDynamicTimeline();
           
           debugPrint('Data refresh completed successfully');
@@ -834,6 +811,21 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
+  IconData _getStatusIcon() {
+    switch (_currentStatus) {
+      case AttendanceStatus.notCheckedIn:
+        return Icons.schedule;
+      case AttendanceStatus.working:
+        return Icons.work_outline;
+      case AttendanceStatus.onBreak:
+        return Icons.coffee_outlined;
+      case AttendanceStatus.checkedOut:
+        return Icons.check_circle_outline;
+      case AttendanceStatus.unknown:
+        return Icons.help_outline;
+    }
+  }
+
   Future<void> _navigateToBreakPage() async {
     if (_organizationMember == null) {
       _showSnackBar('Organization member data not found. Contact admin.', isError: true);
@@ -859,7 +851,6 @@ class _DashboardContentState extends State<_DashboardContent> {
       );
 
       if (result == true || mounted) {
-        // Refresh all data after break page
         await _refreshData();
       }
     } catch (e) {
@@ -908,7 +899,6 @@ class _DashboardContentState extends State<_DashboardContent> {
         return;
       }
 
-      // Always use device coordinates for attendance
       if (_selectedDevice!.hasValidCoordinates) {
         _currentPosition = Position(
           longitude: _selectedDevice!.longitude!,
@@ -1283,8 +1273,7 @@ class _DashboardContentState extends State<_DashboardContent> {
   }
 
   Widget _buildDeviceSelectionRequiredView() {
-    // Device selection view implementation...
-    return _buildNotRegisteredView(); // Simplified for space
+    return _buildNotRegisteredView();
   }
 
   Widget _buildNotRegisteredView() {
@@ -1369,7 +1358,6 @@ class _DashboardContentState extends State<_DashboardContent> {
                   ],
                 ),
               ),
-              // Rest of the not registered view
               Expanded(
                 child: Center(
                   child: Container(
@@ -1652,168 +1640,261 @@ class _DashboardContentState extends State<_DashboardContent> {
       offset: const Offset(0, -20),
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 16),
-        padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
+          gradient: LinearGradient(
+            colors: [
+              _getStatusColor().withOpacity(0.1),
+              _getStatusColor().withOpacity(0.05),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: _getStatusColor().withOpacity(0.3),
+            width: 1.5,
+          ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 15,
-              offset: const Offset(0, 5),
+              color: _getStatusColor().withOpacity(0.15),
+              blurRadius: 20,
+              offset: const Offset(0, 8),
             ),
           ],
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 12,
-                  height: 12,
-                  decoration: BoxDecoration(
-                    color: _getStatusColor(),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  _getCurrentStatusText(),
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                if (_isRefreshing) ...[
-                  const SizedBox(width: 12),
-                  SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+          ),
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          _getStatusColor(),
+                          _getStatusColor().withOpacity(0.8),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: _getStatusColor().withOpacity(0.3),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Icon(
+                      _getStatusIcon(),
+                      color: Colors.white,
+                      size: 28,
                     ),
                   ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 16),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  TimezoneHelper.formatOrgTime(
-                    TimezoneHelper.nowInOrgTime(),
-                    'EEEE, dd MMMM yyyy • HH:mm z',
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _getCurrentStatusText(),
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.access_time,
+                              size: 16,
+                              color: Colors.grey.shade600,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              TimezoneHelper.formatOrgTime(
+                                TimezoneHelper.nowInOrgTime(),
+                                'HH:mm',
+                              ),
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey,
-                  ),
-                ),
-                if (_selectedDevice != null) ...[
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.devices_outlined,
-                        size: 14,
-                        color: Colors.grey.shade400,
+                  if (_isRefreshing)
+                    SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
                       ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          _selectedDevice!.deviceName,
-                          style: TextStyle(
-                            fontSize: 12,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.calendar_today,
+                          size: 14,
+                          color: Colors.grey.shade600,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            TimezoneHelper.formatOrgTime(
+                              TimezoneHelper.nowInOrgTime(),
+                              'EEEE, dd MMMM yyyy',
+                            ),
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey.shade700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_selectedDevice != null) ...[
+                      const SizedBox(height: 8),
+                      Divider(height: 1, color: Colors.grey.shade300),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.devices_outlined,
+                            size: 14,
                             color: Colors.grey.shade600,
                           ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: (_selectedDevice!.hasValidCoordinates && _gpsPosition != null && _isWithinRadius != null)
-                              ? (_isWithinRadius! ? successColor.withOpacity(0.1) : warningColor.withOpacity(0.1))
-                              : Colors.grey.shade50,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          (_selectedDevice!.hasValidCoordinates && _gpsPosition != null && _isWithinRadius != null)
-                              ? (_isWithinRadius! ? 'In range (${_formatDistance(_distanceToDevice)})' : 'Out of range (${_formatDistance(_distanceToDevice)})')
-                              : 'Waiting for location...',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: (_selectedDevice!.hasValidCoordinates && _gpsPosition != null && _isWithinRadius != null)
-                                ? (_isWithinRadius! ? successColor : warningColor)
-                                : Colors.grey.shade700,
-                            fontWeight: FontWeight.w500,
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _selectedDevice!.deviceName,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey.shade700,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                        ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: (_selectedDevice!.hasValidCoordinates && _gpsPosition != null && _isWithinRadius != null)
+                                  ? (_isWithinRadius! ? successColor.withOpacity(0.15) : warningColor.withOpacity(0.15))
+                                  : Colors.grey.shade200,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  (_selectedDevice!.hasValidCoordinates && _gpsPosition != null && _isWithinRadius != null)
+                                      ? (_isWithinRadius! ? Icons.check_circle : Icons.location_off)
+                                      : Icons.location_searching,
+                                  size: 12,
+                                  color: (_selectedDevice!.hasValidCoordinates && _gpsPosition != null && _isWithinRadius != null)
+                                      ? (_isWithinRadius! ? successColor : warningColor)
+                                      : Colors.grey.shade600,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  (_selectedDevice!.hasValidCoordinates && _gpsPosition != null && _isWithinRadius != null)
+                                      ? (_isWithinRadius! ? _formatDistance(_distanceToDevice) : 'Out of range')
+                                      : 'Locating...',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: (_selectedDevice!.hasValidCoordinates && _gpsPosition != null && _isWithinRadius != null)
+                                        ? (_isWithinRadius! ? successColor : warningColor)
+                                        : Colors.grey.shade600,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ],
-                  ),
-                ],
-              ],
-            ),
-            if (_availableActions.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _availableActions.take(2).map((action) {
-                  return ElevatedButton(
-                    onPressed: action.isEnabled && !_isLoading && (_isWithinRadius ?? false)
-                        ? () => _performAttendance(action.type)
-                        : null,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: action.isEnabled && (_isWithinRadius ?? false)
-                          ? primaryColor
-                          : Colors.grey.shade300,
-                      foregroundColor: action.isEnabled && (_isWithinRadius ?? false)
-                          ? Colors.white
-                          : Colors.grey,
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    child: _isLoading && action.isEnabled
-                        ? SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                            ),
-                          )
-                        : Text(
-                            action.label,
-                            style: const TextStyle(fontWeight: FontWeight.w500),
-                          ),
-                  );
-                }).toList(),
-              ),
-            ],
-            if (_currentStatus == AttendanceStatus.working) ...[
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: (_isWithinRadius ?? false) ? _navigateToBreakPage : null,
-                  icon: const Icon(Icons.coffee, size: 18),
-                  label: const Text('Take Break'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: (_isWithinRadius ?? false) ? primaryColor : Colors.grey,
-                    side: BorderSide(color: (_isWithinRadius ?? false) ? primaryColor : Colors.grey),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
+                  ],
                 ),
               ),
+              if (_availableActions.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                Row(
+                  children: _availableActions.take(2).map((action) {
+                    return Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          right: _availableActions.indexOf(action) == 0 ? 8 : 0,
+                          left: _availableActions.indexOf(action) == 1 ? 8 : 0,
+                        ),
+                        child: ElevatedButton(
+                          onPressed: action.isEnabled && !_isLoading && (_isWithinRadius ?? false)
+                              ? () => _performAttendance(action.type)
+                              : null,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: action.isEnabled && (_isWithinRadius ?? false)
+                                ? primaryColor
+                                : Colors.grey.shade300,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            elevation: action.isEnabled && (_isWithinRadius ?? false) ? 4 : 0,
+                            shadowColor: primaryColor.withOpacity(0.4),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          child: _isLoading && action.isEnabled
+                              ? SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                  ),
+                                )
+                              : Text(
+                                  action.label,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -1889,16 +1970,20 @@ class _DashboardContentState extends State<_DashboardContent> {
 
   Widget _buildOverviewCard() {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: LinearGradient(
+          colors: [Colors.white, Colors.grey.shade50],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 15,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -1911,178 +1996,223 @@ class _DashboardContentState extends State<_DashboardContent> {
               const Text(
                 'Overview',
                 style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w500,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.5,
                 ),
               ),
-              Text(
-                DateFormat('MMM yyyy').format(DateTime.now()),
-                style: const TextStyle(
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  DateFormat('MMM yyyy').format(DateTime.now()),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: primaryColor,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Row(
+            children: [
+              _buildStatItem('Presence', '${_getPresenceDays()}', successColor, Icons.check_circle_outline),
+              Container(
+                width: 1,
+                height: 50,
+                color: Colors.grey.shade300,
+                margin: const EdgeInsets.symmetric(horizontal: 12),
+              ),
+              _buildStatItem('Absence', '${_getAbsenceDays()}', errorColor, Icons.cancel_outlined),
+              Container(
+                width: 1,
+                height: 50,
+                color: Colors.grey.shade300,
+                margin: const EdgeInsets.symmetric(horizontal: 12),
+              ),
+              _buildStatItem('Lateness', _getLateness(), warningColor, Icons.access_time),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatItem(String label, String value, Color color, IconData icon) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                icon,
+                color: color,
+                size: 24,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+                color: color,
+                letterSpacing: -0.5,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade600,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+ Widget _buildTimelineCard() {
+  return Container(
+    margin: const EdgeInsets.all(16),
+    padding: const EdgeInsets.all(20),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.05),
+          blurRadius: 10,
+          offset: const Offset(0, 2),
+        ),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Today\'s Schedule',
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 18),
+        if (_timelineItems.isEmpty)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.all(20),
+              child: Text(
+                'No schedule available for today',
+                style: TextStyle(
+                  color: Colors.grey,
                   fontSize: 14,
+                ),
+              ),
+            ),
+          )
+        else
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: EdgeInsets.zero,
+            itemCount: _timelineItems.length,
+            itemBuilder: (context, index) {
+              return _buildTimelineItem(_timelineItems[index], index);
+            },
+          ),
+      ],
+    ),
+  );
+}
+
+Widget _buildTimelineItem(TimelineItem item, int index) {
+  return Padding(
+    padding: EdgeInsets.only(
+      top: index == 0 ? 0 : 12,
+      bottom: index == _timelineItems.length - 1 ? 0 : 0,
+    ),
+    child: Row(
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: _getItemStatusColor(item.status),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            _getItemIcon(item.type),
+            color: item.status == TimelineStatus.active
+                ? Colors.white
+                : item.status == TimelineStatus.completed
+                    ? Colors.white
+                    : Colors.grey,
+            size: 20,
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    item.time,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _getItemStatusColor(item.status).withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      item.statusDescription,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _getItemStatusColor(item.status),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                item.subtitle,
+                style: const TextStyle(
+                  fontSize: 12,
                   color: Colors.grey,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              _buildStatItem('Presence', '${_getPresenceDays()}', successColor),
-              _buildStatItem('Absence', '${_getAbsenceDays()}', errorColor),
-              _buildStatItem('Lateness', _getLateness(), warningColor),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatItem(String label, String value, Color color) {
-    return Expanded(
-      child: Column(
-        children: [
-          Text(
-            label,
-            style: const TextStyle(fontSize: 12, color: Colors.grey),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w600,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTimelineCard() {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Today\'s Schedule',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 20),
-          if (_timelineItems.isEmpty)
-            const Center(
-              child: Padding(
-                padding: EdgeInsets.all(20),
-                child: Text(
-                  'No schedule available for today',
-                  style: TextStyle(
-                    color: Colors.grey,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-            )
-          else
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _timelineItems.length,
-              itemBuilder: (context, index) {
-                return _buildTimelineItem(_timelineItems[index]);
-              },
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTimelineItem(TimelineItem item) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: _getItemStatusColor(item.status),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              _getItemIcon(item.type),
-              color: item.status == TimelineStatus.active
-                  ? Colors.white
-                  : item.status == TimelineStatus.completed
-                      ? Colors.white
-                      : Colors.grey,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      item.time,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: _getItemStatusColor(item.status).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        item.statusDescription,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: _getItemStatusColor(item.status),
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  item.subtitle,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
+        ),
+      ],
+    ),
+  );
+}
   Color _getItemStatusColor(TimelineStatus status) {
     switch (status) {
       case TimelineStatus.completed:
