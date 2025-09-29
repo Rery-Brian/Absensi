@@ -859,112 +859,118 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
-  Future<void> _performAttendance(String actionType) async {
-    if (!mounted) return;
+  // Modifikasi pada fungsi _performAttendance di user_dashboard.dart
+// Tambahkan ini untuk menggantikan fungsi yang ada
 
-    if (actionType == 'break_out') {
-      await _navigateToBreakPage();
+Future<void> _performAttendance(String actionType) async {
+  if (!mounted) return;
+
+  if (actionType == 'break_out') {
+    await _navigateToBreakPage();
+    return;
+  }
+
+  setState(() {
+    _isLoading = true;
+  });
+
+  try {
+    if (_organizationMember == null) {
+      _showSnackBar('Organization member data not found. Contact admin.', isError: true);
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-    });
+    if (_selectedDevice == null || !_selectedDevice!.hasValidCoordinates) {
+      _showSnackBar('Device location not configured. Please select a valid device.', isError: true);
+      return;
+    }
 
-    try {
-      if (_organizationMember == null) {
-        _showSnackBar('Organization member data not found. Contact admin.', isError: true);
-        return;
-      }
+    await _updateGpsPositionAndDistance(debounce: false, retryCount: 0);
+    if (_gpsPosition == null) {
+      _showSnackBar('Location not found. Ensure GPS is on.', isError: true);
+      return;
+    }
 
-      if (_selectedDevice == null || !_selectedDevice!.hasValidCoordinates) {
-        _showSnackBar('Device location not configured. Please select a valid device.', isError: true);
-        return;
-      }
-
-      await _updateGpsPositionAndDistance(debounce: false, retryCount: 0);
-      if (_gpsPosition == null) {
-        _showSnackBar('Location not found. Ensure GPS is on.', isError: true);
-        return;
-      }
-
-      if (!_attendanceService.isWithinRadius(_gpsPosition!, _selectedDevice!)) {
-        final distance = _distanceToDevice;
-        _showSnackBar(
-          distance != null
-              ? 'You are outside device radius (${distance.toStringAsFixed(0)}m from ${_selectedDevice!.radiusMeters}m)'
-              : 'Cannot calculate distance to device',
-          isError: true,
-        );
-        return;
-      }
-
-      if (_selectedDevice!.hasValidCoordinates) {
-        _currentPosition = Position(
-          longitude: _selectedDevice!.longitude!,
-          latitude: _selectedDevice!.latitude!,
-          timestamp: DateTime.now(),
-          accuracy: 0.0,
-          altitude: 0.0,
-          heading: 0.0,
-          speed: 0.0,
-          speedAccuracy: 0.0,
-          altitudeAccuracy: 0.0,
-          headingAccuracy: 0.0,
-        );
-        debugPrint('Using device coordinates for attendance: ${_selectedDevice!.latitude}, ${_selectedDevice!.longitude}');
-      }
-
-      String? photoUrl;
-
-      if (_needsPhoto(actionType)) {
-        String? imagePath = await _takeSelfie();
-        if (imagePath == null) {
-          _showSnackBar('Photo required for $actionType', isError: true);
-          return;
-        }
-
-        photoUrl = await _attendanceService.uploadPhoto(imagePath);
-        if (photoUrl == null) {
-          _showSnackBar('Failed to upload photo.', isError: true);
-          return;
-        }
-
-        try {
-          await File(imagePath).delete();
-        } catch (e) {
-          debugPrint('Failed to delete temporary file: $e');
-        }
-      }
-
-      final success = await _attendanceService.performAttendance(
-        type: actionType,
-        organizationMemberId: _organizationMember!.id,
-        currentPosition: _currentPosition!,
-        photoUrl: photoUrl ?? '',
-        device: _selectedDevice,
-        schedule: _currentSchedule,
-        todayRecords: _todayAttendanceRecords,
-        scheduleDetails: _todayScheduleDetails,
+    if (!_attendanceService.isWithinRadius(_gpsPosition!, _selectedDevice!)) {
+      final distance = _distanceToDevice;
+      _showSnackBar(
+        distance != null
+            ? 'You are outside device radius (${distance.toStringAsFixed(0)}m from ${_selectedDevice!.radiusMeters}m)'
+            : 'Cannot calculate distance to device',
+        isError: true,
       );
+      return;
+    }
 
-      if (success) {
-        await _showSuccessAttendancePopup(actionType);
-        await _refreshData();
-        triggerAttendanceHistoryRefresh();
+    if (_selectedDevice!.hasValidCoordinates) {
+      _currentPosition = Position(
+        longitude: _selectedDevice!.longitude!,
+        latitude: _selectedDevice!.latitude!,
+        timestamp: DateTime.now(),
+        accuracy: 0.0,
+        altitude: 0.0,
+        heading: 0.0,
+        speed: 0.0,
+        speedAccuracy: 0.0,
+        altitudeAccuracy: 0.0,
+        headingAccuracy: 0.0,
+      );
+      debugPrint('Using device coordinates for attendance: ${_selectedDevice!.latitude}, ${_selectedDevice!.longitude}');
+    }
+
+    String? photoUrl;
+
+    // PERUBAHAN UTAMA: Hanya check_in yang butuh foto, check_out tidak perlu foto
+    if (actionType == 'check_in') {
+      String? imagePath = await _takeSelfie();
+      if (imagePath == null) {
+        _showSnackBar('Photo required for check-in', isError: true);
+        return;
       }
-    } catch (e) {
-      debugPrint('Error performing attendance: $e');
-      _showSnackBar('Failed to perform attendance: $e', isError: true);
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+
+      photoUrl = await _attendanceService.uploadPhoto(imagePath);
+      if (photoUrl == null) {
+        _showSnackBar('Failed to upload photo.', isError: true);
+        return;
+      }
+
+      try {
+        await File(imagePath).delete();
+      } catch (e) {
+        debugPrint('Failed to delete temporary file: $e');
       }
     }
-  }
+    // Untuk check_out, tidak perlu foto, photoUrl tetap null atau string kosong
 
+    final success = await _attendanceService.performAttendance(
+      type: actionType,
+      organizationMemberId: _organizationMember!.id,
+      currentPosition: _currentPosition!,
+      photoUrl: photoUrl ?? '', // Kosongkan photoUrl untuk check_out
+      device: _selectedDevice,
+      schedule: _currentSchedule,
+      todayRecords: _todayAttendanceRecords,
+      scheduleDetails: _todayScheduleDetails,
+    );
+
+    if (success) {
+      await _showSuccessAttendancePopup(actionType);
+      await _refreshData();
+      triggerAttendanceHistoryRefresh();
+    }
+  } catch (e) {
+    debugPrint('Error performing attendance: $e');
+    _showSnackBar('Failed to perform attendance: $e', isError: true);
+  } finally {
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+}
+
+// Jika Anda ingin mengubah fungsi _needsPhoto juga:
   Future<void> _getCurrentLocation() async {
     try {
       await _updateGpsPositionAndDistance(debounce: false, retryCount: 0);

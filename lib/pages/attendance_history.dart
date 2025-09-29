@@ -919,57 +919,131 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
     );
   }
 
-  Widget _buildSelectedDayEvents() {
-    if (_filteredData.isEmpty) {
-      return _buildEmptyState();
-    }
+Widget _buildSelectedDayEvents() {
+  if (_filteredData.isEmpty) {
+    return _buildEmptyState();
+  }
 
-    return Container(
-      margin: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
+  return Container(
+    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [Colors.white, Colors.grey.shade50],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              children: [
-                Icon(Icons.event, color: primaryColor),
-                const SizedBox(width: 8),
-                Text(
-                  'Events on ${TimezoneHelper.formatOrgTime(_selectedDay, 'dd MMM yyyy')}',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+      borderRadius: BorderRadius.circular(16),
+      boxShadow: [
+        BoxShadow(
+          color: primaryColor.withOpacity(0.12),
+          blurRadius: 15,
+          offset: const Offset(0, 4),
+        ),
+      ],
+      border: Border.all(
+        color: primaryColor.withOpacity(0.1),
+        width: 1,
+      ),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // HEADER
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                primaryColor.withOpacity(0.1),
+                primaryColor.withOpacity(0.05),
               ],
             ),
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(16),
+              topRight: Radius.circular(16),
+            ),
           ),
-          ListView.separated(
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: primaryColor,
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: primaryColor.withOpacity(0.3),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: const Icon(
+                  Icons.event_note,
+                  color: Colors.white,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Daily Events',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    Text(
+                      TimezoneHelper.formatOrgTime(_selectedDay, 'EEE, dd MMM yyyy'),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: primaryColor,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${_filteredData.length}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // LIST
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+          child: ListView.separated(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: _filteredData.length,
-            separatorBuilder: (context, index) => const Divider(height: 1),
+            separatorBuilder: (context, index) => const SizedBox(height: 8),
             itemBuilder: (context, index) {
               return _buildEventListItem(_filteredData[index]);
             },
           ),
-          const SizedBox(height: 10),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
+}
 
   Widget _buildEmptyState() {
     return Container(
@@ -1010,64 +1084,140 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
     final orgTime = TimezoneHelper.toOrgTime(eventTime);
     final eventColor = _getEventColor(event['type']);
 
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      leading: Container(
-        width: 45,
-        height: 45,
-        decoration: BoxDecoration(
-          color: eventColor.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: _buildEventLeadingWidget(event, eventColor),
-      ),
-      title: Text(
-        _getEventLabel(event['type']),
-        style: const TextStyle(
-          fontWeight: FontWeight.w500,
-          fontSize: 16,
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: eventColor.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+        border: Border.all(
+          color: eventColor.withOpacity(0.2),
+          width: 1,
         ),
       ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 4),
-          Text(
-            '${TimezoneHelper.formatOrgTime(orgTime, 'HH:mm:ss')} ${TimezoneHelper.currentTimeZone.name}',
-            style: const TextStyle(
-              fontSize: 14,
-              color: Colors.grey,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => _showEventDetails(event),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        eventColor.withOpacity(0.8),
+                        eventColor,
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: eventColor.withOpacity(0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: _buildEventLeadingWidget(event, Colors.white),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _getEventLabel(event['type']),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                                color: Colors.black87,
+                              ),
+                            ),
+                          ),
+                          if (event['photo_url'] != null || event['location'] != null)
+                            Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: primaryColor.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Icon(
+                                Icons.info_outline,
+                                color: primaryColor,
+                                size: 16,
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(Icons.access_time, size: 12, color: Colors.grey.shade600),
+                          const SizedBox(width: 4),
+                          Text(
+                            TimezoneHelper.formatOrgTime(orgTime, 'HH:mm:ss'),
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.grey.shade700,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            TimezoneHelper.currentTimeZone.name,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade500,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      _buildEventStatusRow(event),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 2),
-          _buildEventStatusRow(event),
-        ],
+        ),
       ),
-      trailing: (event['photo_url'] != null || event['location'] != null)
-          ? Icon(Icons.info_outline, color: primaryColor, size: 20)
-          : null,
-      onTap: () => _showEventDetails(event),
     );
   }
 
-  Widget _buildEventLeadingWidget(Map<String, dynamic> event, Color eventColor) {
+  Widget _buildEventLeadingWidget(Map<String, dynamic> event, Color iconColor) {
     if (event['photo_url'] != null) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: CachedNetworkImage(
           imageUrl: event['photo_url'],
-          width: 45,
-          height: 45,
+          width: 50,
+          height: 50,
           fit: BoxFit.cover,
           placeholder: (context, url) => Icon(
             _getEventIcon(event['type']),
-            color: eventColor,
-            size: 20,
+            color: iconColor,
+            size: 24,
           ),
           errorWidget: (context, url, error) => Icon(
             _getEventIcon(event['type']),
-            color: eventColor,
-            size: 20,
+            color: iconColor,
+            size: 24,
           ),
         ),
       );
@@ -1075,47 +1225,71 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
 
     return Icon(
       _getEventIcon(event['type']),
-      color: eventColor,
-      size: 20,
+      color: iconColor,
+      size: 24,
     );
   }
 
   Widget _buildEventStatusRow(Map<String, dynamic> event) {
-    return Row(
+    return Wrap(
+      spacing: 6,
+      runSpacing: 4,
       children: [
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
-            color: Colors.blue.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(4),
+            gradient: LinearGradient(
+              colors: [
+                Colors.blue.shade400,
+                Colors.blue.shade600,
+              ],
+            ),
+            borderRadius: BorderRadius.circular(6),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.blue.withOpacity(0.3),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
           child: const Text(
             'Record',
             style: TextStyle(
               fontSize: 10,
-              color: Colors.blue,
-              fontWeight: FontWeight.w500,
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
             ),
           ),
         ),
-        if (event['status'] != null) ...[
-          const SizedBox(width: 8),
+        if (event['status'] != null)
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: _getStatusColor(event['status']).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(4),
+              gradient: LinearGradient(
+                colors: [
+                  _getStatusColor(event['status']).withOpacity(0.8),
+                  _getStatusColor(event['status']),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(6),
+              boxShadow: [
+                BoxShadow(
+                  color: _getStatusColor(event['status']).withOpacity(0.3),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             child: Text(
               event['status'].toString().toUpperCase(),
-              style: TextStyle(
+              style: const TextStyle(
                 fontSize: 10,
-                color: _getStatusColor(event['status']),
-                fontWeight: FontWeight.w500,
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
               ),
             ),
           ),
-        ],
       ],
     );
   }
