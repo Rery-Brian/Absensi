@@ -9,11 +9,17 @@ import '../helpers/time_helper.dart';
 class AttendanceService {
   final SupabaseClient _supabase = Supabase.instance.client;
 
+  // User-friendly error messages
+  static const String _networkError = 'Please check your internet connection and try again.';
+  static const String _authError = 'Please log in again to continue.';
+  static const String _permissionError = 'You don\'t have permission to perform this action.';
+  static const String _genericError = 'Something went wrong. Please try again in a moment.';
+
   Future<UserProfile?> loadUserProfile() async {
     try {
       final user = _supabase.auth.currentUser;
       if (user == null) {
-        return null;
+        throw _AuthException('Please log in to access your profile.');
       }
 
       final profileResponse = await _supabase
@@ -35,8 +41,16 @@ class AttendanceService {
       } else {
         return UserProfile.fromJson(profileResponse);
       }
-    } catch (e) {
+    } on _AuthException {
       rethrow;
+    } on SocketException {
+      throw _NetworkException(_networkError);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error loading profile: ${e.message}');
+      throw _DatabaseException('Unable to load your profile. Please try again.');
+    } catch (e) {
+      debugPrint('Unexpected error loading profile: $e');
+      throw _GeneralException('Failed to load your profile. Please restart the app.');
     }
   }
 
@@ -57,8 +71,12 @@ class AttendanceService {
         'display_name': '$firstName $lastName'.trim(),
         'is_active': true,
       });
+    } on PostgrestException catch (e) {
+      debugPrint('Database error creating profile: ${e.message}');
+      throw _DatabaseException('Unable to set up your profile. Please contact support.');
     } catch (e) {
-      throw Exception('Error creating user profile: $e');
+      debugPrint('Unexpected error creating profile: $e');
+      throw _GeneralException('Profile setup failed. Please contact support.');
     }
   }
 
@@ -66,7 +84,7 @@ class AttendanceService {
     try {
       final user = _supabase.auth.currentUser;
       if (user == null) {
-        return null;
+        throw _AuthException('Please log in to view your organization details.');
       }
 
       final memberResponse = await _supabase
@@ -79,11 +97,6 @@ class AttendanceService {
           .maybeSingle();
 
       if (memberResponse == null) {
-        final autoRegistered = await tryAutoRegisterToOrganization(user.id);
-        if (autoRegistered) {
-          return await loadOrganizationMember();
-        }
-        
         return null;
       }
 
@@ -126,60 +139,16 @@ class AttendanceService {
       };
 
       return OrganizationMember.fromJson(combinedResponse);
+    } on _AuthException {
+      rethrow;
+    } on SocketException {
+      throw _NetworkException(_networkError);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error loading organization: ${e.message}');
+      throw _DatabaseException('Unable to load your organization details. Please try again.');
     } catch (e) {
-      throw Exception('Error loading organization member: $e');
-    }
-  }
-
-  Future<bool> tryAutoRegisterToOrganization(String userId) async {
-    try {
-      final defaultOrg = await _supabase
-          .from('organizations')
-          .select('id, code, timezone')
-          .eq('code', 'COMPANY001')
-          .maybeSingle();
-
-      if (defaultOrg?['timezone'] != null) {
-        TimezoneHelper.initialize(defaultOrg!['timezone']);
-        debugPrint('Default organization timezone loaded: ${defaultOrg['timezone']}');
-      }
-          
-      if (defaultOrg == null) {
-        return false;
-      }
-
-      final defaultDept = await _supabase
-          .from('departments')
-          .select('id')
-          .eq('organization_id', defaultOrg['id'])
-          .eq('code', 'IT')
-          .maybeSingle();
-          
-      final defaultPos = await _supabase
-          .from('positions')
-          .select('id')
-          .eq('organization_id', defaultOrg['id'])
-          .eq('code', 'STAFF')
-          .maybeSingle();
-
-      final memberData = {
-        'organization_id': defaultOrg['id'],
-        'user_id': userId,
-        'department_id': defaultDept?['id'],
-        'position_id': defaultPos?['id'],
-        'hire_date': DateTime.now().toIso8601String().split('T')[0],
-        'is_active': true,
-      };
-
-      await _supabase
-          .from('organization_members')
-          .insert(memberData)
-          .select()
-          .single();
-
-      return true;
-    } catch (e) {
-      return false;
+      debugPrint('Unexpected error loading organization: $e');
+      throw _GeneralException('Failed to load organization information. Please restart the app.');
     }
   }
 
@@ -187,7 +156,7 @@ class AttendanceService {
     try {
       final deviceResponse = await _supabase
           .from('attendance_devices')
-          .select('*') // Simplified, removed device_types join
+          .select('*')
           .eq('organization_id', organizationId)
           .eq('is_active', true)
           .order('created_at')
@@ -199,27 +168,40 @@ class AttendanceService {
       } else {
         return null;
       }
+    } on SocketException {
+      throw _NetworkException(_networkError);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error loading device: ${e.message}');
+      throw _DatabaseException('Unable to load attendance settings. Please try again.');
     } catch (e) {
-      throw Exception('Error loading attendance device: $e');
+      debugPrint('Unexpected error loading device: $e');
+      throw _GeneralException('Failed to load attendance settings. Please restart the app.');
     }
   }
 
   Future<void> _validateUserAccess(String organizationMemberId) async {
     final user = _supabase.auth.currentUser;
     if (user == null) {
-      throw Exception('No authenticated user');
+      throw _AuthException('Your session has expired. Please log in again.');
     }
 
-    final memberVerification = await _supabase
-        .from('organization_members')
-        .select('id, user_id')
-        .eq('id', organizationMemberId)
-        .eq('user_id', user.id)
-        .eq('is_active', true)
-        .maybeSingle();
+    try {
+      final memberVerification = await _supabase
+          .from('organization_members')
+          .select('id, user_id')
+          .eq('id', organizationMemberId)
+          .eq('user_id', user.id)
+          .eq('is_active', true)
+          .maybeSingle();
 
-    if (memberVerification == null) {
-      throw Exception('Unauthorized: Access denied to organization member data');
+      if (memberVerification == null) {
+        throw _PermissionException('You don\'t have access to this information.');
+      }
+    } on SocketException {
+      throw _NetworkException(_networkError);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error validating access: ${e.message}');
+      throw _DatabaseException('Unable to verify your access. Please try again.');
     }
   }
 
@@ -244,8 +226,18 @@ class AttendanceService {
           .toList();
 
       return records;
+    } on _AuthException catch (e) {
+      throw e;
+    } on _PermissionException catch (e) {
+      throw e;
+    } on SocketException {
+      throw _NetworkException(_networkError);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error loading today records: ${e.message}');
+      throw _DatabaseException('Unable to load today\'s attendance. Please try again.');
     } catch (e) {
-      throw Exception('Error loading today attendance records: $e');
+      debugPrint('Unexpected error loading today records: $e');
+      throw _GeneralException('Failed to load attendance records. Please try again.');
     }
   }
 
@@ -268,8 +260,18 @@ class AttendanceService {
           .toList();
 
       return records;
+    } on _AuthException catch (e) {
+      throw e;
+    } on _PermissionException catch (e) {
+      throw e;
+    } on SocketException {
+      throw _NetworkException(_networkError);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error loading recent records: ${e.message}');
+      throw _DatabaseException('Unable to load your attendance history. Please try again.');
     } catch (e) {
-      throw Exception('Error loading recent attendance records: $e');
+      debugPrint('Unexpected error loading recent records: $e');
+      throw _GeneralException('Failed to load attendance history. Please try again.');
     }
   }
 
@@ -294,8 +296,18 @@ class AttendanceService {
           .toList();
 
       return logs;
+    } on _AuthException catch (e) {
+      throw e;
+    } on _PermissionException catch (e) {
+      throw e;
+    } on SocketException {
+      throw _NetworkException(_networkError);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error loading today logs: ${e.message}');
+      throw _DatabaseException('Unable to load today\'s activity. Please try again.');
     } catch (e) {
-      throw Exception('Error loading today attendance logs: $e');
+      debugPrint('Unexpected error loading today logs: $e');
+      throw _GeneralException('Failed to load activity logs. Please try again.');
     }
   }
 
@@ -305,7 +317,7 @@ class AttendanceService {
       final user = _supabase.auth.currentUser;
       
       if (user == null) {
-        throw Exception('No authenticated user');
+        throw _AuthException('Your session has expired. Please log in again.');
       }
 
       debugPrint('Loading schedule for member: $organizationMemberId, user: ${user.id}');
@@ -318,7 +330,7 @@ class AttendanceService {
           .maybeSingle();
 
       if (memberVerification == null) {
-        throw Exception('Unauthorized: Organization member does not belong to current user');
+        throw _PermissionException('You don\'t have access to this schedule.');
       }
 
       final scheduleResponse = await _supabase
@@ -346,9 +358,18 @@ class AttendanceService {
           memberVerification['organization_id'].toString()
         );
       }
+    } on _AuthException catch (e) {
+      throw e;
+    } on _PermissionException catch (e) {
+      throw e;
+    } on SocketException {
+      throw _NetworkException(_networkError);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error loading schedule: ${e.message}');
+      throw _DatabaseException('Unable to load your work schedule. Please try again.');
     } catch (e) {
-      debugPrint('Error loading current schedule: $e');
-      throw Exception('Error loading current schedule: $e');
+      debugPrint('Unexpected error loading schedule: $e');
+      throw _GeneralException('Failed to load work schedule. Please try again.');
     }
   }
 
@@ -356,7 +377,7 @@ class AttendanceService {
     try {
       final user = _supabase.auth.currentUser;
       if (user == null) {
-        throw Exception('No authenticated user');
+        throw _AuthException('Your session has expired. Please log in again.');
       }
 
       final defaultWorkSchedule = await _supabase
@@ -420,7 +441,7 @@ class AttendanceService {
     try {
       final user = _supabase.auth.currentUser;
       if (user == null) {
-        throw Exception('No authenticated user');
+        throw _AuthException('Your session has expired. Please log in again.');
       }
 
       debugPrint('Loading work schedule details for schedule: $workScheduleId, day: $dayOfWeek');
@@ -432,7 +453,7 @@ class AttendanceService {
           .single();
 
       if (hasAccess == null) {
-        throw Exception('Work schedule not found');
+        throw _DataException('Work schedule not found.');
       }
 
       final memberCheck = await _supabase
@@ -444,7 +465,7 @@ class AttendanceService {
           .maybeSingle();
 
       if (memberCheck == null) {
-        throw Exception('Unauthorized: User does not have access to this work schedule');
+        throw _PermissionException('You don\'t have access to this work schedule.');
       }
 
       final response = await _supabase
@@ -461,9 +482,20 @@ class AttendanceService {
         debugPrint('No work schedule details found for day $dayOfWeek');
         return null;
       }
+    } on _AuthException catch (e) {
+      throw e;
+    } on _PermissionException catch (e) {
+      throw e;
+    } on _DataException catch (e) {
+      throw e;
+    } on SocketException {
+      throw _NetworkException(_networkError);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error loading schedule details: ${e.message}');
+      throw _DatabaseException('Unable to load schedule details. Please try again.');
     } catch (e) {
-      debugPrint('Error loading work schedule details: $e');
-      throw Exception('Error loading work schedule details: $e');
+      debugPrint('Unexpected error loading schedule details: $e');
+      throw _GeneralException('Failed to load schedule details. Please try again.');
     }
   }
 
@@ -478,7 +510,8 @@ class AttendanceService {
       }
       return true;
     } catch (e) {
-      return true;
+      debugPrint('Error checking working day: $e');
+      return true; // Default to working day if we can't determine
     }
   }
 
@@ -486,29 +519,35 @@ class AttendanceService {
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        throw Exception('Location services are disabled');
+        throw _LocationException('Location services are disabled. Please enable them in your device settings.');
       }
 
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
-          throw Exception('Location permissions are denied');
+          throw _LocationException('Location permission is required for attendance. Please allow location access.');
         }
       }
 
       if (permission == LocationPermission.deniedForever) {
-        throw Exception('Location permissions are permanently denied');
+        throw _LocationException('Location access is permanently denied. Please enable it in Settings > App Permissions.');
       }
 
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 10),
+        timeLimit: const Duration(seconds: 15),
       );
 
       return position;
+    } on _LocationException {
+      rethrow;
     } catch (e) {
-      throw Exception('Failed to get location: $e');
+      debugPrint('Location error: $e');
+      if (e.toString().contains('timeout')) {
+        throw _LocationException('Unable to get your location. Please make sure GPS is enabled and try again.');
+      }
+      throw _LocationException('Failed to get your location. Please check your GPS settings.');
     }
   }
 
@@ -542,13 +581,17 @@ class AttendanceService {
     try {
       final user = _supabase.auth.currentUser;
       if (user == null) {
-        throw Exception('No authenticated user');
+        throw _AuthException('Your session has expired. Please log in again.');
       }
 
       final orgTime = TimezoneHelper.nowInOrgTime();
       final timestamp = orgTime.millisecondsSinceEpoch;
       final fileName = '${user.id}/$timestamp.jpg';
       final file = File(imagePath);
+
+      if (!file.existsSync()) {
+        throw _DataException('Photo file not found. Please take the photo again.');
+      }
 
       await _supabase.storage
           .from('attendance_photos')
@@ -562,8 +605,18 @@ class AttendanceService {
           .getPublicUrl(fileName);
 
       return publicUrl;
+    } on _AuthException {
+      rethrow;
+    } on _DataException {
+      rethrow;
+    } on SocketException {
+      throw _NetworkException('Unable to upload photo. Please check your internet connection.');
+    } on StorageException catch (e) {
+      debugPrint('Storage error uploading photo: ${e.message}');
+      throw _DataException('Photo upload failed. Please try taking the photo again.');
     } catch (e) {
-      throw Exception('Failed to upload photo: $e');
+      debugPrint('Unexpected error uploading photo: $e');
+      throw _GeneralException('Failed to upload photo. Please try again.');
     }
   }
 
@@ -610,10 +663,22 @@ class AttendanceService {
           );
           
         default:
-          throw Exception('Unknown attendance type: $type');
+          throw _ValidationException('Unknown attendance action. Please try again.');
       }
+    } on _ValidationException {
+      rethrow;
+    } on _AuthException {
+      rethrow;
+    } on _PermissionException {
+      rethrow;
+    } on SocketException {
+      throw _NetworkException(_networkError);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error performing attendance: ${e.message}');
+      throw _DatabaseException('Unable to record attendance. Please try again.');
     } catch (e) {
-      throw Exception('Failed to perform attendance: $e');
+      debugPrint('Unexpected error performing attendance: $e');
+      throw _GeneralException('Failed to record attendance. Please try again.');
     }
   }
 
@@ -774,6 +839,7 @@ class AttendanceService {
     String photoUrl,
     AttendanceDevice? device
   ) async {
+    // Calculate break duration from logs
     final todayLogs = await getTodayAttendanceLogs(organizationMemberId);
     
     final lastBreakOut = todayLogs
@@ -783,18 +849,10 @@ class AttendanceService {
     if (lastBreakOut != null) {
       final breakDuration = now.difference(lastBreakOut.eventTime).inMinutes;
       
-      final todayRecords = await loadTodayAttendanceRecords(organizationMemberId);
+      // Update attendance record with accumulated break time
+      await updateBreakDuration(int.parse(organizationMemberId), breakDuration);
       
-      if (todayRecords.isNotEmpty) {
-        final currentBreakDuration = todayRecords.first.breakDurationMinutes ?? 0;
-        await _supabase
-            .from('attendance_records')
-            .update({
-              'break_duration_minutes': currentBreakDuration + breakDuration,
-              'updated_at': now.toIso8601String(),
-            })
-            .eq('id', todayRecords.first.id);
-      }
+      debugPrint('Break duration calculated and updated: $breakDuration minutes');
     }
 
     await _logAttendanceEvent(
@@ -834,7 +892,7 @@ class AttendanceService {
     final now = TimeHelper.getCurrentTime();
     
     if (scheduleDetails != null && !scheduleDetails.isWorkingDay) {
-      throw Exception('Today is not a working day according to your schedule');
+      throw _ValidationException('Today is not a working day according to your schedule.');
     }
 
     final lastLog = todayLogs.isNotEmpty ? todayLogs.last : null;
@@ -842,54 +900,54 @@ class AttendanceService {
     switch (type) {
       case 'check_in':
         if (existingRecord?.hasCheckedIn == true) {
-          throw Exception('You have already checked in today');
+          throw _ValidationException('You have already checked in today.');
         }
         if (scheduleDetails?.startTime != null) {
           final scheduledStart = TimeHelper.parseTimeString(scheduleDetails!.startTime!);
           final maxEarlyMinutes = 30;
           if (_isTimeBeforeScheduled(now, scheduledStart, maxEarlyMinutes)) {
-            throw Exception('Check-in is too early. Scheduled start: ${scheduleDetails.startTime}');
+            throw _ValidationException('Check-in is too early. You can check in 30 minutes before ${scheduleDetails.startTime}.');
           }
         }
         break;
         
       case 'check_out':
         if (existingRecord?.hasCheckedIn != true) {
-          throw Exception('You must check in before checking out');
+          throw _ValidationException('You must check in before you can check out.');
         }
         if (existingRecord?.hasCheckedOut == true) {
-          throw Exception('You have already checked out today');
+          throw _ValidationException('You have already checked out for today.');
         }
         if (existingRecord?.actualCheckIn != null && scheduleDetails?.minimumHours != null) {
           final workHours = DateTime.now().difference(existingRecord!.actualCheckIn!).inHours;
           if (workHours < scheduleDetails!.minimumHours!) {
-            throw Exception('Minimum work hours (${scheduleDetails.minimumHours}h) not completed');
+            throw _ValidationException('You need to complete at least ${scheduleDetails.minimumHours} hours before checking out.');
           }
         }
         break;
         
       case 'break_out':
         if (existingRecord?.hasCheckedIn != true) {
-          throw Exception('You must check in before taking a break');
+          throw _ValidationException('You must check in before taking a break.');
         }
         if (lastLog?.eventType == 'break_out') {
-          throw Exception('You are already on break. Please resume work first.');
+          throw _ValidationException('You are already on break. Please resume work first.');
         }
         if (scheduleDetails?.breakStart != null && scheduleDetails?.breakEnd != null) {
           final breakStart = TimeHelper.parseTimeString(scheduleDetails!.breakStart!);
           final breakEnd = TimeHelper.parseTimeString(scheduleDetails.breakEnd!);
           if (!_isWithinBreakWindow(now, breakStart, breakEnd)) {
-            throw Exception('Break is only allowed during: ${scheduleDetails.breakStart} - ${scheduleDetails.breakEnd}');
+            throw _ValidationException('Break time is ${scheduleDetails.breakStart} - ${scheduleDetails.breakEnd}. Please wait for the break period.');
           }
         }
         break;
         
       case 'break_in':
         if (existingRecord?.hasCheckedIn != true) {
-          throw Exception('You must check in first');
+          throw _ValidationException('You must check in first before resuming work.');
         }
         if (lastLog?.eventType != 'break_out') {
-          throw Exception('You are not currently on break');
+          throw _ValidationException('You are not currently on break.');
         }
         break;
     }
@@ -939,6 +997,7 @@ class AttendanceService {
 
       return AttendanceStatus.working;
     } catch (e) {
+      debugPrint('Error getting attendance status: $e');
       return AttendanceStatus.unknown;
     }
   }
@@ -989,7 +1048,7 @@ class AttendanceService {
               type: 'check_out',
               label: 'Check Out',
               isEnabled: false,
-              reason: 'Minimum work hours not completed',
+              reason: 'Please complete your minimum work hours before checking out.',
             ));
           }
           break;
@@ -1016,6 +1075,7 @@ class AttendanceService {
 
       return actions;
     } catch (e) {
+      debugPrint('Error getting available actions: $e');
       return [];
     }
   }
@@ -1029,7 +1089,7 @@ class AttendanceService {
 
   String? _getCheckInReason(TimeOfDay currentTime, WorkScheduleDetails? scheduleDetails) {
     if (!_canCheckIn(currentTime, scheduleDetails)) {
-      return 'Too early to check in. Scheduled start: ${scheduleDetails?.startTime}';
+      return 'You can check in 30 minutes before ${scheduleDetails?.startTime}.';
     }
     return null;
   }
@@ -1045,14 +1105,20 @@ class AttendanceService {
   }
 
   bool _canCheckOut(WorkScheduleDetails? scheduleDetails) {
-    return true;
+    return true; // Can be extended with business logic
   }
 
   Future<void> signOut() async {
     try {
       await _supabase.auth.signOut();
+    } on SocketException {
+      throw _NetworkException('Unable to sign out. Please check your connection and try again.');
+    } on AuthException catch (e) {
+      debugPrint('Auth error signing out: ${e.message}');
+      throw _AuthException('Sign out failed. Please try again.');
     } catch (e) {
-      throw Exception('Failed to sign out: $e');
+      debugPrint('Unexpected error signing out: $e');
+      throw _GeneralException('Unable to sign out. Please restart the app.');
     }
   }
 
@@ -1062,33 +1128,138 @@ class AttendanceService {
 
   SupabaseClient get supabase => _supabase;
 
+  // Enhanced break duration update method
   Future<void> updateBreakDuration(int organizationMemberId, int additionalMinutes) async {
     try {
       await _validateUserAccess(organizationMemberId.toString());
       
       final today = TimezoneHelper.getTodayDateString();
+      
+      // Get current attendance record
       final response = await _supabase
           .from('attendance_records')
           .select('id, break_duration_minutes')
           .eq('organization_member_id', organizationMemberId)
           .eq('attendance_date', today)
-          .single();
+          .maybeSingle();
 
       if (response != null) {
         final currentDuration = response['break_duration_minutes'] as int? ?? 0;
+        final newTotalDuration = currentDuration + additionalMinutes;
+        
         await _supabase
             .from('attendance_records')
-            .update({'break_duration_minutes': currentDuration + additionalMinutes})
+            .update({
+              'break_duration_minutes': newTotalDuration,
+              'updated_at': TimezoneHelper.nowInOrgTime().toIso8601String(),
+            })
             .eq('id', response['id']);
-        debugPrint('Break duration updated: ${currentDuration + additionalMinutes} minutes');
+        
+        debugPrint('Break duration updated: $currentDuration + $additionalMinutes = $newTotalDuration minutes');
       } else {
-        throw Exception('No attendance record found for today');
+        // Create attendance record if it doesn't exist (edge case)
+        debugPrint('Warning: No attendance record found for break duration update');
+        throw _DataException('No attendance record found for today. Please check in first.');
       }
+    } on _AuthException {
+      rethrow;
+    } on _PermissionException {
+      rethrow;
+    } on _DataException {
+      rethrow;
+    } on SocketException {
+      throw _NetworkException(_networkError);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error updating break duration: ${e.message}');
+      throw _DatabaseException('Unable to update break time. Please try again.');
     } catch (e) {
-      debugPrint('Error updating break duration: $e');
-      throw Exception('Failed to update break duration: $e');
+      debugPrint('Unexpected error updating break duration: $e');
+      throw _GeneralException('Failed to update break duration. Please try again.');
     }
   }
+
+  // Get detailed break information for today
+  Future<Map<String, dynamic>> getTodayBreakInfo(String organizationMemberId) async {
+    try {
+      await _validateUserAccess(organizationMemberId);
+      
+      final today = TimezoneHelper.getTodayDateString();
+      
+      // Get attendance record break duration
+      final recordResponse = await _supabase
+          .from('attendance_records')
+          .select('break_duration_minutes')
+          .eq('organization_member_id', organizationMemberId)
+          .eq('attendance_date', today)
+          .maybeSingle();
+
+      final totalBreakMinutes = recordResponse?['break_duration_minutes'] as int? ?? 0;
+
+      // Get break logs to calculate sessions
+      final logsResponse = await _supabase
+          .from('attendance_logs')
+          .select('event_type, event_time')
+          .eq('organization_member_id', organizationMemberId)
+          .gte('event_time', '${today}T00:00:00')
+          .lte('event_time', '${today}T23:59:59')
+          .inFilter('event_type', ['break_out', 'break_in'])
+          .order('event_time', ascending: true);
+
+      final logs = List<Map<String, dynamic>>.from(logsResponse);
+      List<Map<String, dynamic>> breakSessions = [];
+      DateTime? currentBreakStart;
+      bool isCurrentlyOnBreak = false;
+
+      for (var log in logs) {
+        if (log['event_type'] == 'break_out') {
+          currentBreakStart = DateTime.parse(log['event_time']);
+          isCurrentlyOnBreak = true;
+        } else if (log['event_type'] == 'break_in' && currentBreakStart != null) {
+          final breakEnd = DateTime.parse(log['event_time']);
+          final duration = breakEnd.difference(currentBreakStart).inMinutes;
+          
+          breakSessions.add({
+            'start': currentBreakStart,
+            'end': breakEnd,
+            'duration': duration,
+          });
+          
+          currentBreakStart = null;
+          isCurrentlyOnBreak = false;
+        }
+      }
+
+      // Add current ongoing break if exists
+      if (isCurrentlyOnBreak && currentBreakStart != null) {
+        breakSessions.add({
+          'start': currentBreakStart,
+          'end': null, // Ongoing
+          'duration': TimezoneHelper.nowInOrgTime().difference(currentBreakStart).inMinutes,
+        });
+      }
+
+      return {
+        'total_break_minutes': totalBreakMinutes,
+        'break_sessions': breakSessions,
+        'is_currently_on_break': isCurrentlyOnBreak,
+        'current_break_start': currentBreakStart?.toIso8601String(),
+      };
+    } on _AuthException {
+      rethrow;
+    } on _PermissionException {
+      rethrow;
+    } on SocketException {
+      throw _NetworkException(_networkError);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error getting break info: ${e.message}');
+      throw _DatabaseException('Unable to load break information. Please try again.');
+    } catch (e) {
+      debugPrint('Unexpected error getting break info: $e');
+      throw _GeneralException('Failed to load break information. Please try again.');
+    }
+  }
+
+  // Additional methods for comprehensive attendance management...
 
   Future<List<AttendanceRecord>> loadAttendanceRecordsInRange(
     String organizationMemberId, 
@@ -1114,8 +1285,18 @@ class AttendanceService {
           .toList();
 
       return records;
+    } on _AuthException {
+      rethrow;
+    } on _PermissionException {
+      rethrow;
+    } on SocketException {
+      throw _NetworkException(_networkError);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error loading attendance range: ${e.message}');
+      throw _DatabaseException('Unable to load attendance history for the selected dates.');
     } catch (e) {
-      throw Exception('Error loading attendance records in range: $e');
+      debugPrint('Unexpected error loading attendance range: $e');
+      throw _GeneralException('Failed to load attendance records. Please try again.');
     }
   }
 
@@ -1135,6 +1316,7 @@ class AttendanceService {
       int totalLateMinutes = 0;
       int totalOvertimeMinutes = 0;
       int totalWorkMinutes = 0;
+      int totalBreakMinutes = 0;
 
       for (final record in records) {
         if (record.status == 'present') {
@@ -1152,6 +1334,10 @@ class AttendanceService {
           if (record.workDurationMinutes != null) {
             totalWorkMinutes += record.workDurationMinutes!;
           }
+
+          if (record.breakDurationMinutes != null) {
+            totalBreakMinutes += record.breakDurationMinutes!;
+          }
         } else if (record.status == 'absent') {
           absentDays++;
         }
@@ -1164,11 +1350,23 @@ class AttendanceService {
         'total_late_minutes': totalLateMinutes,
         'total_overtime_minutes': totalOvertimeMinutes,
         'total_work_minutes': totalWorkMinutes,
+        'total_break_minutes': totalBreakMinutes,
         'average_work_hours': totalWorkMinutes > 0 ? (totalWorkMinutes / 60) / presentDays : 0,
+        'average_break_minutes': totalBreakMinutes > 0 ? totalBreakMinutes / presentDays : 0,
         'attendance_rate': records.isNotEmpty ? (presentDays / records.length * 100) : 0,
       };
+    } on _AuthException {
+      rethrow;
+    } on _PermissionException {
+      rethrow;
+    } on SocketException {
+      throw _NetworkException(_networkError);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error calculating summary: ${e.message}');
+      throw _DatabaseException('Unable to calculate attendance summary. Please try again.');
     } catch (e) {
-      throw Exception('Error calculating attendance summary: $e');
+      debugPrint('Unexpected error calculating summary: $e');
+      throw _GeneralException('Failed to calculate attendance summary. Please try again.');
     }
   }
 
@@ -1226,8 +1424,18 @@ class AttendanceService {
           .toList();
 
       return logs;
+    } on _AuthException {
+      rethrow;
+    } on _PermissionException {
+      rethrow;
+    } on SocketException {
+      throw _NetworkException(_networkError);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error loading logs range: ${e.message}');
+      throw _DatabaseException('Unable to load activity logs for the selected dates.');
     } catch (e) {
-      throw Exception('Error loading attendance logs in range: $e');
+      debugPrint('Unexpected error loading logs range: $e');
+      throw _GeneralException('Failed to load activity logs. Please try again.');
     }
   }
 
@@ -1237,22 +1445,22 @@ class AttendanceService {
       
       final member = await loadOrganizationMember();
       if (member == null || !member.isActive) {
-        throw Exception('Member account is not active');
+        throw _PermissionException('Your account is inactive. Please contact your administrator.');
       }
 
       final schedule = await loadCurrentSchedule(organizationMemberId);
       if (schedule == null) {
-        throw Exception('No active schedule found');
+        throw _DataException('No work schedule assigned. Please contact your administrator.');
       }
 
       final isWorkingDay = await isTodayWorkingDay(organizationMemberId);
       if (!isWorkingDay) {
-        throw Exception('Today is not a working day');
+        throw _ValidationException('Today is not a working day according to your schedule.');
       }
 
       return true;
     } catch (e) {
-      throw Exception('Attendance validation failed: $e');
+      rethrow;
     }
   }
 
@@ -1266,8 +1474,13 @@ class AttendanceService {
           .maybeSingle();
 
       return response;
+    } on SocketException {
+      throw _NetworkException(_networkError);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error loading settings: ${e.message}');
+      throw _DatabaseException('Unable to load attendance settings.');
     } catch (e) {
-      debugPrint('Error loading attendance settings: $e');
+      debugPrint('Unexpected error loading settings: $e');
       return null;
     }
   }
@@ -1277,7 +1490,7 @@ class AttendanceService {
       final settings = await getAttendanceSettings(organizationId);
       return settings?['require_location'] ?? true;
     } catch (e) {
-      return true;
+      return true; // Default to requiring location
     }
   }
 
@@ -1289,7 +1502,7 @@ class AttendanceService {
       final photoSettings = settings['photo_requirements'] as Map<String, dynamic>?;
       return photoSettings?[attendanceType] ?? true;
     } catch (e) {
-      return true;
+      return true; // Default to requiring photo
     }
   }
 
@@ -1298,7 +1511,7 @@ class AttendanceService {
       final settings = await getAttendanceSettings(organizationId);
       return settings?['location_tolerance_meters'] ?? 100;
     } catch (e) {
-      return 100;
+      return 100; // Default tolerance
     }
   }
 
@@ -1314,6 +1527,7 @@ class AttendanceService {
 
       return action.isEnabled;
     } catch (e) {
+      debugPrint('Error checking attendance action: $e');
       return false;
     }
   }
@@ -1322,12 +1536,18 @@ class AttendanceService {
     try {
       final user = _supabase.auth.currentUser;
       
-      if (user == null) return;
+      if (user == null) {
+        throw _AuthException('Please log in to perform cleanup.');
+      }
 
       debugPrint('Cleanup request for attendance photos older than $daysToKeep days');
+      // Implementation would go here for actual cleanup
       
+    } on _AuthException {
+      rethrow;
     } catch (e) {
       debugPrint('Error during photo cleanup: $e');
+      throw _GeneralException('Photo cleanup failed. Please try again later.');
     }
   }
 
@@ -1345,24 +1565,115 @@ class AttendanceService {
           final daysDiff = DateTime.now().difference(recordDate).inDays;
           
           if (daysDiff > 0) {
-            issues.add('Missing check-out for ${record.attendanceDate}');
+            issues.add('Missing check-out for ${_formatDate(recordDate)}');
           }
         }
 
         if (record.workDurationMinutes != null && record.workDurationMinutes! > 16 * 60) {
-          issues.add('Unusually long work duration on ${record.attendanceDate}: ${(record.workDurationMinutes! / 60).toStringAsFixed(1)} hours');
+          issues.add('Unusually long work session on ${_formatDate(DateTime.parse(record.attendanceDate))}: ${_formatHours(record.workDurationMinutes! / 60)}');
         }
 
         if (record.checkInLocation == null && record.hasCheckedIn) {
-          issues.add('Missing location data for check-in on ${record.attendanceDate}');
+          issues.add('Missing location data for ${_formatDate(DateTime.parse(record.attendanceDate))}');
+        }
+
+        // Break duration validation
+        if (record.breakDurationMinutes != null && record.breakDurationMinutes! > 4 * 60) {
+          issues.add('Excessive break time on ${_formatDate(DateTime.parse(record.attendanceDate))}: ${_formatHours(record.breakDurationMinutes! / 60)}');
         }
       }
 
       return issues;
+    } on _AuthException {
+      return ['Please log in to check your attendance data.'];
+    } on _PermissionException {
+      return ['You don\'t have permission to view this data.'];
+    } on _NetworkException {
+      return ['Unable to check attendance data. Please check your connection.'];
     } catch (e) {
-      return ['Error validating attendance data: $e'];
+      debugPrint('Error validating data integrity: $e');
+      return ['Unable to validate attendance data. Please try again later.'];
     }
   }
+
+  // Helper methods for formatting
+  String _formatDate(DateTime date) {
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${date.day} ${months[date.month - 1]} ${date.year}';
+  }
+
+  String _formatHours(double hours) {
+    if (hours < 1) {
+      return '${(hours * 60).round()} minutes';
+    }
+    return '${hours.toStringAsFixed(1)} hours';
+  }
+}
+
+// Custom Exception Classes for better error handling
+class _AuthException implements Exception {
+  final String message;
+  _AuthException(this.message);
+  
+  @override
+  String toString() => message;
+}
+
+class _NetworkException implements Exception {
+  final String message;
+  _NetworkException(this.message);
+  
+  @override
+  String toString() => message;
+}
+
+class _DatabaseException implements Exception {
+  final String message;
+  _DatabaseException(this.message);
+  
+  @override
+  String toString() => message;
+}
+
+class _PermissionException implements Exception {
+  final String message;
+  _PermissionException(this.message);
+  
+  @override
+  String toString() => message;
+}
+
+class _ValidationException implements Exception {
+  final String message;
+  _ValidationException(this.message);
+  
+  @override
+  String toString() => message;
+}
+
+class _LocationException implements Exception {
+  final String message;
+  _LocationException(this.message);
+  
+  @override
+  String toString() => message;
+}
+
+class _DataException implements Exception {
+  final String message;
+  _DataException(this.message);
+  
+  @override
+  String toString() => message;
+}
+
+class _GeneralException implements Exception {
+  final String message;
+  _GeneralException(this.message);
+  
+  @override
+  String toString() => message;
 }
 
 enum AttendanceStatus {
