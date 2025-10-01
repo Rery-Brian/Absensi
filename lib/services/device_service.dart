@@ -1,4 +1,3 @@
-// services/device_service.dart
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
@@ -7,7 +6,7 @@ import '../models/attendance_model.dart';
 class DeviceService {
   final SupabaseClient _supabase = Supabase.instance.client;
   AttendanceDevice? _selectedDevice;
-  
+
   static const String _selectedDeviceKey = 'selected_device_id';
 
   AttendanceDevice? get selectedDevice => _selectedDevice;
@@ -66,12 +65,12 @@ class DeviceService {
   Future<void> setSelectedDevice(AttendanceDevice device) async {
     try {
       _selectedDevice = device;
-      
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_selectedDeviceKey, device.id);
-      
+
       debugPrint('DeviceService: Device saved to preferences: ${device.deviceName} (ID: ${device.id})');
-      
+
       // Verify it was saved
       final savedId = prefs.getString(_selectedDeviceKey);
       debugPrint('DeviceService: Verified saved ID: $savedId');
@@ -81,18 +80,18 @@ class DeviceService {
     }
   }
 
- /// Load the previously selected device from preferences
+  /// Load the previously selected device from preferences
   Future<AttendanceDevice?> loadSelectedDevice(String organizationId) async {
     try {
       debugPrint('DeviceService: Loading selected device for org: $organizationId');
-      
+
       // ALWAYS load from SharedPreferences first to ensure we get the latest saved device
       final prefs = await SharedPreferences.getInstance();
       final savedDeviceId = prefs.getString(_selectedDeviceKey);
-      
+
       debugPrint('DeviceService: Saved device ID in preferences: $savedDeviceId');
       debugPrint('DeviceService: Current cache: ${_selectedDevice?.deviceName} (ID: ${_selectedDevice?.id})');
-      
+
       if (savedDeviceId != null) {
         final device = await loadDeviceById(savedDeviceId);
         if (device != null) {
@@ -118,15 +117,16 @@ class DeviceService {
       throw Exception('Error loading selected device: $e');
     }
   }
+
   /// Clear the selected device
   Future<void> clearSelectedDevice() async {
     try {
       debugPrint('DeviceService: Clearing selected device');
       _selectedDevice = null;
-      
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_selectedDeviceKey);
-      
+
       debugPrint('DeviceService: Selected device cleared from cache and preferences');
     } catch (e) {
       debugPrint('DeviceService: Error clearing selected device: $e');
@@ -139,22 +139,22 @@ class DeviceService {
     try {
       debugPrint('DeviceService: Checking if selection required for org: $organizationId');
       final devices = await loadDevices(organizationId);
-      
+
       debugPrint('DeviceService: Found ${devices.length} devices');
-      
+
       // If there are multiple devices, selection is required
       if (devices.length > 1) {
         debugPrint('DeviceService: Multiple devices found - selection required');
         return true;
       }
-      
+
       // If there's exactly one device, auto-select it
       if (devices.length == 1) {
         debugPrint('DeviceService: Single device found - auto-selecting: ${devices.first.deviceName}');
         await setSelectedDevice(devices.first);
         return false;
       }
-      
+
       // No devices available - selection not required
       debugPrint('DeviceService: No devices found');
       return false;

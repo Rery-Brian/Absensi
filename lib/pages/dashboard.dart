@@ -54,8 +54,13 @@ class _DashboardContent extends StatefulWidget {
 class _DashboardContentState extends State<_DashboardContent> {
   final AttendanceService _attendanceService = AttendanceService();
   final DeviceService _deviceService = DeviceService();
-  bool _isLoading = false;
+  
+  // Loading states - lebih granular
+  bool _isInitialLoading = true;
   bool _isRefreshing = false;
+  bool _isLocationUpdating = false;
+  
+  // Data cache
   Position? _currentPosition;
   Position? _gpsPosition;
   double? _distanceToDevice;
@@ -71,12 +76,12 @@ class _DashboardContentState extends State<_DashboardContent> {
   AttendanceStatus _currentStatus = AttendanceStatus.unknown;
   List<AttendanceAction> _availableActions = [];
   bool _needsDeviceSelection = false;
+  Map<String, dynamic>? _breakInfo;
+  final List<TimelineItem> _timelineItems = [];
+
+  // Timers
   Timer? _debounceTimer;
   Timer? _periodicLocationTimer;
-  bool _isLocationUpdating = false;
-  Map<String, dynamic>? _breakInfo;
-
-  final List<TimelineItem> _timelineItems = [];
 
   static const Color primaryColor = Color(0xFF6366F1);
   static const Color backgroundColor = Color(0xFF1F2937);
@@ -84,8 +89,8 @@ class _DashboardContentState extends State<_DashboardContent> {
   static const Color warningColor = Color(0xFFF59E0B);
   static const Color errorColor = Color(0xFFEF4444);
   static const double minGpsAccuracy = 20.0;
-  static const int maxGpsRetries = 3;
-  static const Duration gpsRetryDelay = Duration(seconds: 2);
+  static const int maxGpsRetries = 2;
+  static const Duration gpsRetryDelay = Duration(seconds: 3);
   static const Duration locationUpdateInterval = Duration(seconds: 30);
 
   @override
@@ -139,40 +144,73 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
+  // 🔥 OPTIMIZED: Load data secara parallel dengan prioritas
   Future<void> _loadUserData() async {
     setState(() {
-      _isLoading = true;
+      _isInitialLoading = true;
     });
 
     try {
-      _userProfile = await _attendanceService.loadUserProfile();
-      if (_userProfile != null) {
-        _organizationMember = await _attendanceService.loadOrganizationMember();
-        if (_organizationMember != null) {
-          await _loadOrganizationInfo();
-          await _checkDeviceSelection();
-          if (!_needsDeviceSelection) {
-            await _loadOrganizationData();
-            await _loadScheduleData();
-            await _updateAttendanceStatus();
-            await _loadBreakInfo();
-            await _buildDynamicTimeline();
-          }
-        } else {
-          _showSnackBar('No organization found. Contact admin.', isError: true);
-        }
-      } else {
-        _showSnackBar('No user profile found. Please login again.', isError: true);
+      // Priority 1: Load user profile & organization member (parallel)
+      final criticalData = await Future.wait([
+        _attendanceService.loadUserProfile(),
+        _attendanceService.loadOrganizationMember(),
+      ]);
+
+      _userProfile = criticalData[0] as UserProfile?;
+      _organizationMember = criticalData[1] as OrganizationMember?;
+
+      if (_userProfile == null || _organizationMember == null) {
+        _showSnackBar('No user profile or organization found. Contact admin.', isError: true);
+        setState(() => _isInitialLoading = false);
+        return;
       }
+
+      // Priority 2: Load organization info & check device (parallel)
+      await Future.wait([
+        _loadOrganizationInfo(),
+        _checkDeviceSelection(),
+      ]);
+
+      if (_needsDeviceSelection) {
+        setState(() => _isInitialLoading = false);
+        return;
+      }
+
+      // Priority 3: Show UI first, then load secondary data
+      setState(() => _isInitialLoading = false);
+
+      // Priority 4: Load secondary data in background
+      _loadSecondaryDataInBackground();
+
     } catch (e) {
       debugPrint('Error in _loadUserData: $e');
       _showSnackBar('Failed to load user data. Please try again.', isError: true);
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      setState(() => _isInitialLoading = false);
+    }
+  }
+
+  // 🔥 NEW: Load data sekunder di background
+  Future<void> _loadSecondaryDataInBackground() async {
+    if (_organizationMember == null) return;
+
+    try {
+      // Load schedule data first
+      await _loadScheduleData();
+      
+      // Then load other data in parallel
+      await Future.wait([
+        _loadOrganizationData(),
+        _loadBreakInfo(),
+      ]);
+
+      // Finally, update status and timeline
+      await _updateAttendanceStatus();
+      await _buildDynamicTimeline();
+
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('Error loading secondary data: $e');
     }
   }
 
@@ -210,8 +248,6 @@ class _DashboardContentState extends State<_DashboardContent> {
       }
 
       final loadedDevice = await _deviceService.loadSelectedDevice(_organizationMember!.organizationId);
-      final deviceChanged = _selectedDevice?.id != loadedDevice?.id;
-      
       _selectedDevice = loadedDevice;
 
       if (_selectedDevice != null && _selectedDevice!.hasValidCoordinates) {
@@ -227,18 +263,15 @@ class _DashboardContentState extends State<_DashboardContent> {
           altitudeAccuracy: 0.0,
           headingAccuracy: 0.0,
         );
-        debugPrint('Device coordinates loaded: ${_selectedDevice!.latitude}, ${_selectedDevice!.longitude}');
       }
 
-      await _updateGpsPositionAndDistance(debounce: false, retryCount: 0);
+      // Load GPS di background
+      unawaited(_updateGpsPositionAndDistance(debounce: false, retryCount: 0));
 
       setState(() {
         _needsDeviceSelection = false;
       });
       
-      if (deviceChanged) {
-        debugPrint('Device changed detected in _checkDeviceSelection');
-      }
     } catch (e) {
       debugPrint('Error checking device selection: $e');
       _showSnackBar('Failed to check device configuration.', isError: true);
@@ -262,10 +295,6 @@ class _DashboardContentState extends State<_DashboardContent> {
     if (result != null && result['success'] == true) {
       final newSelectedDevice = result['selectedDevice'] as AttendanceDevice?;
       final deviceChanged = result['deviceChanged'] as bool? ?? false;
-      
-      debugPrint('Device selection result: ${result.toString()}');
-      debugPrint('Device changed: $deviceChanged');
-      debugPrint('New device: ${newSelectedDevice?.deviceName}');
 
       setState(() {
         _currentPosition = null;
@@ -290,7 +319,6 @@ class _DashboardContentState extends State<_DashboardContent> {
             headingAccuracy: 0.0,
           );
         });
-        debugPrint('Updated position to new device coordinates: ${_selectedDevice!.latitude}, ${_selectedDevice!.longitude}');
       }
 
       setState(() {
@@ -309,11 +337,12 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
+  // 🔥 OPTIMIZED: Reload data dengan priority
   Future<void> _forceDataReload() async {
     debugPrint('Forcing complete data reload...');
     
     setState(() {
-      _isLoading = true;
+      _isInitialLoading = true;
       _todayAttendanceRecords.clear();
       _recentAttendanceRecords.clear();
       _currentSchedule = null;
@@ -325,10 +354,16 @@ class _DashboardContentState extends State<_DashboardContent> {
     });
 
     try {
-      await _loadOrganizationData();
+      // Load schedule first
       await _loadScheduleData();
+      
+      // Then load rest in parallel
+      await Future.wait([
+        _loadOrganizationData(),
+        _loadBreakInfo(),
+      ]);
+      
       await _updateAttendanceStatus();
-      await _loadBreakInfo();
       await _buildDynamicTimeline();
       
       debugPrint('Force data reload completed');
@@ -338,7 +373,7 @@ class _DashboardContentState extends State<_DashboardContent> {
     } finally {
       if (mounted) {
         setState(() {
-          _isLoading = false;
+          _isInitialLoading = false;
         });
       }
     }
@@ -363,7 +398,9 @@ class _DashboardContentState extends State<_DashboardContent> {
   Future<void> _performGpsUpdate(int retryCount) async {
     try {
       final position = await _attendanceService.getCurrentLocation();
-      if (position != null && position.accuracy <= minGpsAccuracy) {
+      
+      if (position.accuracy <= minGpsAccuracy) {
+        debugPrint('✓ GPS location acquired: accuracy ${position.accuracy.toStringAsFixed(1)}m');
         setState(() {
           _gpsPosition = position;
           if (_selectedDevice != null && _selectedDevice!.hasValidCoordinates) {
@@ -374,7 +411,6 @@ class _DashboardContentState extends State<_DashboardContent> {
               _selectedDevice!.longitude!,
             );
             _isWithinRadius = _attendanceService.isWithinRadius(_gpsPosition!, _selectedDevice!);
-            debugPrint('Distance to device: ${_distanceToDevice?.toStringAsFixed(0)}m, In range: $_isWithinRadius');
           } else {
             _distanceToDevice = null;
             _isWithinRadius = null;
@@ -382,24 +418,33 @@ class _DashboardContentState extends State<_DashboardContent> {
           _isLocationUpdating = false;
         });
       } else {
-        debugPrint('GPS accuracy too low: ${position?.accuracy ?? 'null'}');
+        debugPrint('⚠ GPS accuracy: ${position.accuracy.toStringAsFixed(1)}m');
+        
         if (retryCount < maxGpsRetries) {
-          debugPrint('Retrying GPS update, attempt ${retryCount + 1}');
           await Future.delayed(gpsRetryDelay);
           await _performGpsUpdate(retryCount + 1);
         } else {
           setState(() {
-            _distanceToDevice = null;
-            _isWithinRadius = null;
+            _gpsPosition = position;
+            if (_selectedDevice != null && _selectedDevice!.hasValidCoordinates) {
+              _distanceToDevice = Geolocator.distanceBetween(
+                _gpsPosition!.latitude,
+                _gpsPosition!.longitude,
+                _selectedDevice!.latitude!,
+                _selectedDevice!.longitude!,
+              );
+              _isWithinRadius = _attendanceService.isWithinRadius(_gpsPosition!, _selectedDevice!);
+            } else {
+              _distanceToDevice = null;
+              _isWithinRadius = null;
+            }
             _isLocationUpdating = false;
           });
-          _showSnackBar('Failed to get accurate location after $maxGpsRetries attempts.', isError: true);
         }
       }
     } catch (e) {
       debugPrint('Failed to update GPS position: $e');
       if (retryCount < maxGpsRetries) {
-        debugPrint('Retrying GPS update, attempt ${retryCount + 1}');
         await Future.delayed(gpsRetryDelay);
         await _performGpsUpdate(retryCount + 1);
       } else {
@@ -408,7 +453,7 @@ class _DashboardContentState extends State<_DashboardContent> {
           _isWithinRadius = null;
           _isLocationUpdating = false;
         });
-        _showSnackBar('Failed to get location after $maxGpsRetries attempts: $e', isError: true);
+        _showSnackBar('Unable to get precise location. Please try again in an open area.', isError: true);
       }
     }
   }
@@ -441,45 +486,33 @@ class _DashboardContentState extends State<_DashboardContent> {
       }
     } catch (e) {
       debugPrint('Error loading organization info: $e');
-      _showSnackBar('Failed to load organization info: ${e.toString()}', isError: true);
     }
   }
 
+  // 🔥 OPTIMIZED: Refresh dengan cache-first strategy
   Future<void> _refreshData() async {
     setState(() {
       _isRefreshing = true;
     });
 
     try {
+      // Refresh profile
       _userProfile = await _attendanceService.loadUserProfile();
 
       if (_organizationMember != null) {
-        await _loadOrganizationInfo();
-        
-        final previousSelectedDeviceId = _selectedDevice?.id;
-        
-        debugPrint('Before device check - Previous device ID: $previousSelectedDeviceId');
-        
+        // Check device changes
         await _checkDeviceSelection();
-        
-        debugPrint('After device check - Current device ID: ${_selectedDevice?.id}');
-        debugPrint('Device changed during refresh: ${_selectedDevice?.id != previousSelectedDeviceId}');
 
         if (!_needsDeviceSelection) {
-          await _loadOrganizationData();
-          await _loadScheduleData();
-          await _updateAttendanceStatus();
-          await _loadBreakInfo();
-          await _buildDynamicTimeline();
+          // Load data in parallel
+          await Future.wait([
+            _loadOrganizationData(),
+            _loadScheduleData(),
+            _loadBreakInfo(),
+          ]);
           
-          debugPrint('Data refresh completed successfully');
-          debugPrint('Selected device: ${_selectedDevice?.deviceName}');
-          debugPrint('Current position: ${_currentPosition?.latitude}, ${_currentPosition?.longitude}');
-          debugPrint('GPS position: ${_gpsPosition?.latitude}, ${_gpsPosition?.longitude}');
-          debugPrint('Distance to device: ${_distanceToDevice?.toStringAsFixed(0)}m');
-          debugPrint('Is within radius: $_isWithinRadius');
-        } else {
-          debugPrint('Device selection required - skipping full data load');
+          await _updateAttendanceStatus();
+          await _buildDynamicTimeline();
         }
       }
     } catch (e) {
@@ -494,29 +527,24 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
+  // 🔥 OPTIMIZED: Load attendance records in parallel
   Future<void> _loadOrganizationData() async {
     if (_organizationMember == null) return;
 
     try {
-      final futures = await Future.wait([
+      final results = await Future.wait([
         _attendanceService.loadTodayAttendanceRecords(_organizationMember!.id),
         _attendanceService.loadRecentAttendanceRecords(_organizationMember!.id),
-        _attendanceService.loadCurrentSchedule(_organizationMember!.id),
       ]);
 
       if (mounted) {
         setState(() {
-          _todayAttendanceRecords = futures[0] as List<AttendanceRecord>;
-          _recentAttendanceRecords = futures[1] as List<AttendanceRecord>;
-          _currentSchedule = futures[2] as MemberSchedule?;
+          _todayAttendanceRecords = results[0] as List<AttendanceRecord>;
+          _recentAttendanceRecords = results[1] as List<AttendanceRecord>;
         });
-        if (_isWithinRadius == null && _selectedDevice != null) {
-          await _updateGpsPositionAndDistance(debounce: false, retryCount: 0);
-        }
       }
     } catch (e) {
       debugPrint('Error loading organization data: $e');
-      _showSnackBar('Failed to load organization data.', isError: true);
     }
   }
 
@@ -532,17 +560,11 @@ class _DashboardContentState extends State<_DashboardContent> {
           _currentSchedule!.workScheduleId!,
           dayOfWeek,
         );
-        debugPrint('Loaded work schedule details: ${_todayScheduleDetails?.toJson()}');
-      } else {
-        debugPrint('No work schedule found, current schedule: ${_currentSchedule?.toJson()}');
       }
 
-      if (mounted) {
-        setState(() {});
-      }
+      if (mounted) setState(() {});
     } catch (e) {
       debugPrint('Error loading schedule details: $e');
-      _showSnackBar('Failed to load schedule details.', isError: true);
     }
   }
 
@@ -550,14 +572,17 @@ class _DashboardContentState extends State<_DashboardContent> {
     if (_organizationMember == null) return;
 
     try {
-      _currentStatus = await _attendanceService.getCurrentAttendanceStatus(_organizationMember!.id);
-      _availableActions = await _attendanceService.getAvailableActions(_organizationMember!.id);
-      if (mounted) {
-        setState(() {});
-      }
+      final results = await Future.wait([
+        _attendanceService.getCurrentAttendanceStatus(_organizationMember!.id),
+        _attendanceService.getAvailableActions(_organizationMember!.id),
+      ]);
+
+      _currentStatus = results[0] as AttendanceStatus;
+      _availableActions = results[1] as List<AttendanceAction>;
+
+      if (mounted) setState(() {});
     } catch (e) {
       debugPrint('Error updating attendance status: $e');
-      _showSnackBar('Failed to update attendance status.', isError: true);
     }
   }
 
@@ -595,14 +620,10 @@ class _DashboardContentState extends State<_DashboardContent> {
       } else {
         if (_currentSchedule?.shiftId != null) {
           items = await _getScheduleItemsFromShift();
-        } else {
-          debugPrint('No work schedule found for today');
-          return [];
         }
       }
     } catch (e) {
-      debugPrint('Error getting schedule items from database: $e');
-      _showSnackBar('Failed to load schedule items.', isError: true);
+      debugPrint('Error getting schedule items: $e');
     }
 
     return items;
@@ -613,7 +634,7 @@ class _DashboardContentState extends State<_DashboardContent> {
       final timeOfDay = TimeHelper.parseTimeString(timeString);
       return TimeHelper.formatTimeOfDay(timeOfDay);
     } catch (e) {
-      debugPrint('Error formatting time from database "$timeString": $e');
+      debugPrint('Error formatting time "$timeString": $e');
       if (timeString.contains(':')) {
         final parts = timeString.split(':');
         if (parts.length >= 2) {
@@ -688,10 +709,7 @@ class _DashboardContentState extends State<_DashboardContent> {
       final scheduleItems = await _getScheduleItemsFromDatabase();
 
       if (scheduleItems.isEmpty) {
-        debugPrint('No schedule items found for today');
-        if (mounted) {
-          setState(() {});
-        }
+        if (mounted) setState(() {});
         return;
       }
 
@@ -711,15 +729,10 @@ class _DashboardContentState extends State<_DashboardContent> {
         ));
       }
 
-      if (mounted) {
-        setState(() {});
-      }
+      if (mounted) setState(() {});
     } catch (e) {
-      debugPrint('Error building dynamic timeline: $e');
-      _showSnackBar('Failed to build timeline.', isError: true);
-      if (mounted) {
-        setState(() {});
-      }
+      debugPrint('Error building timeline: $e');
+      if (mounted) setState(() {});
     }
   }
 
@@ -761,10 +774,6 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
-  bool _needsPhoto(String actionType) {
-    return actionType == 'check_in' || actionType == 'check_out';
-  }
-
   int _getPresenceDays() {
     return _recentAttendanceRecords.where((r) => r.status == 'present').length;
   }
@@ -792,7 +801,7 @@ class _DashboardContentState extends State<_DashboardContent> {
       case AttendanceStatus.checkedOut:
         return 'Work completed';
       case AttendanceStatus.unknown:
-        return 'Status unknown';
+        return 'Waiting for status...';
     }
   }
 
@@ -859,124 +868,254 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
-  // Modifikasi pada fungsi _performAttendance di user_dashboard.dart
-// Tambahkan ini untuk menggantikan fungsi yang ada
+  Future<void> _performAttendance(String actionType) async {
+    if (!mounted) return;
 
-Future<void> _performAttendance(String actionType) async {
-  if (!mounted) return;
-
-  if (actionType == 'break_out') {
-    await _navigateToBreakPage();
-    return;
-  }
-
-  setState(() {
-    _isLoading = true;
-  });
-
-  try {
-    if (_organizationMember == null) {
-      _showSnackBar('Organization member data not found. Contact admin.', isError: true);
+    if (actionType == 'break_out') {
+      await _navigateToBreakPage();
       return;
     }
 
-    if (_selectedDevice == null || !_selectedDevice!.hasValidCoordinates) {
-      _showSnackBar('Device location not configured. Please select a valid device.', isError: true);
-      return;
-    }
-
-    await _updateGpsPositionAndDistance(debounce: false, retryCount: 0);
-    if (_gpsPosition == null) {
-      _showSnackBar('Location not found. Ensure GPS is on.', isError: true);
-      return;
-    }
-
-    if (!_attendanceService.isWithinRadius(_gpsPosition!, _selectedDevice!)) {
-      final distance = _distanceToDevice;
-      _showSnackBar(
-        distance != null
-            ? 'You are outside device radius (${distance.toStringAsFixed(0)}m from ${_selectedDevice!.radiusMeters}m)'
-            : 'Cannot calculate distance to device',
-        isError: true,
-      );
-      return;
-    }
-
-    if (_selectedDevice!.hasValidCoordinates) {
-      _currentPosition = Position(
-        longitude: _selectedDevice!.longitude!,
-        latitude: _selectedDevice!.latitude!,
-        timestamp: DateTime.now(),
-        accuracy: 0.0,
-        altitude: 0.0,
-        heading: 0.0,
-        speed: 0.0,
-        speedAccuracy: 0.0,
-        altitudeAccuracy: 0.0,
-        headingAccuracy: 0.0,
-      );
-      debugPrint('Using device coordinates for attendance: ${_selectedDevice!.latitude}, ${_selectedDevice!.longitude}');
-    }
-
-    String? photoUrl;
-
-    // PERUBAHAN UTAMA: Hanya check_in yang butuh foto, check_out tidak perlu foto
-    if (actionType == 'check_in') {
-      String? imagePath = await _takeSelfie();
-      if (imagePath == null) {
-        _showSnackBar('Photo required for check-in', isError: true);
+    // Show confirmation modal for checkout
+    if (actionType == 'check_out') {
+      final confirmed = await _showCheckoutConfirmation();
+      if (confirmed != true) {
         return;
       }
-
-      photoUrl = await _attendanceService.uploadPhoto(imagePath);
-      if (photoUrl == null) {
-        _showSnackBar('Failed to upload photo.', isError: true);
-        return;
-      }
-
-      try {
-        await File(imagePath).delete();
-      } catch (e) {
-        debugPrint('Failed to delete temporary file: $e');
-      }
     }
-    // Untuk check_out, tidak perlu foto, photoUrl tetap null atau string kosong
 
-    final success = await _attendanceService.performAttendance(
-      type: actionType,
-      organizationMemberId: _organizationMember!.id,
-      currentPosition: _currentPosition!,
-      photoUrl: photoUrl ?? '', // Kosongkan photoUrl untuk check_out
-      device: _selectedDevice,
-      schedule: _currentSchedule,
-      todayRecords: _todayAttendanceRecords,
-      scheduleDetails: _todayScheduleDetails,
-    );
+    setState(() {
+      _isInitialLoading = true;
+    });
 
-    if (success) {
-      await _showSuccessAttendancePopup(actionType);
-      await _refreshData();
-      triggerAttendanceHistoryRefresh();
-    }
-  } catch (e) {
-    debugPrint('Error performing attendance: $e');
-    _showSnackBar('Failed to perform attendance: $e', isError: true);
-  } finally {
-    if (mounted) {
-      setState(() {
-        _isLoading = false;
-      });
-    }
-  }
-}
-
-// Jika Anda ingin mengubah fungsi _needsPhoto juga:
-  Future<void> _getCurrentLocation() async {
     try {
-      await _updateGpsPositionAndDistance(debounce: false, retryCount: 0);
+      if (_organizationMember == null) {
+        _showSnackBar('Organization member data not found. Contact admin.', isError: true);
+        return;
+      }
+
+      if (_selectedDevice == null || !_selectedDevice!.hasValidCoordinates) {
+        _showSnackBar('Device location not configured. Please select a valid device.', isError: true);
+        return;
+      }
+
+      // Use existing GPS position if available and recent (within 1 minute)
+      final now = DateTime.now();
+      final gpsAge = _gpsPosition != null 
+          ? now.difference(_gpsPosition!.timestamp).inSeconds 
+          : 999;
+
+      if (_gpsPosition == null || gpsAge > 60) {
+        await _updateGpsPositionAndDistance(debounce: false, retryCount: 0);
+      }
+
+      if (_gpsPosition == null) {
+        _showSnackBar('Location not found. Ensure GPS is on.', isError: true);
+        return;
+      }
+
+      if (!_attendanceService.isWithinRadius(_gpsPosition!, _selectedDevice!)) {
+        final distance = _distanceToDevice;
+        _showSnackBar(
+          distance != null
+              ? 'You are outside device radius (${distance.toStringAsFixed(0)}m from ${_selectedDevice!.radiusMeters}m)'
+              : 'Cannot calculate distance to device',
+          isError: true,
+        );
+        return;
+      }
+
+      if (_selectedDevice!.hasValidCoordinates) {
+        _currentPosition = Position(
+          longitude: _selectedDevice!.longitude!,
+          latitude: _selectedDevice!.latitude!,
+          timestamp: DateTime.now(),
+          accuracy: 0.0,
+          altitude: 0.0,
+          heading: 0.0,
+          speed: 0.0,
+          speedAccuracy: 0.0,
+          altitudeAccuracy: 0.0,
+          headingAccuracy: 0.0,
+        );
+      }
+
+      String? photoUrl;
+      String? imagePath;
+
+      if (actionType == 'check_in') {
+        imagePath = await _takeSelfie();
+        if (imagePath == null) {
+          _showSnackBar('Photo required for check-in', isError: true);
+          return;
+        }
+
+        // Show uploading indicator
+        if (mounted) {
+          _showSnackBar('Uploading photo...');
+        }
+
+        // Start upload in parallel with showing UI feedback
+        final uploadFuture = _attendanceService.uploadPhoto(imagePath);
+        
+        // Continue with attendance process
+        photoUrl = await uploadFuture;
+        
+        if (photoUrl == null) {
+          _showSnackBar('Failed to upload photo.', isError: true);
+          return;
+        }
+
+        // Delete temp file asynchronously
+        if (imagePath != null) {
+          File(imagePath).delete().catchError((e) {
+            debugPrint('Failed to delete temporary file: $e');
+          });
+        }
+      }
+
+      // Perform attendance with optimistic UI
+      final attendanceFuture = _attendanceService.performAttendance(
+        type: actionType,
+        organizationMemberId: _organizationMember!.id,
+        currentPosition: _currentPosition!,
+        photoUrl: photoUrl ?? '',
+        device: _selectedDevice,
+        schedule: _currentSchedule,
+        todayRecords: _todayAttendanceRecords,
+        scheduleDetails: _todayScheduleDetails,
+      );
+
+      final success = await attendanceFuture;
+
+      if (success) {
+        // Show success immediately
+        if (mounted) {
+          await _showSuccessAttendancePopup(actionType);
+        }
+        
+        // Refresh data in background
+        unawaited(_refreshData());
+        triggerAttendanceHistoryRefresh();
+      }
     } catch (e) {
-      _showSnackBar('Failed to get location: $e', isError: true);
+      debugPrint('Error performing attendance: $e');
+      _showSnackBar('Failed to perform attendance: $e', isError: true);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isInitialLoading = false;
+        });
+      }
     }
+  }
+
+  Future<bool?> _showCheckoutConfirmation() async {
+    if (!mounted) return false;
+
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 60,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    color: warningColor.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.logout,
+                    color: warningColor,
+                    size: 30,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'Confirm Check-out',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Are you sure you want to check out? This will end your work session for today.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.grey,
+                    fontSize: 15,
+                    height: 1.4,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(context).pop(false),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.grey.shade700,
+                          side: BorderSide(color: Colors.grey.shade300),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text(
+                          'Cancel',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.of(context).pop(true),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryColor,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text(
+                          'Yes, Check Out',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Future<String?> _takeSelfie() async {
@@ -1229,7 +1368,7 @@ Future<void> _performAttendance(String actionType) async {
           mainAxisSize: MainAxisSize.min,
           children: [
             const Icon(
-              Icons.devices,
+              Icons.location_on,
               color: Colors.white,
               size: 16,
             ),
@@ -1279,7 +1418,204 @@ Future<void> _performAttendance(String actionType) async {
   }
 
   Widget _buildDeviceSelectionRequiredView() {
-    return _buildNotRegisteredView();
+    final displayName = _getDisplayName();
+
+    return RefreshIndicator(
+      onRefresh: _loadUserData,
+      color: primaryColor,
+      backgroundColor: Colors.white,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: SizedBox(
+          height: MediaQuery.of(context).size.height,
+          child: Column(
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(20, 50, 20, 30),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [backgroundColor, backgroundColor.withOpacity(0.8)],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                  borderRadius: const BorderRadius.only(
+                    bottomLeft: Radius.circular(30),
+                    bottomRight: Radius.circular(30),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        if (_organization?.logoUrl != null)
+                          Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(8),
+                              color: Colors.white,
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.network(
+                                _organization!.logoUrl!,
+                                width: 32,
+                                height: 32,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Icon(Icons.business, color: primaryColor, size: 20);
+                                },
+                              ),
+                            ),
+                          )
+                        else
+                          Icon(Icons.business, color: primaryColor, size: 28),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            _organization?.name ?? 'Organization',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 25,
+                          backgroundColor: Colors.orange.shade400,
+                          backgroundImage: _userProfile?.profilePhotoUrl != null
+                              ? NetworkImage(_userProfile!.profilePhotoUrl!)
+                              : null,
+                          child: _userProfile?.profilePhotoUrl == null
+                              ? const Icon(Icons.person, color: Colors.white, size: 28)
+                              : null,
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Hello, $displayName',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              const Text(
+                                'Device Setup Required',
+                                style: TextStyle(
+                                  color: Colors.orange,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Center(
+                  child: Container(
+                    margin: const EdgeInsets.all(24),
+                    padding: const EdgeInsets.all(32),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 15,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            color: Colors.orange.shade50,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.location_on,
+                            size: 40,
+                            color: Colors.orange.shade400,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        const Text(
+                          'Attendance Device Required',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black87,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Please select an attendance device to continue using the attendance system.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.grey,
+                            fontSize: 16,
+                            height: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: _isInitialLoading ? null : () => _navigateToDeviceSelection(isRequired: true),
+                            icon: _isInitialLoading
+                                ? SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                    ),
+                                  )
+                                : const Icon(Icons.location_on),
+                            label: Text(_isInitialLoading ? 'Loading...' : 'Select Location'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: primaryColor,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildNotRegisteredView() {
@@ -1450,8 +1786,8 @@ Future<void> _performAttendance(String actionType) async {
                           children: [
                             Expanded(
                               child: OutlinedButton.icon(
-                                onPressed: _isLoading ? null : _loadUserData,
-                                icon: _isLoading
+                                onPressed: _isInitialLoading ? null : _loadUserData,
+                                icon: _isInitialLoading
                                     ? SizedBox(
                                         width: 16,
                                         height: 16,
@@ -1461,7 +1797,7 @@ Future<void> _performAttendance(String actionType) async {
                                         ),
                                       )
                                     : const Icon(Icons.refresh),
-                                label: Text(_isLoading ? 'Checking...' : 'Check Again'),
+                                label: Text(_isInitialLoading ? 'Checking...' : 'Check Again'),
                                 style: OutlinedButton.styleFrom(
                                   foregroundColor: primaryColor,
                                   side: BorderSide(color: primaryColor),
@@ -1793,7 +2129,7 @@ Future<void> _performAttendance(String actionType) async {
                       Row(
                         children: [
                           Icon(
-                            Icons.devices_outlined,
+                            Icons.location_on,
                             size: 14,
                             color: Colors.grey.shade600,
                           ),
@@ -1862,7 +2198,7 @@ Future<void> _performAttendance(String actionType) async {
                           left: _availableActions.indexOf(action) == 1 ? 8 : 0,
                         ),
                         child: ElevatedButton(
-                          onPressed: action.isEnabled && !_isLoading && (_isWithinRadius ?? false)
+                          onPressed: action.isEnabled && !_isInitialLoading && (_isWithinRadius ?? false)
                               ? () => _performAttendance(action.type)
                               : null,
                           style: ElevatedButton.styleFrom(
@@ -1877,7 +2213,7 @@ Future<void> _performAttendance(String actionType) async {
                               borderRadius: BorderRadius.circular(14),
                             ),
                           ),
-                          child: _isLoading && action.isEnabled
+                          child: _isInitialLoading && action.isEnabled
                               ? SizedBox(
                                   width: 18,
                                   height: 18,
@@ -2093,132 +2429,133 @@ Future<void> _performAttendance(String actionType) async {
     );
   }
 
- Widget _buildTimelineCard() {
-  return Container(
-    margin: const EdgeInsets.all(16),
-    padding: const EdgeInsets.all(20),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(20),
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withOpacity(0.05),
-          blurRadius: 10,
-          offset: const Offset(0, 2),
-        ),
-      ],
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Today\'s Schedule',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w500,
+  Widget _buildTimelineCard() {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
           ),
-        ),
-        const SizedBox(height: 18),
-        if (_timelineItems.isEmpty)
-          const Center(
-            child: Padding(
-              padding: EdgeInsets.all(20),
-              child: Text(
-                'No schedule available for today',
-                style: TextStyle(
-                  color: Colors.grey,
-                  fontSize: 14,
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Today\'s Schedule',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 18),
+          if (_timelineItems.isEmpty)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(20),
+                child: Text(
+                  'No schedule available for today',
+                  style: TextStyle(
+                    color: Colors.grey,
+                    fontSize: 14,
+                  ),
                 ),
               ),
+            )
+          else
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              padding: EdgeInsets.zero,
+              itemCount: _timelineItems.length,
+              itemBuilder: (context, index) {
+                return _buildTimelineItem(_timelineItems[index], index);
+              },
             ),
-          )
-        else
-          ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            padding: EdgeInsets.zero,
-            itemCount: _timelineItems.length,
-            itemBuilder: (context, index) {
-              return _buildTimelineItem(_timelineItems[index], index);
-            },
-          ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
 
-Widget _buildTimelineItem(TimelineItem item, int index) {
-  return Padding(
-    padding: EdgeInsets.only(
-      top: index == 0 ? 0 : 12,
-      bottom: index == _timelineItems.length - 1 ? 0 : 0,
-    ),
-    child: Row(
-      children: [
-        Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: _getItemStatusColor(item.status),
-            shape: BoxShape.circle,
+  Widget _buildTimelineItem(TimelineItem item, int index) {
+    return Padding(
+      padding: EdgeInsets.only(
+        top: index == 0 ? 0 : 12,
+        bottom: index == _timelineItems.length - 1 ? 0 : 0,
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: _getItemStatusColor(item.status),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              _getItemIcon(item.type),
+              color: item.status == TimelineStatus.active
+                  ? Colors.white
+                  : item.status == TimelineStatus.completed
+                      ? Colors.white
+                      : Colors.grey,
+              size: 20,
+            ),
           ),
-          child: Icon(
-            _getItemIcon(item.type),
-            color: item.status == TimelineStatus.active
-                ? Colors.white
-                : item.status == TimelineStatus.completed
-                    ? Colors.white
-                    : Colors.grey,
-            size: 20,
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    item.time,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: _getItemStatusColor(item.status).withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      item.statusDescription,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: _getItemStatusColor(item.status),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      item.time,
+                      style: const TextStyle(
+                        fontSize: 16,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                item.subtitle,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey,
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: _getItemStatusColor(item.status).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        item.statusDescription,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: _getItemStatusColor(item.status),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ],
+                const SizedBox(height: 4),
+                Text(
+                  item.subtitle,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
+
   Color _getItemStatusColor(TimelineStatus status) {
     switch (status) {
       case TimelineStatus.completed:
@@ -2242,6 +2579,11 @@ Widget _buildTimelineItem(TimelineItem item, int index) {
         return Icons.work;
     }
   }
+}
+
+// Helper function untuk unawaited futures
+void unawaited(Future<void> future) {
+  // Intentionally ignore the future
 }
 
 class TimelineItem {

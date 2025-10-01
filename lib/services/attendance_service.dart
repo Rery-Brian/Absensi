@@ -534,18 +534,31 @@ class AttendanceService {
         throw _LocationException('Location access is permanently denied. Please enable it in Settings > App Permissions.');
       }
 
-      final position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 15),
-      );
-
-      return position;
+      // Try high accuracy first with longer timeout
+      try {
+        final position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 30),
+        );
+        debugPrint('Got location with accuracy: ${position.accuracy}m');
+        return position;
+      } catch (e) {
+        debugPrint('High accuracy failed: $e, trying medium accuracy...');
+        
+        // Fallback to medium accuracy if high accuracy fails
+        final position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.medium,
+          timeLimit: const Duration(seconds: 20),
+        );
+        debugPrint('Got location with medium accuracy: ${position.accuracy}m');
+        return position;
+      }
     } on _LocationException {
       rethrow;
     } catch (e) {
       debugPrint('Location error: $e');
       if (e.toString().contains('timeout')) {
-        throw _LocationException('Unable to get your location. Please make sure GPS is enabled and try again.');
+        throw _LocationException('Unable to get your location. Please wait a moment and try again in an open area.');
       }
       throw _LocationException('Failed to get your location. Please check your GPS settings.');
     }

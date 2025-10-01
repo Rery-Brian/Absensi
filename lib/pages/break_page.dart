@@ -394,59 +394,67 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
   }
 
   Future<void> _endBreak() async {
-    if (_breakStartTime == null) return;
+  if (_breakStartTime == null) return;
 
-    setState(() {
-      _isLoading = true;
+  setState(() {
+    _isLoading = true;
+  });
+
+  try {
+    await _getCurrentLocation();
+    
+    final now = TimezoneHelper.nowInOrgTime();
+    final actualBreakDuration = now.difference(_breakStartTime!);
+    
+    // SIMPAN ke variabel lokal sebelum di-reset
+    final breakStartTimeForSummary = _breakStartTime!;
+
+    await Supabase.instance.client.from('attendance_logs').insert({
+      'organization_member_id': widget.organizationMemberId,
+      'event_type': 'break_in',
+      'event_time': now.toIso8601String(),
+      'device_id': widget.deviceId,
+      'method': 'mobile_app',
+      'location': _currentLocation != null ? {
+        'latitude': _currentLocation!.latitude,
+        'longitude': _currentLocation!.longitude,
+      } : null,
+      'is_verified': true,
+      'verification_method': 'manual',
     });
 
     try {
-      await _getCurrentLocation();
-      
-      final now = TimezoneHelper.nowInOrgTime();
-      final actualBreakDuration = now.difference(_breakStartTime!);
-
-      await Supabase.instance.client.from('attendance_logs').insert({
-        'organization_member_id': widget.organizationMemberId,
-        'event_type': 'break_in',
-        'event_time': now.toIso8601String(),
-        'device_id': widget.deviceId,
-        'method': 'mobile_app',
-        'location': _currentLocation != null ? {
-          'latitude': _currentLocation!.latitude,
-          'longitude': _currentLocation!.longitude,
-        } : null,
-        'is_verified': true,
-        'verification_method': 'manual',
-      });
-
-      try {
-        await _attendanceService.updateBreakDuration(
-          widget.organizationMemberId,
-          actualBreakDuration.inMinutes
-        );
-        debugPrint('Break duration updated in attendance record: ${actualBreakDuration.inMinutes} minutes');
-      } catch (e) {
-        debugPrint('Failed to update attendance record break duration: $e');
-      }
-
-      _timer?.cancel();
-      _warningTimer?.cancel();
-      
-      await _showBreakSummary(actualBreakDuration, now);
-      
-      debugPrint('Break ended successfully. Duration: ${actualBreakDuration.inMinutes} minutes');
+      await _attendanceService.updateBreakDuration(
+        widget.organizationMemberId,
+        actualBreakDuration.inMinutes
+      );
+      debugPrint('Break duration updated in attendance record: ${actualBreakDuration.inMinutes} minutes');
     } catch (e) {
-      debugPrint('Error ending break: $e');
-      _showSnackBar('Failed to end break. Please try again.', isError: true);
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      debugPrint('Failed to update attendance record break duration: $e');
+    }
+
+    _timer?.cancel();
+    _warningTimer?.cancel();
+
+    // Reset state
+    _isOnBreak = false;
+    _breakStartTime = null;
+    
+    // Gunakan variabel lokal, bukan _breakStartTime yang sudah null
+    await _showBreakSummary(actualBreakDuration, now, breakStartTimeForSummary);
+    
+    debugPrint('Break ended successfully. Duration: ${actualBreakDuration.inMinutes} minutes');
+  } catch (e) {
+    debugPrint('Error ending break: $e');
+    _showSnackBar('Failed to end break. Please try again.', isError: true);
+  } finally {
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
+}
 
   Future<void> _showBreakWarningDialog() async {
     if (!mounted) return;
@@ -488,137 +496,137 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _showBreakSummary(Duration actualDuration, DateTime endTime) async {
-    if (!mounted) return;
+  Future<void> _showBreakSummary(Duration actualDuration, DateTime endTime, DateTime breakStartTime) async {
+  if (!mounted) return;
 
-    return showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        final wasExceeded = actualDuration.inMinutes > _maxBreakDuration.inMinutes;
-        final summaryColor = wasExceeded ? warningColor : successColor;
-        
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          child: Container(
-            width: MediaQuery.of(context).size.width * 0.9,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [backgroundColor, backgroundColor.withOpacity(0.95)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: summaryColor, width: 2),
+  return showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (BuildContext context) {
+      final wasExceeded = actualDuration.inMinutes > _maxBreakDuration.inMinutes;
+      final summaryColor = wasExceeded ? warningColor : successColor;
+      
+      return Dialog(
+        backgroundColor: Colors.transparent,
+        child: Container(
+          width: MediaQuery.of(context).size.width * 0.9,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [backgroundColor, backgroundColor.withOpacity(0.95)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 80,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      color: summaryColor,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      wasExceeded ? Icons.warning : Icons.coffee,
-                      color: Colors.white,
-                      size: 40,
-                    ),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: summaryColor, width: 2),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: summaryColor,
+                    shape: BoxShape.circle,
                   ),
-                  const SizedBox(height: 20),
-                  Text(
-                    wasExceeded ? 'Break Completed (Exceeded)' : 'Break Summary',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    textAlign: TextAlign.center,
+                  child: Icon(
+                    wasExceeded ? Icons.warning : Icons.coffee,
+                    color: Colors.white,
+                    size: 40,
                   ),
-                  const SizedBox(height: 20),
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(
-                      children: [
-                        _buildSummaryRow('Started', TimezoneHelper.formatOrgTime(_breakStartTime!, 'HH.mm')),
-                        _buildSummaryRow('Ended', TimezoneHelper.formatOrgTime(endTime, 'HH.mm')),
-                        _buildSummaryRow('Duration', _formatDuration(actualDuration)),
-                        _buildSummaryRow('Allowed', _formatDuration(_maxBreakDuration)),
-                        if (wasExceeded)
-                          _buildSummaryRow(
-                            'Overtime',
-                            _formatDuration(Duration(minutes: actualDuration.inMinutes - _maxBreakDuration.inMinutes)),
-                            isWarning: true,
-                          ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  wasExceeded ? 'Break Completed (Exceeded)' : 'Break Summary',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 20),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    children: [
+                      _buildSummaryRow('Started', TimezoneHelper.formatOrgTime(breakStartTime, 'HH.mm')),
+                      _buildSummaryRow('Ended', TimezoneHelper.formatOrgTime(endTime, 'HH.mm')),
+                      _buildSummaryRow('Duration', _formatDuration(actualDuration)),
+                      _buildSummaryRow('Allowed', _formatDuration(_maxBreakDuration)),
+                      if (wasExceeded)
                         _buildSummaryRow(
-                          'Total Today',
-                          _formatDuration(Duration(minutes: _totalBreakMinutesToday + actualDuration.inMinutes)),
+                          'Overtime',
+                          _formatDuration(Duration(minutes: actualDuration.inMinutes - _maxBreakDuration.inMinutes)),
+                          isWarning: true,
+                        ),
+                      _buildSummaryRow(
+                        'Total Today',
+                        _formatDuration(Duration(minutes: _totalBreakMinutesToday + actualDuration.inMinutes)),
+                      ),
+                    ],
+                  ),
+                ),
+                if (wasExceeded) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: warningColor.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: warningColor.withOpacity(0.5)),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.info, color: warningColor, size: 20),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Break time exceeded the allowed duration. Please be mindful of break limits.',
+                            style: TextStyle(color: Colors.white, fontSize: 12),
+                          ),
                         ),
                       ],
                     ),
                   ),
-                  if (wasExceeded) ...[
-                    const SizedBox(height: 16),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: warningColor.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: warningColor.withOpacity(0.5)),
-                      ),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.info, color: warningColor, size: 20),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Break time exceeded the allowed duration. Please be mindful of break limits.',
-                              style: TextStyle(color: Colors.white, fontSize: 12),
-                            ),
-                          ),
-                        ],
+                ],
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          Navigator.of(context).pop(true);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: summaryColor,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: const Text(
+                          'Back to Dashboard',
+                          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
                       ),
                     ),
                   ],
-                  const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () {
-                            Navigator.of(context).pop();
-                            Navigator.of(context).pop(true);
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: summaryColor,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                          child: const Text(
-                            'Back to Dashboard',
-                            style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
-        );
-      },
-    );
-  }
+        ),
+      );
+    },
+  );
+}
 
   Widget _buildSummaryRow(String label, String value, {bool isWarning = false}) {
     return Padding(
