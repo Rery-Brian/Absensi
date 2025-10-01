@@ -900,8 +900,51 @@ Future<Map<String, dynamic>> getTodayCycleSummary(String organizationMemberId) a
     organizationMemberId, 'check_out', now, currentPosition, device
   );
 
+  // ✅ TAMBAHKAN BARIS INI
+  // Auto-end break if currently on break
+  await autoEndBreakOnCheckout(organizationMemberId, device?.id != null ? int.tryParse(device!.id) : null);
+
   debugPrint('✓ Check-out #${checkOutCount + 1} completed. Total work: ${totalWorkMinutes}min');
   return true;
+}
+
+Future<void> autoEndBreakOnCheckout(String organizationMemberId, int? deviceId) async {
+  try {
+    // Check if currently on break
+    final breakInfo = await getTodayBreakInfo(organizationMemberId);
+    
+    if (breakInfo['is_currently_on_break'] == true && 
+        breakInfo['break_start_time'] != null) {
+      
+      final now = TimezoneHelper.nowInOrgTime();
+      final breakStartTime = TimezoneHelper.toOrgTime(
+        DateTime.parse(breakInfo['break_start_time'])
+      );
+      final actualBreakDuration = now.difference(breakStartTime);
+
+      // Insert break_in log
+      await _supabase.from('attendance_logs').insert({
+        'organization_member_id': organizationMemberId,
+        'event_type': 'break_in',
+        'event_time': now.toIso8601String(),
+        'device_id': deviceId,
+        'method': 'mobile_app_auto',
+        'is_verified': true,
+        'verification_method': 'auto_checkout',
+      });
+
+      // Update break duration
+      await updateBreakDuration(
+        int.parse(organizationMemberId),
+        actualBreakDuration.inMinutes
+      );
+
+      debugPrint('✓ Auto-ended break on checkout. Duration: ${actualBreakDuration.inMinutes}m');
+    }
+  } catch (e) {
+    debugPrint('Error auto-ending break: $e');
+    // Don't throw, checkout should still succeed
+  }
 }
 
   Future<bool> _performBreakOut(
@@ -1396,88 +1439,74 @@ Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) 
       throw _GeneralException('Failed to update break duration. Please try again.');
     }
   }
+ Future<Map<String, dynamic>> getTodayBreakInfo(String organizationMemberId) async {
+  try {
+    await _validateUserAccess(organizationMemberId);
+    
+    final today = TimezoneHelper.getTodayDateString();
+    
+    final recordResponse = await _supabase
+        .from('attendance_records')
+        .select('break_duration_minutes')
+        .eq('organization_member_id', organizationMemberId)
+        .eq('attendance_date', today)
+        .maybeSingle();
 
-  // Get detailed break information for today
-  Future<Map<String, dynamic>> getTodayBreakInfo(String organizationMemberId) async {
-    try {
-      await _validateUserAccess(organizationMemberId);
-      
-      final today = TimezoneHelper.getTodayDateString();
-      
-      // Get attendance record break duration
-      final recordResponse = await _supabase
-          .from('attendance_records')
-          .select('break_duration_minutes')
-          .eq('organization_member_id', organizationMemberId)
-          .eq('attendance_date', today)
-          .maybeSingle();
+    final totalBreakMinutes = recordResponse?['break_duration_minutes'] as int? ?? 0;
 
-      final totalBreakMinutes = recordResponse?['break_duration_minutes'] as int? ?? 0;
+    final logsResponse = await _supabase
+        .from('attendance_logs')
+        .select('event_type, event_time')
+        .eq('organization_member_id', organizationMemberId)
+        .gte('event_time', '${today}T00:00:00')
+        .lte('event_time', '${today}T23:59:59')
+        .inFilter('event_type', ['break_out', 'break_in'])
+        .order('event_time', ascending: true);
 
-      // Get break logs to calculate sessions
-      final logsResponse = await _supabase
-          .from('attendance_logs')
-          .select('event_type, event_time')
-          .eq('organization_member_id', organizationMemberId)
-          .gte('event_time', '${today}T00:00:00')
-          .lte('event_time', '${today}T23:59:59')
-          .inFilter('event_type', ['break_out', 'break_in'])
-          .order('event_time', ascending: true);
+    final logs = List<Map<String, dynamic>>.from(logsResponse);
+    List<Map<String, dynamic>> breakSessions = [];
+    DateTime? currentBreakStart;
+    bool isCurrentlyOnBreak = false;
 
-      final logs = List<Map<String, dynamic>>.from(logsResponse);
-      List<Map<String, dynamic>> breakSessions = [];
-      DateTime? currentBreakStart;
-      bool isCurrentlyOnBreak = false;
-
-      for (var log in logs) {
-        if (log['event_type'] == 'break_out') {
-          currentBreakStart = DateTime.parse(log['event_time']);
-          isCurrentlyOnBreak = true;
-        } else if (log['event_type'] == 'break_in' && currentBreakStart != null) {
-          final breakEnd = DateTime.parse(log['event_time']);
-          final duration = breakEnd.difference(currentBreakStart).inMinutes;
-          
-          breakSessions.add({
-            'start': currentBreakStart,
-            'end': breakEnd,
-            'duration': duration,
-          });
-          
-          currentBreakStart = null;
-          isCurrentlyOnBreak = false;
-        }
-      }
-
-      // Add current ongoing break if exists
-      if (isCurrentlyOnBreak && currentBreakStart != null) {
+    for (var log in logs) {
+      if (log['event_type'] == 'break_out') {
+        currentBreakStart = DateTime.parse(log['event_time']);
+        isCurrentlyOnBreak = true;
+      } else if (log['event_type'] == 'break_in' && currentBreakStart != null) {
+        final breakEnd = DateTime.parse(log['event_time']);
+        final duration = breakEnd.difference(currentBreakStart).inMinutes;
+        
         breakSessions.add({
           'start': currentBreakStart,
-          'end': null, // Ongoing
-          'duration': TimezoneHelper.nowInOrgTime().difference(currentBreakStart).inMinutes,
+          'end': breakEnd,
+          'duration': duration,
         });
+        
+        currentBreakStart = null;
+        isCurrentlyOnBreak = false;
       }
-
-      return {
-        'total_break_minutes': totalBreakMinutes,
-        'break_sessions': breakSessions,
-        'is_currently_on_break': isCurrentlyOnBreak,
-        'current_break_start': currentBreakStart?.toIso8601String(),
-      };
-    } on _AuthException {
-      rethrow;
-    } on _PermissionException {
-      rethrow;
-    } on SocketException {
-      throw _NetworkException(_networkError);
-    } on PostgrestException catch (e) {
-      debugPrint('Database error getting break info: ${e.message}');
-      throw _DatabaseException('Unable to load break information. Please try again.');
-    } catch (e) {
-      debugPrint('Unexpected error getting break info: $e');
-      throw _GeneralException('Failed to load break information. Please try again.');
     }
-  }
 
+    if (isCurrentlyOnBreak && currentBreakStart != null) {
+      breakSessions.add({
+        'start': currentBreakStart,
+        'end': null,
+        'duration': TimezoneHelper.nowInOrgTime().difference(currentBreakStart).inMinutes,
+      });
+    }
+
+    return {
+      'total_break_minutes': totalBreakMinutes,
+      'break_sessions': breakSessions,
+      'is_currently_on_break': isCurrentlyOnBreak,
+      'current_break_start': currentBreakStart?.toIso8601String(),
+      'break_start_time': currentBreakStart?.toIso8601String(),
+    };
+  } catch (e) {
+    debugPrint('Error getting break info: $e');
+    rethrow;
+  }
+}
   // Additional methods for comprehensive attendance management...
 
   Future<List<AttendanceRecord>> loadAttendanceRecordsInRange(

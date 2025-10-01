@@ -54,12 +54,11 @@ class _DashboardContentState extends State<_DashboardContent> {
   final AttendanceService _attendanceService = AttendanceService();
   final DeviceService _deviceService = DeviceService();
   
-  // Loading states - lebih granular
   bool _isInitialLoading = true;
   bool _isRefreshing = false;
   bool _isLocationUpdating = false;
-  
-  // Data cache
+  bool _isLoading = false;
+
   Position? _currentPosition;
   Position? _gpsPosition;
   double? _distanceToDevice;
@@ -78,7 +77,10 @@ class _DashboardContentState extends State<_DashboardContent> {
   Map<String, dynamic>? _breakInfo;
   final List<TimelineItem> _timelineItems = [];
 
-  // Timers
+  Timer? _breakIndicatorTimer;
+  Offset _indicatorPosition = const Offset(20, 100);
+  bool _isDragging = false;
+
   Timer? _debounceTimer;
   Timer? _periodicLocationTimer;
 
@@ -98,14 +100,38 @@ class _DashboardContentState extends State<_DashboardContent> {
     _initializeServices();
     _loadUserData();
     _startPeriodicLocationUpdates();
+    _startBreakMonitoring();
   }
 
   @override
   void dispose() {
     _debounceTimer?.cancel();
     _periodicLocationTimer?.cancel();
+    _breakIndicatorTimer?.cancel();
     super.dispose();
   }
+
+ void _startBreakMonitoring() {
+  _breakIndicatorTimer?.cancel();
+  _breakIndicatorTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+    if (mounted) {
+      // Update UI setiap detik tanpa reload dari database
+      if (_breakInfo != null && _breakInfo!['is_currently_on_break'] == true) {
+        setState(() {}); // Re-render untuk update elapsed time
+      }
+      
+      // Reload data setiap 30 detik untuk sinkronisasi
+      if (timer.tick % 30 == 0) {
+        try {
+          await _loadBreakInfo();
+          if (mounted) setState(() {});
+        } catch (e) {
+          debugPrint('Error monitoring break: $e');
+        }
+      }
+    }
+  });
+}
 
   void _startPeriodicLocationUpdates() {
     _periodicLocationTimer = Timer.periodic(locationUpdateInterval, (timer) async {
@@ -123,7 +149,6 @@ class _DashboardContentState extends State<_DashboardContent> {
         setState(() {
           _userProfile = updatedProfile;
         });
-        debugPrint('Profile photo updated: ${_userProfile?.profilePhotoUrl}');
       }
     } catch (e) {
       debugPrint('Failed to refresh user profile: $e');
@@ -143,14 +168,10 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
-  // 🔥 OPTIMIZED: Load data secara parallel dengan prioritas
   Future<void> _loadUserData() async {
-    setState(() {
-      _isInitialLoading = true;
-    });
+    setState(() => _isInitialLoading = true);
 
     try {
-      // Priority 1: Load user profile & organization member (parallel)
       final criticalData = await Future.wait([
         _attendanceService.loadUserProfile(),
         _attendanceService.loadOrganizationMember(),
@@ -165,7 +186,6 @@ class _DashboardContentState extends State<_DashboardContent> {
         return;
       }
 
-      // Priority 2: Load organization info & check device (parallel)
       await Future.wait([
         _loadOrganizationInfo(),
         _checkDeviceSelection(),
@@ -176,12 +196,8 @@ class _DashboardContentState extends State<_DashboardContent> {
         return;
       }
 
-      // Priority 3: Show UI first, then load secondary data
       setState(() => _isInitialLoading = false);
-
-      // Priority 4: Load secondary data in background
       _loadSecondaryDataInBackground();
-
     } catch (e) {
       debugPrint('Error in _loadUserData: $e');
       _showSnackBar('Failed to load user data. Please try again.', isError: true);
@@ -189,21 +205,17 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
-  // 🔥 NEW: Load data sekunder di background
   Future<void> _loadSecondaryDataInBackground() async {
     if (_organizationMember == null) return;
 
     try {
-      // Load schedule data first
       await _loadScheduleData();
       
-      // Then load other data in parallel
       await Future.wait([
         _loadOrganizationData(),
         _loadBreakInfo(),
       ]);
 
-      // Finally, update status and timeline
       await _updateAttendanceStatus();
       await _buildDynamicTimeline();
 
@@ -264,13 +276,9 @@ class _DashboardContentState extends State<_DashboardContent> {
         );
       }
 
-      // Load GPS di background
       unawaited(_updateGpsPositionAndDistance(debounce: false, retryCount: 0));
 
-      setState(() {
-        _needsDeviceSelection = false;
-      });
-      
+      setState(() => _needsDeviceSelection = false);
     } catch (e) {
       debugPrint('Error checking device selection: $e');
       _showSnackBar('Failed to check device configuration.', isError: true);
@@ -320,9 +328,7 @@ class _DashboardContentState extends State<_DashboardContent> {
         });
       }
 
-      setState(() {
-        _needsDeviceSelection = false;
-      });
+      setState(() => _needsDeviceSelection = false);
       
       await _updateGpsPositionAndDistance(debounce: false, retryCount: 0);
       
@@ -336,10 +342,7 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
-  // 🔥 OPTIMIZED: Reload data dengan priority
   Future<void> _forceDataReload() async {
-    debugPrint('Forcing complete data reload...');
-    
     setState(() {
       _isInitialLoading = true;
       _todayAttendanceRecords.clear();
@@ -353,36 +356,21 @@ class _DashboardContentState extends State<_DashboardContent> {
     });
 
     try {
-      // Load schedule first
       await _loadScheduleData();
-      
-      // Then load rest in parallel
-      await Future.wait([
-        _loadOrganizationData(),
-        _loadBreakInfo(),
-      ]);
-      
+      await Future.wait([_loadOrganizationData(), _loadBreakInfo()]);
       await _updateAttendanceStatus();
       await _buildDynamicTimeline();
-      
-      debugPrint('Force data reload completed');
     } catch (e) {
       debugPrint('Error in force data reload: $e');
       _showSnackBar('Failed to reload data: $e', isError: true);
     } finally {
-      if (mounted) {
-        setState(() {
-          _isInitialLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isInitialLoading = false);
     }
   }
 
   Future<void> _updateGpsPositionAndDistance({bool debounce = true, int retryCount = 0}) async {
     if (_isLocationUpdating) return;
-    setState(() {
-      _isLocationUpdating = true;
-    });
+    setState(() => _isLocationUpdating = true);
 
     if (debounce) {
       _debounceTimer?.cancel();
@@ -399,7 +387,6 @@ class _DashboardContentState extends State<_DashboardContent> {
       final position = await _attendanceService.getCurrentLocation();
       
       if (position.accuracy <= minGpsAccuracy) {
-        debugPrint('✓ GPS location acquired: accuracy ${position.accuracy.toStringAsFixed(1)}m');
         setState(() {
           _gpsPosition = position;
           if (_selectedDevice != null && _selectedDevice!.hasValidCoordinates) {
@@ -410,39 +397,28 @@ class _DashboardContentState extends State<_DashboardContent> {
               _selectedDevice!.longitude!,
             );
             _isWithinRadius = _attendanceService.isWithinRadius(_gpsPosition!, _selectedDevice!);
-          } else {
-            _distanceToDevice = null;
-            _isWithinRadius = null;
           }
           _isLocationUpdating = false;
         });
+      } else if (retryCount < maxGpsRetries) {
+        await Future.delayed(gpsRetryDelay);
+        await _performGpsUpdate(retryCount + 1);
       } else {
-        debugPrint('⚠ GPS accuracy: ${position.accuracy.toStringAsFixed(1)}m');
-        
-        if (retryCount < maxGpsRetries) {
-          await Future.delayed(gpsRetryDelay);
-          await _performGpsUpdate(retryCount + 1);
-        } else {
-          setState(() {
-            _gpsPosition = position;
-            if (_selectedDevice != null && _selectedDevice!.hasValidCoordinates) {
-              _distanceToDevice = Geolocator.distanceBetween(
-                _gpsPosition!.latitude,
-                _gpsPosition!.longitude,
-                _selectedDevice!.latitude!,
-                _selectedDevice!.longitude!,
-              );
-              _isWithinRadius = _attendanceService.isWithinRadius(_gpsPosition!, _selectedDevice!);
-            } else {
-              _distanceToDevice = null;
-              _isWithinRadius = null;
-            }
-            _isLocationUpdating = false;
-          });
-        }
+        setState(() {
+          _gpsPosition = position;
+          if (_selectedDevice != null && _selectedDevice!.hasValidCoordinates) {
+            _distanceToDevice = Geolocator.distanceBetween(
+              _gpsPosition!.latitude,
+              _gpsPosition!.longitude,
+              _selectedDevice!.latitude!,
+              _selectedDevice!.longitude!,
+            );
+            _isWithinRadius = _attendanceService.isWithinRadius(_gpsPosition!, _selectedDevice!);
+          }
+          _isLocationUpdating = false;
+        });
       }
     } catch (e) {
-      debugPrint('Failed to update GPS position: $e');
       if (retryCount < maxGpsRetries) {
         await Future.delayed(gpsRetryDelay);
         await _performGpsUpdate(retryCount + 1);
@@ -452,7 +428,7 @@ class _DashboardContentState extends State<_DashboardContent> {
           _isWithinRadius = null;
           _isLocationUpdating = false;
         });
-        _showSnackBar('Unable to get precise location. Please try again in an open area.', isError: true);
+        _showSnackBar('Unable to get precise location.', isError: true);
       }
     }
   }
@@ -488,22 +464,16 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
-  // 🔥 OPTIMIZED: Refresh dengan cache-first strategy
   Future<void> _refreshData() async {
-    setState(() {
-      _isRefreshing = true;
-    });
+    setState(() => _isRefreshing = true);
 
     try {
-      // Refresh profile
       _userProfile = await _attendanceService.loadUserProfile();
 
       if (_organizationMember != null) {
-        // Check device changes
         await _checkDeviceSelection();
 
         if (!_needsDeviceSelection) {
-          // Load data in parallel
           await Future.wait([
             _loadOrganizationData(),
             _loadScheduleData(),
@@ -516,17 +486,12 @@ class _DashboardContentState extends State<_DashboardContent> {
       }
     } catch (e) {
       debugPrint('Error refreshing data: $e');
-      _showSnackBar('Failed to refresh data. Please try again.', isError: true);
+      _showSnackBar('Failed to refresh data.', isError: true);
     } finally {
-      if (mounted) {
-        setState(() {
-          _isRefreshing = false;
-        });
-      }
+      if (mounted) setState(() => _isRefreshing = false);
     }
   }
 
-  // 🔥 OPTIMIZED: Load attendance records in parallel
   Future<void> _loadOrganizationData() async {
     if (_organizationMember == null) return;
 
@@ -616,10 +581,8 @@ class _DashboardContentState extends State<_DashboardContent> {
             subtitle: 'End work day',
           ));
         }
-      } else {
-        if (_currentSchedule?.shiftId != null) {
-          items = await _getScheduleItemsFromShift();
-        }
+      } else if (_currentSchedule?.shiftId != null) {
+        items = await _getScheduleItemsFromShift();
       }
     } catch (e) {
       debugPrint('Error getting schedule items: $e');
@@ -633,7 +596,6 @@ class _DashboardContentState extends State<_DashboardContent> {
       final timeOfDay = TimeHelper.parseTimeString(timeString);
       return TimeHelper.formatTimeOfDay(timeOfDay);
     } catch (e) {
-      debugPrint('Error formatting time "$timeString": $e');
       if (timeString.contains(':')) {
         final parts = timeString.split(':');
         if (parts.length >= 2) {
@@ -706,7 +668,6 @@ class _DashboardContentState extends State<_DashboardContent> {
 
     try {
       final scheduleItems = await _getScheduleItemsFromDatabase();
-
       if (scheduleItems.isEmpty) {
         if (mounted) setState(() {});
         return;
@@ -789,22 +750,21 @@ class _DashboardContentState extends State<_DashboardContent> {
     return TimeHelper.formatDuration(totalLateMinutes);
   }
 
- String _getCurrentStatusText() {
-  switch (_currentStatus) {
-    case AttendanceStatus.notCheckedIn:
-      // Cek apakah pernah check-in hari ini
-      final hasCheckedInToday = _todayAttendanceRecords.isNotEmpty;
-      return hasCheckedInToday ? 'Ready to check in again' : 'Ready to start';
-    case AttendanceStatus.working:
-      return 'Currently working';
-    case AttendanceStatus.onBreak:
-      return 'On break';
-    case AttendanceStatus.checkedOut:
-      return 'Ready to check in again'; // ✅ Ubah pesan
-    case AttendanceStatus.unknown:
-      return 'Waiting for status...';
+  String _getCurrentStatusText() {
+    switch (_currentStatus) {
+      case AttendanceStatus.notCheckedIn:
+        final hasCheckedInToday = _todayAttendanceRecords.isNotEmpty;
+        return hasCheckedInToday ? 'Ready to check in again' : 'Ready to start';
+      case AttendanceStatus.working:
+        return 'Currently working';
+      case AttendanceStatus.onBreak:
+        return 'On break';
+      case AttendanceStatus.checkedOut:
+        return 'Ready to check in again';
+      case AttendanceStatus.unknown:
+        return 'Waiting for status...';
+    }
   }
-}
 
   Color _getStatusColor() {
     switch (_currentStatus) {
@@ -838,7 +798,7 @@ class _DashboardContentState extends State<_DashboardContent> {
 
   Future<void> _navigateToBreakPage() async {
     if (_organizationMember == null) {
-      _showSnackBar('Organization member data not found. Contact admin.', isError: true);
+      _showSnackBar('Organization member data not found.', isError: true);
       return;
     }
 
@@ -869,6 +829,65 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
+ Future<void> _handleStopBreak() async {
+  if (_organizationMember == null || _isLoading) return;
+
+  setState(() => _isLoading = true);
+
+  try {
+    if (_breakInfo == null || _breakInfo!['break_start_time'] == null) {
+      throw Exception('Break start time not found');
+    }
+    
+    final now = TimezoneHelper.nowInOrgTime();
+    final utcBreakStart = DateTime.parse(_breakInfo!['break_start_time']);
+    final breakStartTime = TimezoneHelper.toOrgTime(utcBreakStart);
+    final actualBreakDuration = now.difference(breakStartTime);
+
+    if (actualBreakDuration.isNegative) {
+      throw Exception('Invalid break duration');
+    }
+
+    final memberId = int.tryParse(_organizationMember!.id);
+    final deviceId = _selectedDevice != null ? int.tryParse(_selectedDevice!.id) : null;
+
+    if (memberId == null) {
+      throw Exception('Invalid member ID');
+    }
+
+    await Supabase.instance.client.from('attendance_logs').insert({
+      'organization_member_id': memberId,
+      'event_type': 'break_in',
+      'event_time': now.toUtc().toIso8601String(),
+      'device_id': deviceId,
+      'method': 'mobile_app',
+      'is_verified': true,
+      'verification_method': 'manual',
+    });
+
+    await _attendanceService.updateBreakDuration(
+      memberId,
+      actualBreakDuration.inMinutes,
+    );
+
+    setState(() {
+      _breakInfo = null;
+    });
+
+    _showSnackBar('Break ended - Duration: ${_formatDuration(actualBreakDuration)}');
+    
+    await _refreshData();
+    
+  } catch (e) {
+    debugPrint('Error ending break: $e');
+    _showSnackBar('Failed to end break: ${e.toString()}', isError: true);
+  } finally {
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
+  }
+}
+
   Future<void> _performAttendance(String actionType) async {
     if (!mounted) return;
 
@@ -877,52 +896,28 @@ class _DashboardContentState extends State<_DashboardContent> {
       return;
     }
 
-    // Show confirmation modal for checkout
     if (actionType == 'check_out') {
       final confirmed = await _showCheckoutConfirmation();
-      if (confirmed != true) {
-        return;
-      }
+      if (confirmed != true) return;
     }
 
-    setState(() {
-      _isInitialLoading = true;
-    });
+    setState(() => _isInitialLoading = true);
 
     try {
-      if (_organizationMember == null) {
-        _showSnackBar('Organization member data not found. Contact admin.', isError: true);
+      if (_organizationMember == null || _selectedDevice == null || !_selectedDevice!.hasValidCoordinates) {
+        _showSnackBar('Configuration error.', isError: true);
         return;
       }
 
-      if (_selectedDevice == null || !_selectedDevice!.hasValidCoordinates) {
-        _showSnackBar('Device location not configured. Please select a valid device.', isError: true);
-        return;
-      }
-
-      // Use existing GPS position if available and recent (within 1 minute)
       final now = DateTime.now();
-      final gpsAge = _gpsPosition != null 
-          ? now.difference(_gpsPosition!.timestamp).inSeconds 
-          : 999;
+      final gpsAge = _gpsPosition != null ? now.difference(_gpsPosition!.timestamp).inSeconds : 999;
 
       if (_gpsPosition == null || gpsAge > 60) {
         await _updateGpsPositionAndDistance(debounce: false, retryCount: 0);
       }
 
-      if (_gpsPosition == null) {
-        _showSnackBar('Location not found. Ensure GPS is on.', isError: true);
-        return;
-      }
-
-      if (!_attendanceService.isWithinRadius(_gpsPosition!, _selectedDevice!)) {
-        final distance = _distanceToDevice;
-        _showSnackBar(
-          distance != null
-              ? 'You are outside device radius (${distance.toStringAsFixed(0)}m from ${_selectedDevice!.radiusMeters}m)'
-              : 'Cannot calculate distance to device',
-          isError: true,
-        );
+      if (_gpsPosition == null || !_attendanceService.isWithinRadius(_gpsPosition!, _selectedDevice!)) {
+        _showSnackBar('Location requirement not met.', isError: true);
         return;
       }
 
@@ -942,41 +937,26 @@ class _DashboardContentState extends State<_DashboardContent> {
       }
 
       String? photoUrl;
-      String? imagePath;
 
       if (actionType == 'check_in') {
-        imagePath = await _takeSelfie();
+        final imagePath = await _takeSelfie();
         if (imagePath == null) {
           _showSnackBar('Photo required for check-in', isError: true);
           return;
         }
 
-        // Show uploading indicator
-        if (mounted) {
-          _showSnackBar('Uploading photo...');
-        }
-
-        // Start upload in parallel with showing UI feedback
-        final uploadFuture = _attendanceService.uploadPhoto(imagePath);
-        
-        // Continue with attendance process
-        photoUrl = await uploadFuture;
+        if (mounted) _showSnackBar('Uploading photo...');
+        photoUrl = await _attendanceService.uploadPhoto(imagePath);
         
         if (photoUrl == null) {
           _showSnackBar('Failed to upload photo.', isError: true);
           return;
         }
 
-        // Delete temp file asynchronously
-        if (imagePath != null) {
-          File(imagePath).delete().catchError((e) {
-            debugPrint('Failed to delete temporary file: $e');
-          });
-        }
+        File(imagePath).delete().catchError((e) => debugPrint('Failed to delete temp file: $e'));
       }
 
-      // Perform attendance with optimistic UI
-      final attendanceFuture = _attendanceService.performAttendance(
+      final success = await _attendanceService.performAttendance(
         type: actionType,
         organizationMemberId: _organizationMember!.id,
         currentPosition: _currentPosition!,
@@ -987,27 +967,20 @@ class _DashboardContentState extends State<_DashboardContent> {
         scheduleDetails: _todayScheduleDetails,
       );
 
-      final success = await attendanceFuture;
-
-      if (success) {
-        // Show success immediately
-        if (mounted) {
-          await _showSuccessAttendancePopup(actionType);
-        }
-        
-        // Refresh data in background
-        unawaited(_refreshData());
-        triggerAttendanceHistoryRefresh();
-      }
+     if (success) {
+  if (mounted) await _showSuccessAttendancePopup(actionType);
+  
+  // Force reload break info immediately untuk update indicator
+  await _loadBreakInfo();
+  
+  unawaited(_refreshData());
+  triggerAttendanceHistoryRefresh();
+}
     } catch (e) {
       debugPrint('Error performing attendance: $e');
       _showSnackBar('Failed to perform attendance: $e', isError: true);
     } finally {
-      if (mounted) {
-        setState(() {
-          _isInitialLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isInitialLoading = false);
     }
   }
 
@@ -1019,9 +992,7 @@ class _DashboardContentState extends State<_DashboardContent> {
       barrierDismissible: false,
       builder: (BuildContext context) {
         return Dialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           child: Container(
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
@@ -1038,11 +1009,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                     color: warningColor.withOpacity(0.1),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(
-                    Icons.logout,
-                    color: warningColor,
-                    size: 30,
-                  ),
+                  child: Icon(Icons.logout, color: warningColor, size: 30),
                 ),
                 const SizedBox(height: 20),
                 const Text(
@@ -1058,11 +1025,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                 const Text(
                   'Are you sure you want to check out? This will end your work session for today.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.grey,
-                    fontSize: 15,
-                    height: 1.4,
-                  ),
+                  style: TextStyle(color: Colors.grey, fontSize: 15, height: 1.4),
                 ),
                 const SizedBox(height: 24),
                 Row(
@@ -1078,13 +1041,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        child: const Text(
-                          'Cancel',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                        child: const Text('Cancel', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -1096,17 +1053,9 @@ class _DashboardContentState extends State<_DashboardContent> {
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         ),
-                        child: const Text(
-                          'Yes, Check Out',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                        child: const Text('Yes, Check Out', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                       ),
                     ),
                   ],
@@ -1195,11 +1144,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                             ),
                           ],
                         ),
-                        child: Icon(
-                          Icons.check_circle,
-                          size: 40,
-                          color: primaryColor,
-                        ),
+                        child: Icon(Icons.check_circle, size: 40, color: primaryColor),
                       ),
                       const SizedBox(height: 20),
                       const Text(
@@ -1214,19 +1159,13 @@ class _DashboardContentState extends State<_DashboardContent> {
                       const SizedBox(height: 8),
                       Text(
                         _getAttendanceTypeLabel(type),
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 16,
-                        ),
+                        style: const TextStyle(color: Colors.white70, fontSize: 16),
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 8),
                       Text(
                         TimezoneHelper.formatAttendanceDateTime(orgTime),
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 14,
-                        ),
+                        style: const TextStyle(color: Colors.white70, fontSize: 14),
                         textAlign: TextAlign.center,
                       ),
                     ],
@@ -1241,14 +1180,9 @@ class _DashboardContentState extends State<_DashboardContent> {
                       backgroundColor: Colors.white,
                       foregroundColor: primaryColor,
                       padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
-                    child: const Text(
-                      'OK',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
+                    child: const Text('OK', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -1293,19 +1227,15 @@ class _DashboardContentState extends State<_DashboardContent> {
     if (_userProfile?.displayName != null && _userProfile!.displayName!.isNotEmpty) {
       return _userProfile!.displayName!;
     }
-
     if (_userProfile?.fullName != null && _userProfile!.fullName!.isNotEmpty) {
       return _userProfile!.fullName!;
     }
-
     if (_userProfile?.firstName != null && _userProfile!.firstName!.isNotEmpty) {
       return _userProfile!.firstName!;
     }
-
     if (user?.email != null) {
       return user!.email!.split('@')[0];
     }
-
     return 'User';
   }
 
@@ -1318,79 +1248,228 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
-Widget _buildDeviceInfoChip() {
-  if (_selectedDevice == null) {
+  String _formatDuration(Duration duration) {
+    String twoDigits(int n) => n.toString().padLeft(2, "0");
+    if (duration.inHours > 0) {
+      return "${duration.inHours}:${twoDigits(duration.inMinutes.remainder(60))}:${twoDigits(duration.inSeconds.remainder(60))}";
+    }
+    return "${twoDigits(duration.inMinutes)}:${twoDigits(duration.inSeconds.remainder(60))}";
+  }
+
+  Duration _getBreakElapsedTime() {
+  if (_breakInfo == null || 
+      _breakInfo!['is_currently_on_break'] != true ||
+      _breakInfo!['break_start_time'] == null) {
+    return Duration.zero;
+  }
+  
+  try {
+    final utcBreakStart = DateTime.parse(_breakInfo!['break_start_time']);
+    final breakStartTime = TimezoneHelper.toOrgTime(utcBreakStart);
+    final now = TimezoneHelper.nowInOrgTime();
+    final elapsed = now.difference(breakStartTime);
+    
+    return elapsed.isNegative ? Duration.zero : elapsed;
+  } catch (e) {
+    debugPrint('Error calculating break elapsed time: $e');
+    debugPrint('Break info: $_breakInfo');
+    return Duration.zero;
+  }
+}
+  Widget _buildDeviceInfoChip() {
+    if (_selectedDevice == null) {
+      return GestureDetector(
+        onTap: () => _navigateToDeviceSelection(),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.orange.withOpacity(0.2),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              Icon(Icons.warning, color: Colors.orange, size: 16),
+              SizedBox(width: 4),
+              Text('No Device', style: TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.w500)),
+              SizedBox(width: 4),
+              Icon(Icons.keyboard_arrow_down, color: Colors.orange, size: 16),
+            ],
+          ),
+        ),
+      );
+    }
+
+    String deviceName = _selectedDevice!.deviceName;
+    if (deviceName.contains(" - ")) {
+      deviceName = deviceName.split(" - ").last;
+    }
+
     return GestureDetector(
       onTap: () => _navigateToDeviceSelection(),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: Colors.orange.withOpacity(0.2),
+          color: Colors.white.withOpacity(0.2),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
-          children: const [
-            Icon(Icons.warning, color: Colors.orange, size: 16),
-            SizedBox(width: 4),
-            Text(
-              'No Device',
-              style: TextStyle(
-                color: Colors.orange,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
+          children: [
+            const Icon(Icons.location_on, color: Colors.white, size: 16),
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text(
+                deviceName.length > 10 ? deviceName.substring(0, 10) + '…' : deviceName,
+                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w500),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
-            SizedBox(width: 4),
-            Icon(Icons.keyboard_arrow_down, color: Colors.orange, size: 16),
+            const SizedBox(width: 4),
+            const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 16),
           ],
         ),
       ),
     );
   }
 
-  // Ambil nama device saja (hilangkan "Organization - " kalau ada)
-  String deviceName = _selectedDevice!.deviceName;
-  if (deviceName.contains(" - ")) {
-    deviceName = deviceName.split(" - ").last;
+ Widget _buildBreakIndicator() {
+  if (_breakInfo == null || _breakInfo!['is_currently_on_break'] != true) {
+    return const SizedBox.shrink();
   }
 
-  return GestureDetector(
-  onTap: () => _navigateToDeviceSelection(),
-  child: Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-    decoration: BoxDecoration(
-      color: Colors.white.withOpacity(0.2),
-      borderRadius: BorderRadius.circular(8),
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Icon(Icons.location_on, color: Colors.white, size: 16),
-        const SizedBox(width: 4),
-        Flexible(
-          child: Text(
-            deviceName.length > 10 
-              ? deviceName.substring(0, 10) + '…' 
-              : deviceName,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
+  final elapsedTime = _getBreakElapsedTime();
+  final screenSize = MediaQuery.of(context).size;
+
+  return Positioned(
+    left: _indicatorPosition.dx,
+    top: _indicatorPosition.dy,
+    child: GestureDetector(
+      onPanStart: (details) => setState(() => _isDragging = true),
+      onPanUpdate: (details) {
+        setState(() {
+          double newX = _indicatorPosition.dx + details.delta.dx;
+          double newY = _indicatorPosition.dy + details.delta.dy;
+
+          newX = newX.clamp(0.0, screenSize.width - 180);
+          newY = newY.clamp(50.0, screenSize.height - 200);
+
+          _indicatorPosition = Offset(newX, newY);
+        });
+      },
+      onPanEnd: (details) => setState(() => _isDragging = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: 160,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [primaryColor, primaryColor.withOpacity(0.9)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(_isDragging ? 0.3 : 0.2),
+              blurRadius: _isDragging ? 20 : 15,
+              offset: Offset(0, _isDragging ? 8 : 4),
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () => _navigateToBreakPage(),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.3),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.coffee, color: Colors.white, size: 18),
+                      ),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'On Break',
+                          style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Center(
+                      child: Text(
+                        _formatDuration(elapsedTime),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: _isLoading ? null : () => _handleStopBreak(),
+                        child: Center(
+                          child: _isLoading
+                              ? SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    color: primaryColor,
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : Text(
+                                  'Stop Break',
+                                  style: TextStyle(
+                                    color: primaryColor,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
-        const SizedBox(width: 4),
-        const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 16),
-      ],
+      ),
     ),
-  ),
-);
-
+  );
 }
-
 
   @override
   Widget build(BuildContext context) {
@@ -1404,11 +1483,16 @@ Widget _buildDeviceInfoChip() {
       backgroundColor: Colors.grey.shade100,
       body: _organizationMember == null
           ? _buildNotRegisteredView()
-          : RefreshIndicator(
-              onRefresh: _refreshData,
-              color: primaryColor,
-              backgroundColor: Colors.white,
-              child: _buildMainContent(displayName),
+          : Stack(
+              children: [
+                RefreshIndicator(
+                  onRefresh: _refreshData,
+                  color: primaryColor,
+                  backgroundColor: Colors.white,
+                  child: _buildMainContent(displayName),
+                ),
+                _buildBreakIndicator(),
+              ],
             ),
     );
   }
@@ -1472,11 +1556,7 @@ Widget _buildDeviceInfoChip() {
                         Expanded(
                           child: Text(
                             _organization?.name ?? 'Organization',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
+                            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -1502,19 +1582,11 @@ Widget _buildDeviceInfoChip() {
                             children: [
                               Text(
                                 'Hello, $displayName',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.w500,
-                                ),
+                                style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w500),
                               ),
                               const Text(
                                 'Device Setup Required',
-                                style: TextStyle(
-                                  color: Colors.orange,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
+                                style: TextStyle(color: Colors.orange, fontSize: 14, fontWeight: FontWeight.w500),
                               ),
                             ],
                           ),
@@ -1550,31 +1622,19 @@ Widget _buildDeviceInfoChip() {
                             color: Colors.orange.shade50,
                             shape: BoxShape.circle,
                           ),
-                          child: Icon(
-                            Icons.location_on,
-                            size: 40,
-                            color: Colors.orange.shade400,
-                          ),
+                          child: Icon(Icons.location_on, size: 40, color: Colors.orange.shade400),
                         ),
                         const SizedBox(height: 24),
                         const Text(
                           'Attendance Device Required',
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
-                          ),
+                          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87),
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 12),
                         const Text(
                           'Please select an attendance device to continue using the attendance system.',
                           textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Colors.grey,
-                            fontSize: 16,
-                            height: 1.5,
-                          ),
+                          style: TextStyle(color: Colors.grey, fontSize: 16, height: 1.5),
                         ),
                         const SizedBox(height: 24),
                         SizedBox(
@@ -1596,9 +1656,7 @@ Widget _buildDeviceInfoChip() {
                               backgroundColor: primaryColor,
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                             ),
                           ),
                         ),
@@ -1647,11 +1705,7 @@ Widget _buildDeviceInfoChip() {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Icon(
-                          Icons.apps,
-                          color: primaryColor,
-                          size: 28,
-                        ),
+                        Icon(Icons.apps, color: primaryColor, size: 28),
                       ],
                     ),
                     const SizedBox(height: 20),
@@ -1674,19 +1728,11 @@ Widget _buildDeviceInfoChip() {
                             children: [
                               Text(
                                 'Hello, $displayName',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.w500,
-                                ),
+                                style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w500),
                               ),
                               const Text(
                                 'Account Setup Required',
-                                style: TextStyle(
-                                  color: Colors.orange,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w500,
-                                ),
+                                style: TextStyle(color: Colors.orange, fontSize: 14, fontWeight: FontWeight.w500),
                               ),
                             ],
                           ),
@@ -1722,31 +1768,19 @@ Widget _buildDeviceInfoChip() {
                             color: Colors.orange.shade50,
                             shape: BoxShape.circle,
                           ),
-                          child: Icon(
-                            Icons.business_outlined,
-                            size: 40,
-                            color: Colors.orange.shade400,
-                          ),
+                          child: Icon(Icons.business_outlined, size: 40, color: Colors.orange.shade400),
                         ),
                         const SizedBox(height: 24),
                         const Text(
                           'Organization Setup Required',
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.black87,
-                          ),
+                          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87),
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 12),
                         const Text(
                           'You need to be registered as a member of an organization to use this attendance system.',
                           textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Colors.grey,
-                            fontSize: 16,
-                            height: 1.5,
-                          ),
+                          style: TextStyle(color: Colors.grey, fontSize: 16, height: 1.5),
                         ),
                         const SizedBox(height: 20),
                         Container(
@@ -1758,20 +1792,12 @@ Widget _buildDeviceInfoChip() {
                           ),
                           child: Row(
                             children: [
-                              Icon(
-                                Icons.info_outline,
-                                color: Colors.blue.shade600,
-                                size: 20,
-                              ),
+                              Icon(Icons.info_outline, color: Colors.blue.shade600, size: 20),
                               const SizedBox(width: 12),
                               const Expanded(
                                 child: Text(
                                   'Contact your HR administrator to get added to your organization.',
-                                  style: TextStyle(
-                                    color: Colors.black87,
-                                    fontSize: 14,
-                                    height: 1.4,
-                                  ),
+                                  style: TextStyle(color: Colors.black87, fontSize: 14, height: 1.4),
                                 ),
                               ),
                             ],
@@ -1798,9 +1824,7 @@ Widget _buildDeviceInfoChip() {
                                   foregroundColor: primaryColor,
                                   side: BorderSide(color: primaryColor),
                                   padding: const EdgeInsets.symmetric(vertical: 16),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                 ),
                               ),
                             ),
@@ -1826,8 +1850,6 @@ Widget _buildDeviceInfoChip() {
           _buildHeader(displayName),
           _buildStatusCard(),
           _buildOverviewCard(),
-          if (_breakInfo != null && _breakInfo!['is_currently_on_break'] == true) 
-            _buildBreakInfoCard(),
           _buildTimelineCard(),
           const SizedBox(height: 100),
         ],
@@ -1882,11 +1904,7 @@ Widget _buildDeviceInfoChip() {
                                   color: primaryColor,
                                   borderRadius: BorderRadius.circular(8),
                                 ),
-                                child: const Icon(
-                                  Icons.business,
-                                  color: Colors.white,
-                                  size: 20,
-                                ),
+                                child: const Icon(Icons.business, color: Colors.white, size: 20),
                               );
                             },
                           ),
@@ -1900,27 +1918,14 @@ Widget _buildDeviceInfoChip() {
                           color: primaryColor,
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Icon(
-                          Icons.business,
-                          color: Colors.white,
-                          size: 20,
-                        ),
+                        child: const Icon(Icons.business, color: Colors.white, size: 20),
                       ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _organization?.name ?? 'Unknown Organization',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
+                      child: Text(
+                        _organization?.name ?? 'Unknown Organization',
+                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],
@@ -1949,19 +1954,11 @@ Widget _buildDeviceInfoChip() {
                   children: [
                     Text(
                       'Hello, $displayName',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w500,
-                      ),
+                      style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w500),
                     ),
                     Text(
                       _getCurrentStatusText(),
-                      style: TextStyle(
-                        color: _getStatusColor(),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
+                      style: TextStyle(color: _getStatusColor(), fontSize: 14, fontWeight: FontWeight.w500),
                     ),
                   ],
                 ),
@@ -1974,6 +1971,12 @@ Widget _buildDeviceInfoChip() {
   }
 
   Widget _buildStatusCard() {
+    // Filter out break_out action if currently on break
+    final isOnBreak = _breakInfo != null && _breakInfo!['is_currently_on_break'] == true;
+    final filteredActions = isOnBreak 
+        ? _availableActions.where((action) => action.type != 'break_out').toList()
+        : _availableActions;
+
     return Transform.translate(
       offset: const Offset(0, -20),
       child: Container(
@@ -1988,10 +1991,7 @@ Widget _buildDeviceInfoChip() {
             end: Alignment.bottomRight,
           ),
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: _getStatusColor().withOpacity(0.3),
-            width: 1.5,
-          ),
+          border: Border.all(color: _getStatusColor().withOpacity(0.3), width: 1.5),
           boxShadow: [
             BoxShadow(
               color: _getStatusColor().withOpacity(0.15),
@@ -2016,10 +2016,7 @@ Widget _buildDeviceInfoChip() {
                     height: 56,
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
-                        colors: [
-                          _getStatusColor(),
-                          _getStatusColor().withOpacity(0.8),
-                        ],
+                        colors: [_getStatusColor(), _getStatusColor().withOpacity(0.8)],
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
@@ -2032,11 +2029,7 @@ Widget _buildDeviceInfoChip() {
                         ),
                       ],
                     ),
-                    child: Icon(
-                      _getStatusIcon(),
-                      color: Colors.white,
-                      size: 28,
-                    ),
+                    child: Icon(_getStatusIcon(), color: Colors.white, size: 28),
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -2045,31 +2038,16 @@ Widget _buildDeviceInfoChip() {
                       children: [
                         Text(
                           _getCurrentStatusText(),
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: -0.3,
-                          ),
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, letterSpacing: -0.3),
                         ),
                         const SizedBox(height: 4),
                         Row(
                           children: [
-                            Icon(
-                              Icons.access_time,
-                              size: 16,
-                              color: Colors.grey.shade600,
-                            ),
+                            Icon(Icons.access_time, size: 16, color: Colors.grey.shade600),
                             const SizedBox(width: 6),
                             Text(
-                              TimezoneHelper.formatOrgTime(
-                                TimezoneHelper.nowInOrgTime(),
-                                'HH:mm',
-                              ),
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w500,
-                                color: Colors.grey.shade700,
-                              ),
+                              TimezoneHelper.formatOrgTime(TimezoneHelper.nowInOrgTime(), 'HH:mm'),
+                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: Colors.grey.shade700),
                             ),
                           ],
                         ),
@@ -2098,22 +2076,12 @@ Widget _buildDeviceInfoChip() {
                   children: [
                     Row(
                       children: [
-                        Icon(
-                          Icons.calendar_today,
-                          size: 14,
-                          color: Colors.grey.shade600,
-                        ),
+                        Icon(Icons.calendar_today, size: 14, color: Colors.grey.shade600),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            TimezoneHelper.formatOrgTime(
-                              TimezoneHelper.nowInOrgTime(),
-                              'EEEE, dd MMMM yyyy',
-                            ),
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey.shade700,
-                            ),
+                            TimezoneHelper.formatOrgTime(TimezoneHelper.nowInOrgTime(), 'EEEE, dd MMMM yyyy'),
+                            style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
                           ),
                         ),
                       ],
@@ -2124,19 +2092,12 @@ Widget _buildDeviceInfoChip() {
                       const SizedBox(height: 8),
                       Row(
                         children: [
-                          Icon(
-                            Icons.location_on,
-                            size: 14,
-                            color: Colors.grey.shade600,
-                          ),
+                          Icon(Icons.location_on, size: 14, color: Colors.grey.shade600),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               _selectedDevice!.deviceName,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.grey.shade700,
-                              ),
+                              style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
@@ -2183,15 +2144,15 @@ Widget _buildDeviceInfoChip() {
                   ],
                 ),
               ),
-              if (_availableActions.isNotEmpty) ...[
+              if (filteredActions.isNotEmpty) ...[
                 const SizedBox(height: 20),
                 Row(
-                  children: _availableActions.take(2).map((action) {
+                  children: filteredActions.take(2).map((action) {
                     return Expanded(
                       child: Padding(
                         padding: EdgeInsets.only(
-                          right: _availableActions.indexOf(action) == 0 ? 8 : 0,
-                          left: _availableActions.indexOf(action) == 1 ? 8 : 0,
+                          right: filteredActions.indexOf(action) == 0 ? 8 : 0,
+                          left: filteredActions.indexOf(action) == 1 ? 8 : 0,
                         ),
                         child: ElevatedButton(
                           onPressed: action.isEnabled && !_isInitialLoading && (_isWithinRadius ?? false)
@@ -2205,9 +2166,7 @@ Widget _buildDeviceInfoChip() {
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             elevation: action.isEnabled && (_isWithinRadius ?? false) ? 4 : 0,
                             shadowColor: primaryColor.withOpacity(0.4),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                           ),
                           child: _isInitialLoading && action.isEnabled
                               ? SizedBox(
@@ -2220,10 +2179,7 @@ Widget _buildDeviceInfoChip() {
                                 )
                               : Text(
                                   action.label,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 15,
-                                  ),
+                                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
                                 ),
                         ),
                       ),
@@ -2234,74 +2190,6 @@ Widget _buildDeviceInfoChip() {
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildBreakInfoCard() {
-    if (_breakInfo == null) return const SizedBox.shrink();
-
-    final isOnBreak = _breakInfo!['is_currently_on_break'] == true;
-    final totalBreakMinutes = _breakInfo!['total_break_minutes'] as int? ?? 0;
-    final breakSessions = _breakInfo!['break_sessions'] as List? ?? [];
-
-    if (!isOnBreak && breakSessions.isEmpty) return const SizedBox.shrink();
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                isOnBreak ? Icons.coffee : Icons.schedule,
-                color: isOnBreak ? primaryColor : successColor,
-                size: 20,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                isOnBreak ? 'Currently on Break' : 'Today\'s Breaks',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          if (totalBreakMinutes > 0) ...[
-            Text(
-              'Total break time: ${(totalBreakMinutes ~/ 60)}h ${totalBreakMinutes % 60}m',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade600,
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
-          if (breakSessions.isNotEmpty) ...[
-            Text(
-              '${breakSessions.length} break session${breakSessions.length > 1 ? 's' : ''} today',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey.shade500,
-              ),
-            ),
-          ],
-        ],
       ),
     );
   }
@@ -2333,11 +2221,7 @@ Widget _buildDeviceInfoChip() {
             children: [
               const Text(
                 'Overview',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.5,
-                ),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, letterSpacing: -0.5),
               ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -2347,11 +2231,7 @@ Widget _buildDeviceInfoChip() {
                 ),
                 child: Text(
                   DateFormat('MMM yyyy').format(DateTime.now()),
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: primaryColor,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: TextStyle(fontSize: 13, color: primaryColor, fontWeight: FontWeight.w600),
                 ),
               ),
             ],
@@ -2394,30 +2274,17 @@ Widget _buildDeviceInfoChip() {
                 color: color.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(
-                icon,
-                color: color,
-                size: 24,
-              ),
+              child: Icon(icon, color: color, size: 24),
             ),
             const SizedBox(height: 12),
             Text(
               value,
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: color,
-                letterSpacing: -0.5,
-              ),
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color, letterSpacing: -0.5),
             ),
             const SizedBox(height: 4),
             Text(
               label,
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey.shade600,
-                fontWeight: FontWeight.w500,
-              ),
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600, fontWeight: FontWeight.w500),
             ),
           ],
         ),
@@ -2445,10 +2312,7 @@ Widget _buildDeviceInfoChip() {
         children: [
           const Text(
             'Today\'s Schedule',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w500,
-            ),
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
           ),
           const SizedBox(height: 18),
           if (_timelineItems.isEmpty)
@@ -2457,10 +2321,7 @@ Widget _buildDeviceInfoChip() {
                 padding: EdgeInsets.all(20),
                 child: Text(
                   'No schedule available for today',
-                  style: TextStyle(
-                    color: Colors.grey,
-                    fontSize: 14,
-                  ),
+                  style: TextStyle(color: Colors.grey, fontSize: 14),
                 ),
               ),
             )
@@ -2514,10 +2375,7 @@ Widget _buildDeviceInfoChip() {
                   children: [
                     Text(
                       item.time,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
                     ),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -2539,10 +2397,7 @@ Widget _buildDeviceInfoChip() {
                 const SizedBox(height: 4),
                 Text(
                   item.subtitle,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey,
-                  ),
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ],
             ),
@@ -2577,10 +2432,7 @@ Widget _buildDeviceInfoChip() {
   }
 }
 
-// Helper function untuk unawaited futures
-void unawaited(Future<void> future) {
-  // Intentionally ignore the future
-}
+void unawaited(Future<void> future) {}
 
 class TimelineItem {
   final String time;

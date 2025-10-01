@@ -160,6 +160,13 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
     }
   }
 
+  DateTime _parseTimeToDateTime(String timeString, DateTime referenceDate) {
+    final parts = timeString.split(':');
+    final hour = int.parse(parts[0]);
+    final minute = int.parse(parts[1]);
+    return DateTime(referenceDate.year, referenceDate.month, referenceDate.day, hour, minute);
+  }
+
   Future<void> _loadTodayBreakSessions() async {
     try {
       final today = TimezoneHelper.nowInOrgTime();
@@ -169,8 +176,8 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
           .from('attendance_logs')
           .select('event_type, event_time')
           .eq('organization_member_id', widget.organizationMemberId)
-          .gte('event_time', '${todayStr}T00:00:00')
-          .lte('event_time', '${todayStr}T23:59:59')
+          .gte('event_time', '${todayStr}T00:00:00Z')
+          .lte('event_time', '${todayStr}T23:59:59Z')
           .inFilter('event_type', ['break_out', 'break_in'])
           .order('event_time', ascending: true);
 
@@ -181,11 +188,12 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       DateTime? currentBreakStart;
       for (var log in logs) {
         if (log['event_type'] == 'break_out') {
-          // Convert UTC to organization timezone
-          currentBreakStart = TimezoneHelper.toOrgTime(DateTime.parse(log['event_time']));
+          final utcTime = DateTime.parse(log['event_time']);
+          currentBreakStart = TimezoneHelper.toOrgTime(utcTime);
         } else if (log['event_type'] == 'break_in' && currentBreakStart != null) {
-          // Convert UTC to organization timezone
-          final breakEnd = TimezoneHelper.toOrgTime(DateTime.parse(log['event_time']));
+          final utcTime = DateTime.parse(log['event_time']);
+          final breakEnd = TimezoneHelper.toOrgTime(utcTime);
+          
           final duration = breakEnd.difference(currentBreakStart).inMinutes;
           _totalBreakMinutesToday += duration;
           
@@ -205,13 +213,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
     }
   }
 
-  DateTime _parseTimeToDateTime(String timeStr, DateTime baseDate) {
-    final parts = timeStr.split(':');
-    final hour = int.parse(parts[0]);
-    final minute = int.parse(parts[1]);
-    return DateTime(baseDate.year, baseDate.month, baseDate.day, hour, minute);
-  }
-
   Future<void> _checkCurrentBreakStatus() async {
     try {
       final today = TimezoneHelper.nowInOrgTime();
@@ -221,8 +222,8 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
           .from('attendance_logs')
           .select('event_type, event_time')
           .eq('organization_member_id', widget.organizationMemberId)
-          .gte('event_time', '${todayStr}T00:00:00')
-          .lte('event_time', '${todayStr}T23:59:59')
+          .gte('event_time', '${todayStr}T00:00:00Z')
+          .lte('event_time', '${todayStr}T23:59:59Z')
           .inFilter('event_type', ['break_out', 'break_in'])
           .order('event_time', ascending: false)
           .limit(1);
@@ -234,8 +235,10 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
 
         if (lastLog['event_type'] == 'break_out') {
           _isOnBreak = true;
-          // Convert UTC to organization timezone
-          _breakStartTime = TimezoneHelper.toOrgTime(DateTime.parse(lastLog['event_time']));
+          
+          final utcTime = DateTime.parse(lastLog['event_time']);
+          _breakStartTime = TimezoneHelper.toOrgTime(utcTime);
+          
           _breakStartTimeText = TimezoneHelper.formatOrgTime(_breakStartTime!, 'HH.mm');
           _updateElapsedTime();
           debugPrint('User is currently on break since: $_breakStartTimeText');
@@ -358,7 +361,7 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       await Supabase.instance.client.from('attendance_logs').insert({
         'organization_member_id': widget.organizationMemberId,
         'event_type': 'break_out',
-        'event_time': now.toIso8601String(),
+        'event_time': now.toUtc().toIso8601String(),
         'device_id': widget.deviceId,
         'method': 'mobile_app',
         'location': _currentLocation != null ? {
@@ -394,67 +397,95 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
   }
 
   Future<void> _endBreak() async {
-  if (_breakStartTime == null) return;
+    if (_breakStartTime == null) {
+      _showSnackBar('Break start time not found', isError: true);
+      return;
+    }
 
-  setState(() {
-    _isLoading = true;
-  });
-
-  try {
-    await _getCurrentLocation();
-    
-    final now = TimezoneHelper.nowInOrgTime();
-    final actualBreakDuration = now.difference(_breakStartTime!);
-    
-    // SIMPAN ke variabel lokal sebelum di-reset
-    final breakStartTimeForSummary = _breakStartTime!;
-
-    await Supabase.instance.client.from('attendance_logs').insert({
-      'organization_member_id': widget.organizationMemberId,
-      'event_type': 'break_in',
-      'event_time': now.toIso8601String(),
-      'device_id': widget.deviceId,
-      'method': 'mobile_app',
-      'location': _currentLocation != null ? {
-        'latitude': _currentLocation!.latitude,
-        'longitude': _currentLocation!.longitude,
-      } : null,
-      'is_verified': true,
-      'verification_method': 'manual',
+    setState(() {
+      _isLoading = true;
     });
 
     try {
-      await _attendanceService.updateBreakDuration(
-        widget.organizationMemberId,
-        actualBreakDuration.inMinutes
-      );
-      debugPrint('Break duration updated in attendance record: ${actualBreakDuration.inMinutes} minutes');
-    } catch (e) {
-      debugPrint('Failed to update attendance record break duration: $e');
-    }
+      await _getCurrentLocation();
+      
+      final now = TimezoneHelper.nowInOrgTime();
+      final actualBreakDuration = now.difference(_breakStartTime!);
+      
+      // Preserve data BEFORE async operations
+      final breakStartForSummary = _breakStartTime!;
+      final breakEndForSummary = now;
+      final durationForSummary = actualBreakDuration;
+      final maxDurationForSummary = _maxBreakDuration;
+      final totalBreakForSummary = _totalBreakMinutesToday;
 
-    _timer?.cancel();
-    _warningTimer?.cancel();
-
-    // Reset state
-    _isOnBreak = false;
-    _breakStartTime = null;
-    
-    // Gunakan variabel lokal, bukan _breakStartTime yang sudah null
-    await _showBreakSummary(actualBreakDuration, now, breakStartTimeForSummary);
-    
-    debugPrint('Break ended successfully. Duration: ${actualBreakDuration.inMinutes} minutes');
-  } catch (e) {
-    debugPrint('Error ending break: $e');
-    _showSnackBar('Failed to end break. Please try again.', isError: true);
-  } finally {
-    if (mounted) {
-      setState(() {
-        _isLoading = false;
+      // Insert break_in log
+      await Supabase.instance.client.from('attendance_logs').insert({
+        'organization_member_id': widget.organizationMemberId,
+        'event_type': 'break_in',
+        'event_time': now.toUtc().toIso8601String(),
+        'device_id': widget.deviceId,
+        'method': 'mobile_app',
+        'location': _currentLocation != null ? {
+          'latitude': _currentLocation!.latitude,
+          'longitude': _currentLocation!.longitude,
+        } : null,
+        'is_verified': true,
+        'verification_method': 'manual',
       });
+
+      debugPrint('Break-in log created successfully');
+
+      // Update break duration
+      try {
+        await _attendanceService.updateBreakDuration(
+          widget.organizationMemberId,
+          actualBreakDuration.inMinutes
+        );
+        debugPrint('Break duration updated: ${actualBreakDuration.inMinutes} minutes');
+      } catch (e) {
+        debugPrint('Warning: Failed to update break duration: $e');
+      }
+
+      // Stop timers
+      _timer?.cancel();
+      _warningTimer?.cancel();
+
+      // Reset state
+      if (mounted) {
+        setState(() {
+          _isOnBreak = false;
+          _breakStartTime = null;
+          _elapsedTime = Duration.zero;
+          _currentBreakMinutes = 0;
+          _showWarning = false;
+          _hasExceeded = false;
+          _isLoading = false;
+        });
+      }
+
+      // Show summary with preserved data
+      if (mounted) {
+        await _showBreakSummary(
+          breakStartForSummary,
+          breakEndForSummary,
+          durationForSummary,
+          maxDurationForSummary,
+          totalBreakForSummary,
+        );
+      }
+      
+      debugPrint('✓ Break ended successfully. Duration: ${actualBreakDuration.inMinutes}m');
+    } catch (e) {
+      debugPrint('❌ Error ending break: $e');
+      if (mounted) {
+        _showSnackBar('Failed to end break: ${e.toString()}', isError: true);
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
-}
 
   Future<void> _showBreakWarningDialog() async {
     if (!mounted) return;
@@ -496,137 +527,144 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _showBreakSummary(Duration actualDuration, DateTime endTime, DateTime breakStartTime) async {
-  if (!mounted) return;
+  Future<void> _showBreakSummary(
+    DateTime breakStartTime,
+    DateTime breakEndTime,
+    Duration actualDuration,
+    Duration maxDuration,
+    int previousBreakMinutes,
+  ) async {
+    if (!mounted) return;
 
-  return showDialog<void>(
-    context: context,
-    barrierDismissible: false,
-    builder: (BuildContext context) {
-      final wasExceeded = actualDuration.inMinutes > _maxBreakDuration.inMinutes;
-      final summaryColor = wasExceeded ? warningColor : successColor;
-      
-      return Dialog(
-        backgroundColor: Colors.transparent,
-        child: Container(
-          width: MediaQuery.of(context).size.width * 0.9,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [backgroundColor, backgroundColor.withOpacity(0.95)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+    final wasExceeded = actualDuration.inMinutes > maxDuration.inMinutes;
+    final summaryColor = wasExceeded ? warningColor : successColor;
+    final totalTodayMinutes = previousBreakMinutes + actualDuration.inMinutes;
+    
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          child: Container(
+            width: MediaQuery.of(context).size.width * 0.9,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [backgroundColor, backgroundColor.withOpacity(0.95)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: summaryColor, width: 2),
             ),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: summaryColor, width: 2),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: summaryColor,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    wasExceeded ? Icons.warning : Icons.coffee,
-                    color: Colors.white,
-                    size: 40,
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  wasExceeded ? 'Break Completed (Exceeded)' : 'Break Summary',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 20),
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    children: [
-                      _buildSummaryRow('Started', TimezoneHelper.formatOrgTime(breakStartTime, 'HH.mm')),
-                      _buildSummaryRow('Ended', TimezoneHelper.formatOrgTime(endTime, 'HH.mm')),
-                      _buildSummaryRow('Duration', _formatDuration(actualDuration)),
-                      _buildSummaryRow('Allowed', _formatDuration(_maxBreakDuration)),
-                      if (wasExceeded)
-                        _buildSummaryRow(
-                          'Overtime',
-                          _formatDuration(Duration(minutes: actualDuration.inMinutes - _maxBreakDuration.inMinutes)),
-                          isWarning: true,
-                        ),
-                      _buildSummaryRow(
-                        'Total Today',
-                        _formatDuration(Duration(minutes: _totalBreakMinutesToday + actualDuration.inMinutes)),
-                      ),
-                    ],
-                  ),
-                ),
-                if (wasExceeded) ...[
-                  const SizedBox(height: 16),
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
                   Container(
-                    padding: const EdgeInsets.all(12),
+                    width: 80,
+                    height: 80,
                     decoration: BoxDecoration(
-                      color: warningColor.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: warningColor.withOpacity(0.5)),
+                      color: summaryColor,
+                      shape: BoxShape.circle,
                     ),
-                    child: const Row(
+                    child: Icon(
+                      wasExceeded ? Icons.warning : Icons.coffee,
+                      color: Colors.white,
+                      size: 40,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    wasExceeded ? 'Break Completed (Exceeded)' : 'Break Summary',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 20),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
                       children: [
-                        Icon(Icons.info, color: warningColor, size: 20),
-                        SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Break time exceeded the allowed duration. Please be mindful of break limits.',
-                            style: TextStyle(color: Colors.white, fontSize: 12),
+                        _buildSummaryRow('Started', TimezoneHelper.formatOrgTime(breakStartTime, 'HH.mm')),
+                        _buildSummaryRow('Ended', TimezoneHelper.formatOrgTime(breakEndTime, 'HH.mm')),
+                        _buildSummaryRow('Duration', _formatDuration(actualDuration)),
+                        _buildSummaryRow('Allowed', _formatDuration(maxDuration)),
+                        if (wasExceeded)
+                          _buildSummaryRow(
+                            'Overtime',
+                            _formatDuration(Duration(minutes: actualDuration.inMinutes - maxDuration.inMinutes)),
+                            isWarning: true,
                           ),
+                        _buildSummaryRow(
+                          'Total Today',
+                          _formatDuration(Duration(minutes: totalTodayMinutes)),
                         ),
                       ],
                     ),
                   ),
-                ],
-                const SizedBox(height: 24),
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.of(context).pop();
-                          Navigator.of(context).pop(true);
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: summaryColor,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        child: const Text(
-                          'Back to Dashboard',
-                          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                        ),
+                  if (wasExceeded) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: warningColor.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: warningColor.withOpacity(0.5)),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.info, color: warningColor, size: 20),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Break time exceeded the allowed duration. Please be mindful of break limits.',
+                              style: TextStyle(color: Colors.white, fontSize: 12),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
-                ),
-              ],
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            Navigator.of(context).pop();
+                            Navigator.of(context).pop(true);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: summaryColor,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          child: const Text(
+                            'Back to Dashboard',
+                            style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-      );
-    },
-  );
-}
+        );
+      },
+    );
+  }
 
   Widget _buildSummaryRow(String label, String value, {bool isWarning = false}) {
     return Padding(
