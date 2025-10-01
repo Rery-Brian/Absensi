@@ -5,7 +5,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import '../models/attendance_model.dart' hide Position;
-
 import '../services/attendance_service.dart';
 import '../services/camera_service.dart';
 import '../pages/camera_selfie_screen.dart';
@@ -790,20 +789,22 @@ class _DashboardContentState extends State<_DashboardContent> {
     return TimeHelper.formatDuration(totalLateMinutes);
   }
 
-  String _getCurrentStatusText() {
-    switch (_currentStatus) {
-      case AttendanceStatus.notCheckedIn:
-        return 'Ready to start';
-      case AttendanceStatus.working:
-        return 'Currently working';
-      case AttendanceStatus.onBreak:
-        return 'On break';
-      case AttendanceStatus.checkedOut:
-        return 'Work completed';
-      case AttendanceStatus.unknown:
-        return 'Waiting for status...';
-    }
+ String _getCurrentStatusText() {
+  switch (_currentStatus) {
+    case AttendanceStatus.notCheckedIn:
+      // Cek apakah pernah check-in hari ini
+      final hasCheckedInToday = _todayAttendanceRecords.isNotEmpty;
+      return hasCheckedInToday ? 'Ready to check in again' : 'Ready to start';
+    case AttendanceStatus.working:
+      return 'Currently working';
+    case AttendanceStatus.onBreak:
+      return 'On break';
+    case AttendanceStatus.checkedOut:
+      return 'Ready to check in again'; // ✅ Ubah pesan
+    case AttendanceStatus.unknown:
+      return 'Waiting for status...';
   }
+}
 
   Color _getStatusColor() {
     switch (_currentStatus) {
@@ -1317,84 +1318,79 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
-  Widget _buildDeviceInfoChip() {
-    if (_selectedDevice == null) {
-      return GestureDetector(
-        onTap: () => _navigateToDeviceSelection(),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: Colors.orange.withOpacity(0.2),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.warning,
-                color: Colors.orange,
-                size: 16,
-              ),
-              const SizedBox(width: 4),
-              const Text(
-                'No Device',
-                style: TextStyle(
-                  color: Colors.orange,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(width: 4),
-              const Icon(
-                Icons.keyboard_arrow_down,
-                color: Colors.orange,
-                size: 16,
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
+Widget _buildDeviceInfoChip() {
+  if (_selectedDevice == null) {
     return GestureDetector(
       onTap: () => _navigateToDeviceSelection(),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.2),
+          color: Colors.orange.withOpacity(0.2),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.location_on,
-              color: Colors.white,
-              size: 16,
-            ),
-            const SizedBox(width: 4),
-            Flexible(
-              child: Text(
-                _selectedDevice!.deviceName,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-                overflow: TextOverflow.ellipsis,
+          children: const [
+            Icon(Icons.warning, color: Colors.orange, size: 16),
+            SizedBox(width: 4),
+            Text(
+              'No Device',
+              style: TextStyle(
+                color: Colors.orange,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
               ),
             ),
-            const SizedBox(width: 4),
-            const Icon(
-              Icons.keyboard_arrow_down,
-              color: Colors.white,
-              size: 16,
-            ),
+            SizedBox(width: 4),
+            Icon(Icons.keyboard_arrow_down, color: Colors.orange, size: 16),
           ],
         ),
       ),
     );
   }
+
+  // Ambil nama device saja (hilangkan "Organization - " kalau ada)
+  String deviceName = _selectedDevice!.deviceName;
+  if (deviceName.contains(" - ")) {
+    deviceName = deviceName.split(" - ").last;
+  }
+
+  return GestureDetector(
+  onTap: () => _navigateToDeviceSelection(),
+  child: Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    decoration: BoxDecoration(
+      color: Colors.white.withOpacity(0.2),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.location_on, color: Colors.white, size: 16),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text(
+            deviceName.length > 10 
+              ? deviceName.substring(0, 10) + '…' 
+              : deviceName,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        const SizedBox(width: 4),
+        const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 16),
+      ],
+    ),
+  ),
+);
+
+}
+
 
   @override
   Widget build(BuildContext context) {

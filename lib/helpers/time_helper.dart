@@ -184,4 +184,76 @@ class TimeHelper {
       return '${hours}h ${remainingMinutes}m';
     }
   }
+
+  // ✅ NEW: Check if current time is within work hours
+  static bool isWithinWorkHours(String? startTime, String? endTime, {int graceMinutes = 30}) {
+    if (startTime == null || endTime == null) return true; // Allow if no schedule
+    if (!isValidTimeFormat(startTime) || !isValidTimeFormat(endTime)) return true;
+    
+    try {
+      final current = getCurrentTime();
+      final workStart = parseTimeString(startTime);
+      final workEnd = parseTimeString(endTime);
+      
+      // Allow check-in starting from graceMinutes before work starts
+      final allowedStartTime = subtractMinutes(workStart, graceMinutes);
+      
+      // Allow check-out until graceMinutes after work ends
+      final allowedEndTime = addMinutes(workEnd, graceMinutes);
+      
+      return isWithinTimeWindow(current, allowedStartTime, allowedEndTime);
+    } catch (e) {
+      print('Error checking work hours: $e');
+      return true; // Allow if error occurs
+    }
+  }
+
+  // ✅ NEW: Check if current time is past work end time
+  static bool isAfterWorkHours(String? endTime, {int graceMinutes = 30}) {
+    if (endTime == null || !isValidTimeFormat(endTime)) return false;
+    
+    try {
+      final current = getCurrentTime();
+      final workEnd = parseTimeString(endTime);
+      final allowedEndTime = addMinutes(workEnd, graceMinutes);
+      
+      return isTimeAfter(current, allowedEndTime);
+    } catch (e) {
+      print('Error checking if after work hours: $e');
+      return false;
+    }
+  }
+
+  // ✅ NEW: Check if current time is before work start time
+  static bool isBeforeWorkHours(String? startTime, {int graceMinutes = 30}) {
+    if (startTime == null || !isValidTimeFormat(startTime)) return false;
+    
+    try {
+      final current = getCurrentTime();
+      final workStart = parseTimeString(startTime);
+      final allowedStartTime = subtractMinutes(workStart, graceMinutes);
+      
+      return isTimeBefore(current, allowedStartTime);
+    } catch (e) {
+      print('Error checking if before work hours: $e');
+      return false;
+    }
+  }
+
+  // ✅ NEW: Get remaining work time in minutes
+  static int getRemainingWorkMinutes(String? endTime) {
+    if (endTime == null || !isValidTimeFormat(endTime)) return 0;
+    
+    try {
+      final current = getCurrentTime();
+      final workEnd = parseTimeString(endTime);
+      
+      if (isTimeAfter(current, workEnd)) return 0;
+      
+      return calculateTimeDifference(current, workEnd);
+    } catch (e) {
+      print('Error calculating remaining work time: $e');
+      return 0;
+    }
+  }
 }

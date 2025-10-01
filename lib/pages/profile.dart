@@ -601,20 +601,32 @@ class _ProfilePageState extends State<ProfilePage> {
             ],
           ),
           const SizedBox(height: 20),
-          Text(
-            displayName,
-            style: const TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Text(
+              displayName,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            email,
-            style: const TextStyle(
-              fontSize: 16,
-              color: Colors.white70,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Text(
+              email,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 16,
+                color: Colors.white70,
+              ),
             ),
           ),
           if (_organization != null) ...[
@@ -771,8 +783,12 @@ class _ProfilePageState extends State<ProfilePage> {
                   if (value == null || value.trim().isEmpty) {
                     return 'Display name is required';
                   }
+                  if (value.trim().length > 20) {
+                    return 'Display name maximum 20 characters';
+                  }
                   return null;
                 },
+                maxLength: 20,
               ),
               _buildProfileField(
                 icon: Icons.phone_outlined,
@@ -781,6 +797,13 @@ class _ProfilePageState extends State<ProfilePage> {
                 currentValue: _userProfile?.phone ?? 'Not provided',
                 isEditable: true,
                 keyboardType: TextInputType.phone,
+                validator: (value) {
+                  if (value != null && value.trim().isNotEmpty && value.trim().length > 12) {
+                    return 'Phone number maximum 12 characters';
+                  }
+                  return null;
+                },
+                maxLength: 12,
               ),
               _buildGenderField(),
               _buildDateOfBirthField(),
@@ -1001,6 +1024,7 @@ class _ProfilePageState extends State<ProfilePage> {
     TextInputType? keyboardType,
     String? Function(String?)? validator,
     bool isLast = false,
+    int? maxLength,
   }) {
     final canEdit = _isEditMode && isEditable && controller != null;
     final showTapIndicator = !_isEditMode && (onTap != null || (isEditable && controller != null));
@@ -1058,6 +1082,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         controller: controller,
                         keyboardType: keyboardType,
                         validator: validator,
+                        maxLength: maxLength,
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w500,
@@ -1065,6 +1090,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                         decoration: InputDecoration(
                           border: InputBorder.none,
+                          counterText: maxLength != null ? '' : null,
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
                             borderSide: BorderSide(color: primaryColor, width: 2),

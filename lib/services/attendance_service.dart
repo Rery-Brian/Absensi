@@ -695,141 +695,214 @@ class AttendanceService {
     }
   }
 
-  Future<bool> _performCheckIn(
-    String organizationMemberId, 
-    String today, 
-    DateTime now, 
-    Position currentPosition,
-    String photoUrl,
-    AttendanceDevice? device,
-    MemberSchedule? schedule,
-    AttendanceRecord? existingRecord,
-    WorkScheduleDetails? scheduleDetails
-  ) async {
-    if (existingRecord != null) {
-      Map<String, dynamic> updateData = {
-        'actual_check_in': now.toIso8601String(),
-        'check_in_photo_url': photoUrl,
-        'check_in_location': {
-          'latitude': currentPosition.latitude,
-          'longitude': currentPosition.longitude,
-        },
-        'check_in_method': 'mobile_app',
-        'check_in_device_id': device?.id,
-        'status': 'present',
-        'updated_at': now.toIso8601String(),
-      };
-
-      if (scheduleDetails?.startTime != null) {
-        final scheduledStart = TimeHelper.parseTimeString(scheduleDetails!.startTime!);
-        final actualStart = TimeOfDay.fromDateTime(now);
-        final lateMinutes = _calculateLateMinutes(scheduledStart, actualStart);
-        if (lateMinutes > 0) {
-          updateData['late_minutes'] = lateMinutes;
-        }
+Future<Map<String, dynamic>> getTodayCycleSummary(String organizationMemberId) async {
+  try {
+    await _validateUserAccess(organizationMemberId);
+    
+    final todayLogs = await getTodayAttendanceLogs(organizationMemberId);
+    
+    List<Map<String, dynamic>> cycles = [];
+    DateTime? currentCheckIn;
+    int totalWorkMinutes = 0;
+    
+    for (var log in todayLogs) {
+      if (log.eventType == 'check_in') {
+        currentCheckIn = log.eventTime;
+      } else if (log.eventType == 'check_out' && currentCheckIn != null) {
+        final duration = log.eventTime.difference(currentCheckIn).inMinutes;
+        totalWorkMinutes += duration;
+        
+        cycles.add({
+          'check_in': currentCheckIn.toIso8601String(), // Convert to String
+          'check_out': log.eventTime.toIso8601String(), // Convert to String
+          'duration_minutes': duration,
+        });
+        
+        currentCheckIn = null;
       }
-
-      await _supabase
-          .from('attendance_records')
-          .update(updateData)
-          .eq('id', existingRecord.id);
-
-    } else {
-      Map<String, dynamic> newRecordData = {
-        'organization_member_id': organizationMemberId,
-        'attendance_date': today,
-        'actual_check_in': now.toIso8601String(),
-        'check_in_photo_url': photoUrl,
-        'check_in_location': {
-          'latitude': currentPosition.latitude,
-          'longitude': currentPosition.longitude,
-        },
-        'check_in_method': 'mobile_app',
-        'check_in_device_id': device?.id,
-        'status': 'present',
-        'scheduled_shift_id': schedule?.shiftId,
-        'validation_status': 'pending',
-      };
-
-      if (scheduleDetails != null) {
-        if (scheduleDetails.startTime != null) {
-          newRecordData['scheduled_start'] = scheduleDetails.startTime;
-          final scheduledStart = TimeHelper.parseTimeString(scheduleDetails.startTime!);
-          final actualStart = TimeOfDay.fromDateTime(now);
-          final lateMinutes = _calculateLateMinutes(scheduledStart, actualStart);
-          if (lateMinutes > 0) {
-            newRecordData['late_minutes'] = lateMinutes;
-          }
-        }
-        if (scheduleDetails.endTime != null) {
-          newRecordData['scheduled_end'] = scheduleDetails.endTime;
-        }
-      }
-
-      await _supabase.from('attendance_records').insert(newRecordData);
     }
-
-    await _logAttendanceEvent(
-      organizationMemberId, 'check_in', now, currentPosition, device
-    );
-
-    return true;
+    
+    // Tambahkan ongoing cycle jika ada
+    if (currentCheckIn != null) {
+      final ongoingDuration = TimezoneHelper.nowInOrgTime().difference(currentCheckIn).inMinutes;
+      cycles.add({
+        'check_in': currentCheckIn.toIso8601String(), // Convert to String
+        'check_out': null, // Ongoing
+        'duration_minutes': ongoingDuration,
+      });
+      totalWorkMinutes += ongoingDuration;
+    }
+    
+    return {
+      'total_cycles': cycles.length,
+      'completed_cycles': cycles.where((c) => c['check_out'] != null).length,
+      'ongoing_cycle': currentCheckIn != null,
+      'total_work_minutes': totalWorkMinutes,
+      'cycles': cycles,
+    };
+  } catch (e) {
+    debugPrint('Error getting cycle summary: $e');
+    return {
+      'total_cycles': 0,
+      'completed_cycles': 0,
+      'ongoing_cycle': false,
+      'total_work_minutes': 0,
+      'cycles': [],
+    };
   }
+}
 
-  Future<bool> _performCheckOut(
-    String organizationMemberId,
-    DateTime now,
-    Position currentPosition,
-    String photoUrl,
-    AttendanceDevice? device,
-    AttendanceRecord existingRecord,
-    WorkScheduleDetails? scheduleDetails
-  ) async {
-    Map<String, dynamic> updateData = {
-      'actual_check_out': now.toIso8601String(),
-      'check_out_photo_url': photoUrl,
-      'check_out_location': {
+ Future<bool> _performCheckIn(
+  String organizationMemberId, 
+  String today, 
+  DateTime now, 
+  Position currentPosition,
+  String photoUrl,
+  AttendanceDevice? device,
+  MemberSchedule? schedule,
+  AttendanceRecord? existingRecord,
+  WorkScheduleDetails? scheduleDetails
+) async {
+  // ✅ STRATEGI: 
+  // - Check-in pertama → buat record + log
+  // - Check-in kedua dst → hanya buat log baru (tidak update record)
+  
+  if (existingRecord == null) {
+    // ========== CHECK-IN PERTAMA: Buat attendance_records ==========
+    Map<String, dynamic> newRecordData = {
+      'organization_member_id': organizationMemberId,
+      'attendance_date': today,
+      'actual_check_in': now.toIso8601String(),
+      'check_in_photo_url': photoUrl,
+      'check_in_location': {
         'latitude': currentPosition.latitude,
         'longitude': currentPosition.longitude,
       },
-      'check_out_method': 'mobile_app',
-      'check_out_device_id': device?.id,
-      'updated_at': now.toIso8601String(),
+      'check_in_method': 'mobile_app',
+      'check_in_device_id': device?.id,
+      'status': 'present',
+      'scheduled_shift_id': schedule?.shiftId,
+      'validation_status': 'pending',
     };
 
-    if (existingRecord.actualCheckIn != null) {
-      final workDuration = now.difference(existingRecord.actualCheckIn!).inMinutes;
-      updateData['work_duration_minutes'] = workDuration;
-
-      if (scheduleDetails?.minimumHours != null) {
-        final expectedMinutes = (scheduleDetails!.minimumHours! * 60).toInt();
-        final overtimeMinutes = workDuration - expectedMinutes;
-        if (overtimeMinutes > 0) {
-          updateData['overtime_minutes'] = overtimeMinutes;
+    if (scheduleDetails != null) {
+      if (scheduleDetails.startTime != null) {
+        newRecordData['scheduled_start'] = scheduleDetails.startTime;
+        final scheduledStart = TimeHelper.parseTimeString(scheduleDetails.startTime!);
+        final actualStart = TimeOfDay.fromDateTime(now);
+        final lateMinutes = _calculateLateMinutes(scheduledStart, actualStart);
+        if (lateMinutes > 0) {
+          newRecordData['late_minutes'] = lateMinutes;
         }
       }
-    }
-
-    if (scheduleDetails?.endTime != null) {
-      final scheduledEnd = TimeHelper.parseTimeString(scheduleDetails!.endTime!);
-      final actualEnd = TimeOfDay.fromDateTime(now);
-      final earlyMinutes = _calculateEarlyLeaveMinutes(scheduledEnd, actualEnd);
-      if (earlyMinutes > 0) {
-        updateData['early_leave_minutes'] = earlyMinutes;
+      if (scheduleDetails.endTime != null) {
+        newRecordData['scheduled_end'] = scheduleDetails.endTime;
       }
     }
 
-    await _supabase
-        .from('attendance_records')
-        .update(updateData)
-        .eq('id', existingRecord.id);
-
-    await _logAttendanceEvent(
-      organizationMemberId, 'check_out', now, currentPosition, device
-    );
-
-    return true;
+    await _supabase.from('attendance_records').insert(newRecordData);
+    debugPrint('✓ First check-in: Created attendance_records entry');
+  } else {
+    // ========== CHECK-IN KEDUA/KETIGA/DST: Skip update attendance_records ==========
+    final checkInCount = await getTodayCheckInCount(organizationMemberId);
+    debugPrint('✓ Subsequent check-in (#${checkInCount + 1}): Adding new log only');
   }
+
+  // ========== SELALU BUAT LOG BARU ==========
+  await _logAttendanceEvent(
+    organizationMemberId, 'check_in', now, currentPosition, device
+  );
+
+  final totalCheckIns = await getTodayCheckInCount(organizationMemberId) + 1;
+  debugPrint('✓ Check-in logged at ${now.toIso8601String()} - Total: $totalCheckIns');
+  
+  return true;
+}
+
+  Future<bool> _performCheckOut(
+  String organizationMemberId,
+  DateTime now,
+  Position currentPosition,
+  String photoUrl,
+  AttendanceDevice? device,
+  AttendanceRecord existingRecord,
+  WorkScheduleDetails? scheduleDetails
+) async {
+  // ✅ PERUBAHAN: Check-out sekarang hanya update log, tidak update record
+  // Record akan di-update hanya pada checkout terakhir (jika diperlukan)
+  
+  final todayLogs = await getTodayAttendanceLogs(organizationMemberId);
+  final checkInCount = todayLogs.where((log) => log.eventType == 'check_in').length;
+  final checkOutCount = todayLogs.where((log) => log.eventType == 'check_out').length;
+  
+  // Hitung total work duration dari semua cycles
+  int totalWorkMinutes = 0;
+  DateTime? currentCycleStart;
+  
+  for (var log in todayLogs) {
+    if (log.eventType == 'check_in') {
+      currentCycleStart = log.eventTime;
+    } else if (log.eventType == 'check_out' && currentCycleStart != null) {
+      totalWorkMinutes += log.eventTime.difference(currentCycleStart).inMinutes;
+      currentCycleStart = null;
+    }
+  }
+  
+  // Tambahkan cycle saat ini (yang akan di-checkout)
+  if (currentCycleStart == null && existingRecord.actualCheckIn != null) {
+    currentCycleStart = existingRecord.actualCheckIn!;
+  }
+  
+  if (currentCycleStart != null) {
+    totalWorkMinutes += now.difference(currentCycleStart).inMinutes;
+  }
+  
+  // Update attendance record
+  Map<String, dynamic> updateData = {
+    'actual_check_out': now.toIso8601String(),
+    'check_out_photo_url': photoUrl,
+    'check_out_location': {
+      'latitude': currentPosition.latitude,
+      'longitude': currentPosition.longitude,
+    },
+    'check_out_method': 'mobile_app',
+    'check_out_device_id': device?.id,
+    'work_duration_minutes': totalWorkMinutes,
+    'updated_at': now.toIso8601String(),
+  };
+
+  // Hitung overtime jika ada
+  if (scheduleDetails?.minimumHours != null) {
+    final expectedMinutes = (scheduleDetails!.minimumHours! * 60).toInt();
+    final overtimeMinutes = totalWorkMinutes - expectedMinutes;
+    if (overtimeMinutes > 0) {
+      updateData['overtime_minutes'] = overtimeMinutes;
+    }
+  }
+
+  // Hitung early leave jika checkout lebih awal dari jadwal
+  if (scheduleDetails?.endTime != null) {
+    final scheduledEnd = TimeHelper.parseTimeString(scheduleDetails!.endTime!);
+    final actualEnd = TimeOfDay.fromDateTime(now);
+    final earlyMinutes = _calculateEarlyLeaveMinutes(scheduledEnd, actualEnd);
+    if (earlyMinutes > 0) {
+      updateData['early_leave_minutes'] = earlyMinutes;
+    }
+  }
+
+  await _supabase
+      .from('attendance_records')
+      .update(updateData)
+      .eq('id', existingRecord.id);
+
+  // Buat log check-out
+  await _logAttendanceEvent(
+    organizationMemberId, 'check_out', now, currentPosition, device
+  );
+
+  debugPrint('✓ Check-out #${checkOutCount + 1} completed. Total work: ${totalWorkMinutes}min');
+  return true;
+}
 
   Future<bool> _performBreakOut(
     String organizationMemberId,
@@ -896,75 +969,140 @@ class AttendanceService {
     });
   }
 
-  Future<void> _validateAttendanceSequence(
-    String type, 
-    AttendanceRecord? existingRecord, 
-    List<AttendanceLog> todayLogs,
-    WorkScheduleDetails? scheduleDetails
-  ) async {
-    final now = TimeHelper.getCurrentTime();
-    
-    if (scheduleDetails != null && !scheduleDetails.isWorkingDay) {
-      throw _ValidationException('Today is not a working day according to your schedule.');
+ Future<void> _validateAttendanceSequence(
+  String type, 
+  AttendanceRecord? existingRecord, 
+  List<AttendanceLog> todayLogs,
+  WorkScheduleDetails? scheduleDetails
+) async {
+  final now = TimeHelper.getCurrentTime();
+  
+  if (scheduleDetails != null && !scheduleDetails.isWorkingDay) {
+    throw _ValidationException('Today is not a working day according to your schedule.');
+  }
+
+  // ✅ TAMBAHAN BARU: Validasi work hours untuk check-in dan check-out
+  if (scheduleDetails?.startTime != null && scheduleDetails?.endTime != null) {
+    final isBeforeWork = TimeHelper.isBeforeWorkHours(
+      scheduleDetails!.startTime!,
+      graceMinutes: 30
+    );
+    final isAfterWork = TimeHelper.isAfterWorkHours(
+      scheduleDetails.endTime!,
+      graceMinutes: 30
+    );
+
+    // Cegah check-in jika sudah melewati jam kerja
+    if (type == 'check_in' && isAfterWork) {
+      final endTime = scheduleDetails.endTime!;
+      throw _ValidationException(
+        'Work hours have ended. Check-in is only allowed until 30 minutes after $endTime.'
+      );
     }
 
-    final lastLog = todayLogs.isNotEmpty ? todayLogs.last : null;
+    // Cegah check-in jika terlalu pagi
+    if (type == 'check_in' && isBeforeWork) {
+      final startTime = scheduleDetails.startTime!;
+      throw _ValidationException(
+        'Check-in is too early. You can check in starting 30 minutes before $startTime.'
+      );
+    }
 
-    switch (type) {
-      case 'check_in':
-        if (existingRecord?.hasCheckedIn == true) {
-          throw _ValidationException('You have already checked in today.');
-        }
-        if (scheduleDetails?.startTime != null) {
-          final scheduledStart = TimeHelper.parseTimeString(scheduleDetails!.startTime!);
-          final maxEarlyMinutes = 30;
-          if (_isTimeBeforeScheduled(now, scheduledStart, maxEarlyMinutes)) {
-            throw _ValidationException('Check-in is too early. You can check in 30 minutes before ${scheduleDetails.startTime}.');
-          }
-        }
-        break;
-        
-      case 'check_out':
-        if (existingRecord?.hasCheckedIn != true) {
-          throw _ValidationException('You must check in before you can check out.');
-        }
-        if (existingRecord?.hasCheckedOut == true) {
-          throw _ValidationException('You have already checked out for today.');
-        }
-        if (existingRecord?.actualCheckIn != null && scheduleDetails?.minimumHours != null) {
-          final workHours = DateTime.now().difference(existingRecord!.actualCheckIn!).inHours;
-          if (workHours < scheduleDetails!.minimumHours!) {
-            throw _ValidationException('You need to complete at least ${scheduleDetails.minimumHours} hours before checking out.');
-          }
-        }
-        break;
-        
-      case 'break_out':
-        if (existingRecord?.hasCheckedIn != true) {
-          throw _ValidationException('You must check in before taking a break.');
-        }
-        if (lastLog?.eventType == 'break_out') {
-          throw _ValidationException('You are already on break. Please resume work first.');
-        }
-        if (scheduleDetails?.breakStart != null && scheduleDetails?.breakEnd != null) {
-          final breakStart = TimeHelper.parseTimeString(scheduleDetails!.breakStart!);
-          final breakEnd = TimeHelper.parseTimeString(scheduleDetails.breakEnd!);
-          if (!_isWithinBreakWindow(now, breakStart, breakEnd)) {
-            throw _ValidationException('Break time is ${scheduleDetails.breakStart} - ${scheduleDetails.breakEnd}. Please wait for the break period.');
-          }
-        }
-        break;
-        
-      case 'break_in':
-        if (existingRecord?.hasCheckedIn != true) {
-          throw _ValidationException('You must check in first before resuming work.');
-        }
-        if (lastLog?.eventType != 'break_out') {
-          throw _ValidationException('You are not currently on break.');
-        }
-        break;
+    // Cegah check-out jika sudah melewati jam kerja
+    if (type == 'check_out' && isAfterWork) {
+      final endTime = scheduleDetails.endTime!;
+      throw _ValidationException(
+        'Work hours have ended. Check-out is only allowed until 30 minutes after $endTime.'
+      );
     }
   }
+
+  final lastLog = todayLogs.isNotEmpty ? todayLogs.last : null;
+
+  switch (type) {
+    case 'check_in':
+      if (lastLog?.eventType == 'break_out') {
+        throw _ValidationException('You are currently on break. Please resume work before checking in again.');
+      }
+      
+      if (scheduleDetails?.startTime != null) {
+        final scheduledStart = TimeHelper.parseTimeString(scheduleDetails!.startTime!);
+        final maxEarlyMinutes = 30;
+        if (_isTimeBeforeScheduled(now, scheduledStart, maxEarlyMinutes)) {
+          throw _ValidationException('Check-in is too early. You can check in 30 minutes before ${scheduleDetails.startTime}.');
+        }
+      }
+      
+      debugPrint('✓ Check-in validation passed (multiple check-ins allowed)');
+      break;
+      
+    case 'check_out':
+      final checkInLogs = todayLogs.where((log) => log.eventType == 'check_in').toList();
+      final checkOutLogs = todayLogs.where((log) => log.eventType == 'check_out').toList();
+      
+      if (checkInLogs.isEmpty) {
+        throw _ValidationException('You must check in before you can check out.');
+      }
+      
+      if (checkOutLogs.length >= checkInLogs.length) {
+        throw _ValidationException('You have already checked out. Please check in first before checking out again.');
+      }
+      
+      if (lastLog?.eventType == 'break_out') {
+        throw _ValidationException('You are currently on break. Please resume work before checking out.');
+      }
+      
+      if (existingRecord?.actualCheckIn != null && scheduleDetails?.minimumHours != null) {
+        final totalWorkMinutes = DateTime.now().difference(existingRecord!.actualCheckIn!).inMinutes;
+        final breakMinutes = existingRecord.breakDurationMinutes ?? 0;
+        final netWorkHours = (totalWorkMinutes - breakMinutes) / 60;
+        
+        if (netWorkHours < scheduleDetails!.minimumHours!) {
+          throw _ValidationException('You need to complete at least ${scheduleDetails.minimumHours} hours before checking out.');
+        }
+      }
+      
+      debugPrint('✓ Check-out validation passed');
+      break;
+      
+    case 'break_out':
+      if (existingRecord?.hasCheckedIn != true) {
+        throw _ValidationException('You must check in before taking a break.');
+      }
+      if (lastLog?.eventType == 'break_out') {
+        throw _ValidationException('You are already on break. Please resume work first.');
+      }
+      if (scheduleDetails?.breakStart != null && scheduleDetails?.breakEnd != null) {
+        final breakStart = TimeHelper.parseTimeString(scheduleDetails!.breakStart!);
+        final breakEnd = TimeHelper.parseTimeString(scheduleDetails.breakEnd!);
+        if (!_isWithinBreakWindow(now, breakStart, breakEnd)) {
+          throw _ValidationException('Break time is ${scheduleDetails.breakStart} - ${scheduleDetails.breakEnd}. Please wait for the break period.');
+        }
+      }
+      break;
+      
+    case 'break_in':
+      if (existingRecord?.hasCheckedIn != true) {
+        throw _ValidationException('You must check in first before resuming work.');
+      }
+      if (lastLog?.eventType != 'break_out') {
+        throw _ValidationException('You are not currently on break.');
+      }
+      break;
+  }
+}
+
+bool _isWithinWorkHours(WorkScheduleDetails? scheduleDetails, {int graceMinutes = 30}) {
+  if (scheduleDetails?.startTime == null || scheduleDetails?.endTime == null) {
+    return true; // Jika tidak ada jadwal, izinkan
+  }
+
+  return TimeHelper.isWithinWorkHours(
+    scheduleDetails!.startTime!,
+    scheduleDetails.endTime!,
+    graceMinutes: graceMinutes,
+  );
+}
 
   bool _isTimeBeforeScheduled(TimeOfDay current, TimeOfDay scheduled, int maxEarlyMinutes) {
     final currentMinutes = TimeHelper.timeToMinutes(current);
@@ -985,113 +1123,181 @@ class AttendanceService {
     final diff = TimeHelper.calculateTimeDifference(actual, scheduled);
     return TimeHelper.isTimeBefore(actual, scheduled) ? diff : 0;
   }
+Future<int> getTodayCheckInCount(String organizationMemberId) async {
+  try {
+    await _validateUserAccess(organizationMemberId);
+    
+    final today = TimezoneHelper.getTodayDateString();
+    final startOfDay = '$today 00:00:00';
+    final endOfDay = '$today 23:59:59';
+    
+    final response = await _supabase
+        .from('attendance_logs')
+        .select('id')
+        .eq('organization_member_id', organizationMemberId)
+        .eq('event_type', 'check_in')
+        .gte('event_time', startOfDay)
+        .lte('event_time', endOfDay);
 
-  Future<AttendanceStatus> getCurrentAttendanceStatus(String organizationMemberId) async {
-    try {
-      await _validateUserAccess(organizationMemberId);
-      
-      final todayRecords = await loadTodayAttendanceRecords(organizationMemberId);
-      final todayLogs = await getTodayAttendanceLogs(organizationMemberId);
-      
-      final existingRecord = todayRecords.isNotEmpty ? todayRecords.first : null;
-      final lastLog = todayLogs.isNotEmpty ? todayLogs.last : null;
-
-      if (existingRecord == null || !existingRecord.hasCheckedIn) {
-        return AttendanceStatus.notCheckedIn;
-      }
-
-      if (existingRecord.hasCheckedOut) {
-        return AttendanceStatus.checkedOut;
-      }
-
-      if (lastLog?.eventType == 'break_out') {
-        return AttendanceStatus.onBreak;
-      }
-
-      return AttendanceStatus.working;
-    } catch (e) {
-      debugPrint('Error getting attendance status: $e');
-      return AttendanceStatus.unknown;
-    }
+    return List<Map<String, dynamic>>.from(response).length;
+  } catch (e) {
+    debugPrint('Error getting check-in count: $e');
+    return 0;
   }
+}
+Future<List<DateTime>> getTodayCheckInTimes(String organizationMemberId) async {
+  try {
+    await _validateUserAccess(organizationMemberId);
+    
+    final today = TimezoneHelper.getTodayDateString();
+    final startOfDay = '$today 00:00:00';
+    final endOfDay = '$today 23:59:59';
+    
+    final response = await _supabase
+        .from('attendance_logs')
+        .select('event_time')
+        .eq('organization_member_id', organizationMemberId)
+        .eq('event_type', 'check_in')
+        .gte('event_time', startOfDay)
+        .lte('event_time', endOfDay)
+        .order('event_time', ascending: true);
 
-  Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) async {
-    try {
-      await _validateUserAccess(organizationMemberId);
-      
-      final status = await getCurrentAttendanceStatus(organizationMemberId);
-      final schedule = await loadCurrentSchedule(organizationMemberId);
-      
-      WorkScheduleDetails? scheduleDetails;
-      if (schedule?.workScheduleId != null) {
-        final dayOfWeek = TimeHelper.getCurrentDayOfWeek();
-        scheduleDetails = await loadWorkScheduleDetails(schedule!.workScheduleId!, dayOfWeek);
-      }
-
-      final currentTime = TimeHelper.getCurrentTime();
-      List<AttendanceAction> actions = [];
-
-      switch (status) {
-        case AttendanceStatus.notCheckedIn:
-          actions.add(AttendanceAction(
-            type: 'check_in',
-            label: 'Check In',
-            isEnabled: _canCheckIn(currentTime, scheduleDetails),
-            reason: _getCheckInReason(currentTime, scheduleDetails),
-          ));
-          break;
-
-        case AttendanceStatus.working:
-          if (_canTakeBreak(currentTime, scheduleDetails)) {
-            actions.add(AttendanceAction(
-              type: 'break_out',
-              label: 'Take Break',
-              isEnabled: true,
-            ));
-          }
-          
-          if (_canCheckOut(scheduleDetails)) {
-            actions.add(AttendanceAction(
-              type: 'check_out',
-              label: 'Check Out',
-              isEnabled: true,
-            ));
-          } else {
-            actions.add(AttendanceAction(
-              type: 'check_out',
-              label: 'Check Out',
-              isEnabled: false,
-              reason: 'Please complete your minimum work hours before checking out.',
-            ));
-          }
-          break;
-
-        case AttendanceStatus.onBreak:
-          actions.add(AttendanceAction(
-            type: 'break_in',
-            label: 'Resume Work',
-            isEnabled: true,
-          ));
-          break;
-
-        case AttendanceStatus.checkedOut:
-          break;
-
-        case AttendanceStatus.unknown:
-          actions.add(AttendanceAction(
-            type: 'check_in',
-            label: 'Check In',
-            isEnabled: true,
-          ));
-          break;
-      }
-
-      return actions;
-    } catch (e) {
-      debugPrint('Error getting available actions: $e');
-      return [];
-    }
+    return List<Map<String, dynamic>>.from(response)
+        .map((log) => DateTime.parse(log['event_time'] as String))
+        .toList();
+  } catch (e) {
+    debugPrint('Error getting check-in times: $e');
+    return [];
   }
+}
+ Future<AttendanceStatus> getCurrentAttendanceStatus(String organizationMemberId) async {
+  try {
+    await _validateUserAccess(organizationMemberId);
+    
+    final todayRecords = await loadTodayAttendanceRecords(organizationMemberId);
+    final todayLogs = await getTodayAttendanceLogs(organizationMemberId);
+    
+    final existingRecord = todayRecords.isNotEmpty ? todayRecords.first : null;
+    final lastLog = todayLogs.isNotEmpty ? todayLogs.last : null;
+
+    // ✅ PERUBAHAN: Cek dari logs, bukan dari record
+    final checkInLogs = todayLogs.where((log) => log.eventType == 'check_in').toList();
+    final checkOutLogs = todayLogs.where((log) => log.eventType == 'check_out').toList();
+
+    // Jika belum ada check-in sama sekali
+    if (checkInLogs.isEmpty) {
+      return AttendanceStatus.notCheckedIn;
+    }
+
+    // Jika semua check-in sudah di-checkout (balanced)
+    if (checkOutLogs.length >= checkInLogs.length) {
+      return AttendanceStatus.notCheckedIn; // ✅ Ubah dari checkedOut ke notCheckedIn
+    }
+
+    // Jika sedang break
+    if (lastLog?.eventType == 'break_out') {
+      return AttendanceStatus.onBreak;
+    }
+
+    // Jika ada check-in yang belum di-checkout
+    return AttendanceStatus.working;
+    
+  } catch (e) {
+    debugPrint('Error getting attendance status: $e');
+    return AttendanceStatus.unknown;
+  }
+}
+ 
+Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) async {
+  try {
+    await _validateUserAccess(organizationMemberId);
+    
+    final status = await getCurrentAttendanceStatus(organizationMemberId);
+    final schedule = await loadCurrentSchedule(organizationMemberId);
+    
+    WorkScheduleDetails? scheduleDetails;
+    if (schedule?.workScheduleId != null) {
+      final dayOfWeek = TimeHelper.getCurrentDayOfWeek();
+      scheduleDetails = await loadWorkScheduleDetails(schedule!.workScheduleId!, dayOfWeek);
+    }
+
+    final currentTime = TimeHelper.getCurrentTime();
+    List<AttendanceAction> actions = [];
+
+    // ✅ CEK: Apakah sudah melewati work hours?
+    final isAfterWorkHours = scheduleDetails?.endTime != null 
+        ? TimeHelper.isAfterWorkHours(scheduleDetails!.endTime!, graceMinutes: 30)
+        : false;
+    
+    final isBeforeWorkHours = scheduleDetails?.startTime != null
+        ? TimeHelper.isBeforeWorkHours(scheduleDetails!.startTime!, graceMinutes: 30)
+        : false;
+
+    switch (status) {
+      case AttendanceStatus.notCheckedIn:
+        actions.add(AttendanceAction(
+          type: 'check_in',
+          label: 'Check In',
+          isEnabled: !isAfterWorkHours && !isBeforeWorkHours && _canCheckIn(currentTime, scheduleDetails),
+          reason: isAfterWorkHours 
+              ? 'Work hours have ended for today'
+              : isBeforeWorkHours
+                  ? 'Too early to check in'
+                  : _getCheckInReason(currentTime, scheduleDetails),
+        ));
+        break;
+
+      case AttendanceStatus.working:
+        if (_canTakeBreak(currentTime, scheduleDetails)) {
+          actions.add(AttendanceAction(
+            type: 'break_out',
+            label: 'Take Break',
+            isEnabled: !isAfterWorkHours,
+            reason: isAfterWorkHours ? 'Work hours have ended' : null,
+          ));
+        }
+        
+        actions.add(AttendanceAction(
+          type: 'check_out',
+          label: 'Check Out',
+          isEnabled: !isAfterWorkHours,
+          reason: isAfterWorkHours ? 'Work hours have ended for today' : null,
+        ));
+        break;
+
+      case AttendanceStatus.onBreak:
+        actions.add(AttendanceAction(
+          type: 'break_in',
+          label: 'Resume Work',
+          isEnabled: !isAfterWorkHours,
+          reason: isAfterWorkHours ? 'Work hours have ended' : null,
+        ));
+        break;
+
+      case AttendanceStatus.checkedOut:
+        break;
+
+      case AttendanceStatus.unknown:
+        actions.add(AttendanceAction(
+          type: 'check_in',
+          label: 'Check In',
+          isEnabled: !isAfterWorkHours && !isBeforeWorkHours,
+          reason: isAfterWorkHours 
+              ? 'Work hours have ended for today'
+              : isBeforeWorkHours
+                  ? 'Too early to check in'
+                  : null,
+        ));
+        break;
+    }
+
+    return actions;
+  } catch (e) {
+    debugPrint('Error getting available actions: $e');
+    return [];
+  }
+}
+
 
   bool _canCheckIn(TimeOfDay currentTime, WorkScheduleDetails? scheduleDetails) {
     if (scheduleDetails?.startTime == null) return true;
