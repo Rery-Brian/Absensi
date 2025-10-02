@@ -52,13 +52,23 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
     super.dispose();
   }
 
-  void _initializeData() async {
+void _initializeData() async {
     if (!mounted) return;
     
     try {
+      // Pastikan timezone sudah terinisialisasi sebelum memanggil method lain
+      if (!TimezoneHelper.isInitialized) {
+        TimezoneHelper.initialize('UTC');
+      }
+      
       final now = TimezoneHelper.nowInOrgTime();
-      _selectedDay = now;
-      _focusedDay = now;
+      
+      if (mounted) {
+        setState(() {
+          _selectedDay = now;
+          _focusedDay = now;
+        });
+      }
       
       await _loadAllData();
       
@@ -69,6 +79,7 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
       }
     } catch (e) {
       debugPrint('Error initializing data: $e');
+      debugPrint('Stack trace: ${StackTrace.current}');
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -461,94 +472,116 @@ Map<String, dynamic> _processAttendanceDataFromLogs(
     showDialog(
       context: context,
       builder: (BuildContext context) {
+        final screenSize = MediaQuery.of(context).size;
+        final isLandscape = screenSize.width > screenSize.height;
+        final maxWidth = screenSize.width * (isLandscape ? 0.7 : 0.85);
+        final maxHeight = screenSize.height * 0.85;
+        
         return Dialog(
           backgroundColor: Colors.transparent,
           child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
+            constraints: BoxConstraints(
+              maxWidth: maxWidth,
+              maxHeight: maxHeight,
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
+            child: SingleChildScrollView(
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      _getEventIcon(event['type']),
-                      color: _getEventColor(event['type']),
-                      size: 24,
+                    Row(
+                      children: [
+                        Icon(
+                          _getEventIcon(event['type']),
+                          color: _getEventColor(event['type']),
+                          size: 24,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            _getEventLabel(event['type']),
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 12),
-                    Text(
-                      _getEventLabel(event['type']),
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
+                    const SizedBox(height: 20),
+                    if (event['photo_url'] != null) ...[
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final photoSize = constraints.maxWidth > 300 
+                              ? 250.0 
+                              : constraints.maxWidth * 0.8;
+                          
+                          return GestureDetector(
+                            onTap: () => _showFullImage(context, event['photo_url']),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: CachedNetworkImage(
+                                imageUrl: event['photo_url'],
+                                width: photoSize,
+                                height: photoSize,
+                                fit: BoxFit.cover,
+                                placeholder: (context, url) => Container(
+                                  width: photoSize,
+                                  height: photoSize,
+                                  color: Colors.grey[200],
+                                  child: const Center(child: CircularProgressIndicator()),
+                                ),
+                                errorWidget: (context, url, error) => Container(
+                                  width: photoSize,
+                                  height: photoSize,
+                                  color: Colors.grey[200],
+                                  child: const Icon(Icons.error),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       ),
-                    ),
-                    const Spacer(),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close),
+                      const SizedBox(height: 20),
+                    ],
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: primaryColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        children: [
+                          _buildDetailRow(Icons.calendar_today, 'Date',
+                              TimezoneHelper.formatOrgTime(orgTime, 'EEEE, dd MMMM yyyy')),
+                          _buildDetailRow(Icons.access_time, 'Time',
+                              '${TimezoneHelper.formatOrgTime(orgTime, 'HH:mm:ss')} ${TimezoneHelper.currentTimeZone.name}'),
+                          if (event['late_minutes'] != null && event['late_minutes'] > 0)
+                            _buildDetailRow(Icons.schedule, 'Late',
+                                '${event['late_minutes']} minutes'),
+                          if (event['early_leave_minutes'] != null && event['early_leave_minutes'] > 0)
+                            _buildDetailRow(Icons.schedule, 'Early Leave',
+                                _formatEarlyLeave(event['early_leave_minutes'])),
+                          if (event['work_duration_minutes'] != null)
+                            _buildDetailRow(Icons.work, 'Work Duration',
+                                '${(event['work_duration_minutes'] / 60).toStringAsFixed(1)} hours'),
+                          if (deviceName != null)
+                            _buildDetailRow(Icons.devices, 'Location', deviceName),
+                        ],
+                      ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
-                if (event['photo_url'] != null) ...[
-                  GestureDetector(
-                    onTap: () => _showFullImage(context, event['photo_url']),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: CachedNetworkImage(
-                        imageUrl: event['photo_url'],
-                        width: 250,
-                        height: 250,
-                        fit: BoxFit.cover,
-                        placeholder: (context, url) => Container(
-                          width: 250,
-                          height: 250,
-                          color: Colors.grey[200],
-                          child: const Center(child: CircularProgressIndicator()),
-                        ),
-                        errorWidget: (context, url, error) => Container(
-                          width: 250,
-                          height: 250,
-                          color: Colors.grey[200],
-                          child: const Icon(Icons.error),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                ],
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: primaryColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    children: [
-                      _buildDetailRow(Icons.calendar_today, 'Date',
-                          TimezoneHelper.formatOrgTime(orgTime, 'EEEE, dd MMMM yyyy')),
-                      _buildDetailRow(Icons.access_time, 'Time',
-                          '${TimezoneHelper.formatOrgTime(orgTime, 'HH:mm:ss')} ${TimezoneHelper.currentTimeZone.name}'),
-                      if (event['late_minutes'] != null && event['late_minutes'] > 0)
-                        _buildDetailRow(Icons.schedule, 'Late',
-                            '${event['late_minutes']} minutes'),
-                      if (event['early_leave_minutes'] != null && event['early_leave_minutes'] > 0)
-                        _buildDetailRow(Icons.schedule, 'Early Leave',
-                            _formatEarlyLeave(event['early_leave_minutes'])),
-                      if (event['work_duration_minutes'] != null)
-                        _buildDetailRow(Icons.work, 'Work Duration',
-                            '${(event['work_duration_minutes'] / 60).toStringAsFixed(1)} hours'),
-                      if (deviceName != null)
-                        _buildDetailRow(Icons.devices, 'Location', deviceName),
-                    ],
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
         );
