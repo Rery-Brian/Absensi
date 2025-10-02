@@ -132,6 +132,55 @@ class _CameraSelfieScreenState extends State<CameraSelfieScreen>
     }
   }
 
+  Widget _buildCameraPreview() {
+    if (_controller == null || !_controller!.value.isInitialized) {
+      return Container(
+        width: double.infinity,
+        height: double.infinity,
+        color: backgroundColor,
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Initializing camera...',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final size = MediaQuery.of(context).size;
+    final isLandscape = size.width > size.height;
+    
+    // Get preview size
+    final previewSize = _controller!.value.previewSize!;
+    
+    // Swap dimensions based on orientation
+    final previewWidth = isLandscape ? previewSize.width : previewSize.height;
+    final previewHeight = isLandscape ? previewSize.height : previewSize.width;
+
+    return SizedBox.expand(
+      child: FittedBox(
+        fit: BoxFit.cover,
+        child: SizedBox(
+          width: previewWidth,
+          height: previewHeight,
+          child: CameraPreview(_controller!),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -139,43 +188,9 @@ class _CameraSelfieScreenState extends State<CameraSelfieScreen>
       body: Stack(
         children: [
           // Camera Preview
-          if (_isInitialized && _controller != null)
-            Positioned.fill(
-              child: SizedBox.expand(
-                child: FittedBox(
-                  fit: BoxFit.cover,
-                  child: SizedBox(
-                    width: _controller!.value.previewSize!.height,
-                    height: _controller!.value.previewSize!.width,
-                    child: CameraPreview(_controller!),
-                  ),
-                ),
-              ),
-            )
-          else
-            Container(
-              width: double.infinity,
-              height: double.infinity,
-              color: backgroundColor,
-              child: Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Initializing camera...',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+          Positioned.fill(
+            child: _buildCameraPreview(),
+          ),
 
           // Top Back Button Only
           Positioned(

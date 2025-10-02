@@ -1184,94 +1184,129 @@ class _DashboardContentState extends State<_DashboardContent> {
       builder: (BuildContext context) {
         return Dialog(
           backgroundColor: Colors.transparent,
-          child: Container(
-            width: MediaQuery.of(context).size.width * 0.85,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [primaryColor, primaryColor.withOpacity(0.8)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.3),
-                  blurRadius: 20,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 20),
-                  child: Column(
-                    children: [
-                      Container(
-                        width: 80,
-                        height: 80,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.2),
-                              blurRadius: 15,
-                              offset: const Offset(0, 5),
-                            ),
-                          ],
-                        ),
-                        child: Icon(Icons.check_circle, size: 40, color: primaryColor),
-                      ),
-                      const SizedBox(height: 20),
-                      const Text(
-                        'Attendance Successful!',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _getAttendanceTypeLabel(type),
-                        style: const TextStyle(color: Colors.white70, fontSize: 16),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        TimezoneHelper.formatAttendanceDateTime(orgTime),
-                        style: const TextStyle(color: Colors.white70, fontSize: 14),
-                        textAlign: TextAlign.center,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // Deteksi orientasi
+              final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+              
+              return SingleChildScrollView(
+                child: Container(
+                  width: MediaQuery.of(context).size.width * (isLandscape ? 0.6 : 0.85),
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.9,
+                  ),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [primaryColor, primaryColor.withOpacity(0.8)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.3),
+                        blurRadius: 20,
+                        offset: const Offset(0, 10),
                       ),
                     ],
                   ),
-                ),
-                Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 20),
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: primaryColor,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                    child: const Text('OK', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          vertical: isLandscape ? 15 : 30,
+                          horizontal: 20,
+                        ),
+                        child: Column(
+                          children: [
+                            Container(
+                              width: isLandscape ? 60 : 80,
+                              height: isLandscape ? 60 : 80,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                shape: BoxShape.circle,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.2),
+                                    blurRadius: 15,
+                                    offset: const Offset(0, 5),
+                                  ),
+                                ],
+                              ),
+                              child: Icon(
+                                Icons.check_circle,
+                                size: isLandscape ? 30 : 40,
+                                color: primaryColor,
+                              ),
+                            ),
+                            SizedBox(height: isLandscape ? 12 : 20),
+                            Text(
+                              'Attendance Successful!',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: isLandscape ? 20 : 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            SizedBox(height: isLandscape ? 4 : 8),
+                            Text(
+                              _getAttendanceTypeLabel(type),
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: isLandscape ? 14 : 16,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            SizedBox(height: isLandscape ? 4 : 8),
+                            Text(
+                              TimezoneHelper.formatAttendanceDateTime(orgTime),
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: isLandscape ? 12 : 14,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 20),
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: primaryColor,
+                            padding: EdgeInsets.symmetric(
+                              vertical: isLandscape ? 12 : 16,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: Text(
+                            'OK',
+                            style: TextStyle(
+                              fontSize: isLandscape ? 14 : 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: isLandscape ? 15 : 20),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 20),
-              ],
-            ),
+              );
+            },
           ),
         );
       },
     );
   }
-
+  
   String _getAttendanceTypeLabel(String type) {
     switch (type) {
       case 'check_in':
