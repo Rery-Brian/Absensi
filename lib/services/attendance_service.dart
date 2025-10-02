@@ -819,6 +819,116 @@ Future<Map<String, dynamic>> getTodayCycleSummary(String organizationMemberId) a
   return true;
 }
 
+Future<bool> requiresGpsValidation(String organizationMemberId) async {
+  try {
+    final member = await _supabase
+        .from('organization_members')
+        .select('work_location')
+        .eq('id', organizationMemberId)
+        .single();
+    
+    final workLocation = member['work_location'] as String?;
+    
+    // Jika work_location null/empty, default butuh GPS
+    if (workLocation == null || workLocation.isEmpty) {
+      debugPrint('Work location is null/empty - GPS required by default');
+      return true;
+    }
+    
+    // Office_ harus pakai GPS
+    if (workLocation.toUpperCase().startsWith('OFFICE_')) {
+      debugPrint('Office worker detected: $workLocation - GPS required');
+      return true;
+    }
+    
+    // Field_ tidak perlu GPS
+    if (workLocation.toUpperCase().startsWith('FIELD_')) {
+      debugPrint('Field worker detected: $workLocation - GPS not required');
+      return false;
+    }
+    
+    // Default butuh GPS untuk tipe lokasi tidak dikenal
+    debugPrint('Unknown work location type: $workLocation - GPS required by default');
+    return true;
+    
+  } catch (e) {
+    debugPrint('Error checking GPS requirement: $e');
+    return true; // Default ke butuh GPS saat error
+  }
+}
+
+Future<String> getWorkLocationType(String organizationMemberId) async {
+  try {
+    final member = await _supabase
+        .from('organization_members')
+        .select('work_location')
+        .eq('id', organizationMemberId)
+        .single();
+    
+    final workLocation = member['work_location'] as String?;
+    
+    if (workLocation == null || workLocation.isEmpty) {
+      return 'unknown';
+    }
+    
+    if (workLocation.toUpperCase().startsWith('OFFICE_')) {
+      return 'office';
+    }
+    
+    if (workLocation.toUpperCase().startsWith('FIELD_')) {
+      return 'field';
+    }
+    
+    return 'unknown';
+  } catch (e) {
+    debugPrint('Error getting work location type: $e');
+    return 'unknown';
+  }
+}
+
+Future<Map<String, String>> getWorkLocationDetails(String organizationMemberId) async {
+  try {
+    final member = await _supabase
+        .from('organization_members')
+        .select('work_location')
+        .eq('id', organizationMemberId)
+        .single();
+    
+    final workLocation = member['work_location'] as String?;
+    
+    if (workLocation == null || workLocation.isEmpty) {
+      return {'type': 'unknown', 'location': '', 'city': ''};
+    }
+    
+    String type = 'unknown';
+    String city = '';
+    
+    if (workLocation.contains('_')) {
+      final parts = workLocation.split('_');
+      final prefix = parts[0].toUpperCase();
+      
+      if (prefix == 'OFFICE') {
+        type = 'office';
+      } else if (prefix == 'FIELD') {
+        type = 'field';
+      }
+      
+      if (parts.length > 1) {
+        city = parts[1];
+      }
+    }
+    
+    return {
+      'type': type,
+      'location': workLocation,
+      'city': city,
+    };
+  } catch (e) {
+    debugPrint('Error getting work location details: $e');
+    return {'type': 'unknown', 'location': '', 'city': ''};
+  }
+}
+
   Future<bool> _performCheckOut(
   String organizationMemberId,
   DateTime now,

@@ -450,7 +450,95 @@ class _LoginState extends State<Login> {
               color: Colors.grey.shade600,
             ),
           ),
-          SizedBox(height: sectionSpacing + (isLandscape ? 0 : 5)),
+          SizedBox(height: sectionSpacing + (isLandscape ? 2 : 5)),
+          
+          // Google Sign In Button - DIPINDAH KE ATAS
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _isLoading ? null : _nativeGoogleSignIn,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black87,
+                disabledBackgroundColor: Colors.grey.shade100,
+                side: BorderSide(
+                  color: Colors.grey.shade300,
+                  width: 1.5,
+                ),
+                padding: EdgeInsets.symmetric(
+                  vertical: buttonVerticalPadding + 2,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                elevation: 0,
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Image.network(
+                    'https://cdn.freebiesupply.com/logos/large/2x/google-g-2015-logo-png-transparent.png',
+                    height: isLandscape ? 18 : 20,
+                    width: isLandscape ? 18 : 20,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        width: isLandscape ? 18 : 20,
+                        height: isLandscape ? 18 : 20,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(2),
+                          image: const DecorationImage(
+                            image: NetworkImage(
+                              'https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg',
+                            ),
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  SizedBox(width: isLandscape ? 10 : 12),
+                  Text(
+                    _isLoading ? "Processing..." : "Continue with Google",
+                    style: TextStyle(
+                      fontSize: buttonFontSize,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SizedBox(height: sectionSpacing),
+          
+          // Divider
+          Row(
+            children: [
+              Expanded(
+                child: Divider(
+                  thickness: 1,
+                  color: Colors.grey.shade300,
+                ),
+              ),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: isLandscape ? 8 : 12),
+                child: Text(
+                  "or sign in with email",
+                  style: TextStyle(
+                    color: Colors.grey.shade500,
+                    fontSize: dividerFontSize,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Divider(
+                  thickness: 1,
+                  color: Colors.grey.shade300,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: sectionSpacing),
           
           // Email Field
           _buildTextField(
@@ -510,7 +598,7 @@ class _LoginState extends State<Login> {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
-                elevation: 0,
+                elevation: 2,
               ),
               child: _isLoading
                   ? SizedBox(
@@ -532,93 +620,10 @@ class _LoginState extends State<Login> {
                     ),
             ),
           ),
-          SizedBox(height: verticalSpacing + (isLandscape ? 0 : 2)),
-          
-          // Divider
-          Row(
-            children: [
-              Expanded(
-                child: Divider(
-                  thickness: 1,
-                  color: Colors.grey.shade300,
-                ),
-              ),
-              Padding(
-                padding: EdgeInsets.symmetric(horizontal: isLandscape ? 8 : 12),
-                child: Text(
-                  "or continue with",
-                  style: TextStyle(
-                    color: Colors.grey.shade500,
-                    fontSize: dividerFontSize,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-              Expanded(
-                child: Divider(
-                  thickness: 1,
-                  color: Colors.grey.shade300,
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: verticalSpacing),
-          
-          // Google Sign In Button
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton(
-              onPressed: _isLoading ? null : _nativeGoogleSignIn,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.black87,
-                disabledForegroundColor: Colors.black87,
-                side: BorderSide(color: Colors.grey.shade300),
-                padding: EdgeInsets.symmetric(
-                  vertical: buttonVerticalPadding,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Image.network(
-                    'https://cdn.freebiesupply.com/logos/large/2x/google-g-2015-logo-png-transparent.png',
-                    height: isLandscape ? 16 : 18,
-                    width: isLandscape ? 16 : 18,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        width: isLandscape ? 16 : 18,
-                        height: isLandscape ? 16 : 18,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(2),
-                          image: const DecorationImage(
-                            image: NetworkImage(
-                              'https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg',
-                            ),
-                            fit: BoxFit.contain,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                  SizedBox(width: isLandscape ? 8 : 10),
-                  Text(
-                    _isLoading ? "Processing..." : "Continue with Google",
-                    style: TextStyle(
-                      fontSize: hintFontSize,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
           
           // Loading indicator
           if (_isLoading) ...[
-            SizedBox(height: verticalSpacing),
+            SizedBox(height: verticalSpacing + 2),
             Container(
               padding: EdgeInsets.all(isLandscape ? 6 : (isSmallScreen ? 8 : 10)),
               decoration: BoxDecoration(
@@ -657,7 +662,7 @@ class _LoginState extends State<Login> {
           
           // Sign Up Link
           Padding(
-            padding: EdgeInsets.only(top: isLandscape ? 4 : (isSmallScreen ? 8 : 0)),
+            padding: EdgeInsets.only(top: isLandscape ? 6 : (isSmallScreen ? 10 : 12)),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [

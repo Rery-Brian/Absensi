@@ -909,25 +909,47 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
-  Future<void> _performAttendance(String actionType) async {
-    if (!mounted) return;
+ Future<void> _performAttendance(String actionType) async {
+  if (!mounted) return;
 
-    if (actionType == 'break_out') {
-      await _navigateToBreakPage();
+  if (actionType == 'break_out') {
+    await _navigateToBreakPage();
+    return;
+  }
+
+  if (actionType == 'check_out') {
+    final confirmed = await _showCheckoutConfirmation();
+    if (confirmed != true) return;
+  }
+
+  setState(() => _isInitialLoading = true);
+
+  try {
+    if (_organizationMember == null) {
+      if (mounted) {
+        FlushbarHelper.showError(context, 'Configuration error.');
+      }
       return;
     }
 
-    if (actionType == 'check_out') {
-      final confirmed = await _showCheckoutConfirmation();
-      if (confirmed != true) return;
-    }
-
-    setState(() => _isInitialLoading = true);
-
-    try {
-      if (_organizationMember == null || _selectedDevice == null || !_selectedDevice!.hasValidCoordinates) {
+    // ✅ Check apakah butuh validasi GPS berdasarkan work_location
+    final requiresGps = await _attendanceService.requiresGpsValidation(_organizationMember!.id);
+    final locationDetails = await _attendanceService.getWorkLocationDetails(_organizationMember!.id);
+    
+    debugPrint('=== Attendance Check ===');
+    debugPrint('Work Location: ${locationDetails['location']}');
+    debugPrint('Type: ${locationDetails['type']}');
+    debugPrint('Requires GPS: $requiresGps');
+    
+    Position? positionToUse;
+    
+    if (requiresGps) {
+      // ========== OFFICE WORKER - Harus pakai GPS dan dalam radius ==========
+      debugPrint('Office worker mode - validating GPS and radius');
+      
+      if (_selectedDevice == null || !_selectedDevice!.hasValidCoordinates) {
         if (mounted) {
-          FlushbarHelper.showError(context, 'Configuration error.');
+          FlushbarHelper.showError(context, 'Attendance location not configured. Please contact admin.');
         }
         return;
       }
@@ -935,23 +957,80 @@ class _DashboardContentState extends State<_DashboardContent> {
       final now = DateTime.now();
       final gpsAge = _gpsPosition != null ? now.difference(_gpsPosition!.timestamp).inSeconds : 999;
 
+      // Update GPS jika belum ada atau sudah lama (>60 detik)
       if (_gpsPosition == null || gpsAge > 60) {
+        if (mounted) {
+          FlushbarHelper.showInfo(context, 'Getting your location...');
+        }
         await _updateGpsPositionAndDistance(debounce: false, retryCount: 0);
       }
 
-      if (_gpsPosition == null || !_attendanceService.isWithinRadius(_gpsPosition!, _selectedDevice!)) {
+      // Cek lagi setelah update
+      if (_gpsPosition == null) {
         if (mounted) {
-          FlushbarHelper.showError(context, 'Location requirement not met.');
+          FlushbarHelper.showError(
+            context, 
+            'Unable to get your location. Please enable GPS and try again.'
+          );
         }
         return;
       }
 
-      if (_selectedDevice!.hasValidCoordinates) {
-        _currentPosition = Position(
-          longitude: _selectedDevice!.longitude!,
-          latitude: _selectedDevice!.latitude!,
+      // Validasi radius
+      final isWithinRadius = _attendanceService.isWithinRadius(_gpsPosition!, _selectedDevice!);
+      
+      debugPrint('GPS Position: ${_gpsPosition!.latitude}, ${_gpsPosition!.longitude}');
+      debugPrint('Device Position: ${_selectedDevice!.latitude}, ${_selectedDevice!.longitude}');
+      debugPrint('Distance: ${_distanceToDevice}m');
+      debugPrint('Within Radius: $isWithinRadius');
+      
+      if (!isWithinRadius) {
+        if (mounted) {
+          final distance = _formatDistance(_distanceToDevice);
+          FlushbarHelper.showError(
+            context, 
+            'You are $distance from ${_selectedDevice!.deviceName}. Please move closer to the attendance location.'
+          );
+        }
+        return;
+      }
+
+      positionToUse = _gpsPosition;
+      debugPrint('✓ GPS validated - within ${_selectedDevice!.radiusMeters}m radius');
+      
+    } else {
+      // ========== FIELD WORKER - Tidak perlu validasi GPS/radius ==========
+      debugPrint('Field worker mode - GPS validation skipped');
+      
+      // Coba ambil GPS untuk logging (opsional), tapi tidak wajib
+      try {
+        positionToUse = await _attendanceService.getCurrentLocation().timeout(
+          const Duration(seconds: 5),
+          onTimeout: () {
+            debugPrint('GPS timeout for field worker - using fallback position');
+            return Position(
+              longitude: 0.0,
+              latitude: 0.0,
+              timestamp: DateTime.now(),
+              accuracy: 999.0,
+              altitude: 0.0,
+              heading: 0.0,
+              speed: 0.0,
+              speedAccuracy: 0.0,
+              altitudeAccuracy: 0.0,
+              headingAccuracy: 0.0,
+            );
+          },
+        );
+        debugPrint('✓ GPS obtained for field worker: ${positionToUse.latitude}, ${positionToUse.longitude}');
+      } catch (e) {
+        debugPrint('Could not get GPS for field worker (not required): $e');
+        // Gunakan posisi dummy untuk field worker
+        positionToUse = Position(
+          longitude: 0.0,
+          latitude: 0.0,
           timestamp: DateTime.now(),
-          accuracy: 0.0,
+          accuracy: 999.0,
           altitude: 0.0,
           heading: 0.0,
           speed: 0.0,
@@ -959,62 +1038,79 @@ class _DashboardContentState extends State<_DashboardContent> {
           altitudeAccuracy: 0.0,
           headingAccuracy: 0.0,
         );
+        debugPrint('✓ Using fallback position for field worker');
       }
-
-      String? photoUrl;
-
-      if (actionType == 'check_in') {
-        final imagePath = await _takeSelfie();
-        if (imagePath == null) {
-          if (mounted) {
-            FlushbarHelper.showError(context, 'Photo required for check-in');
-          }
-          return;
-        }
-
-        if (mounted) {
-          FlushbarHelper.showInfo(context, 'Uploading photo...');
-        }
-        photoUrl = await _attendanceService.uploadPhoto(imagePath);
-        
-        if (photoUrl == null) {
-          if (mounted) {
-            FlushbarHelper.showError(context, 'Failed to upload photo.');
-          }
-          return;
-        }
-
-        File(imagePath).delete().catchError((e) => debugPrint('Failed to delete temp file: $e'));
-      }
-
-      final success = await _attendanceService.performAttendance(
-        type: actionType,
-        organizationMemberId: _organizationMember!.id,
-        currentPosition: _currentPosition!,
-        photoUrl: photoUrl ?? '',
-        device: _selectedDevice,
-        schedule: _currentSchedule,
-        todayRecords: _todayAttendanceRecords,
-        scheduleDetails: _todayScheduleDetails,
-      );
-
-      if (success) {
-        if (mounted) await _showSuccessAttendancePopup(actionType);
-        
-        await _loadBreakInfo();
-        
-        unawaited(_refreshData());
-        triggerAttendanceHistoryRefresh();
-      }
-    } catch (e) {
-      debugPrint('Error performing attendance: $e');
-      if (mounted) {
-        FlushbarHelper.showError(context, 'Failed to perform attendance: $e');
-      }
-    } finally {
-      if (mounted) setState(() => _isInitialLoading = false);
     }
+
+    // ========== Ambil foto untuk check-in ==========
+    String? photoUrl;
+    if (actionType == 'check_in') {
+      final imagePath = await _takeSelfie();
+      if (imagePath == null) {
+        if (mounted) {
+          FlushbarHelper.showError(context, 'Photo required for check-in');
+        }
+        return;
+      }
+
+      if (mounted) {
+        FlushbarHelper.showInfo(context, 'Uploading photo...');
+      }
+      
+      photoUrl = await _attendanceService.uploadPhoto(imagePath);
+      
+      if (photoUrl == null) {
+        if (mounted) {
+          FlushbarHelper.showError(context, 'Failed to upload photo. Please try again.');
+        }
+        return;
+      }
+
+      File(imagePath).delete().catchError((e) => debugPrint('Failed to delete temp file: $e'));
+      debugPrint('✓ Photo uploaded successfully');
+    }
+
+    // ========== Simpan attendance record ==========
+    debugPrint('Saving attendance: $actionType');
+    final success = await _attendanceService.performAttendance(
+      type: actionType,
+      organizationMemberId: _organizationMember!.id,
+      currentPosition: positionToUse!,
+      photoUrl: photoUrl ?? '',
+      device: requiresGps ? _selectedDevice : null, // Device hanya untuk office worker
+      schedule: _currentSchedule,
+      todayRecords: _todayAttendanceRecords,
+      scheduleDetails: _todayScheduleDetails,
+    );
+
+    if (success) {
+      debugPrint('✓ Attendance saved successfully');
+      if (mounted) await _showSuccessAttendancePopup(actionType);
+      
+      await _loadBreakInfo();
+      unawaited(_refreshData());
+      triggerAttendanceHistoryRefresh();
+    }
+  } catch (e) {
+    debugPrint('❌ Error performing attendance: $e');
+    if (mounted) {
+      String errorMessage = 'Failed to perform attendance';
+      
+      if (e.toString().contains('Location')) {
+        errorMessage = 'Location error: ${e.toString()}';
+      } else if (e.toString().contains('schedule')) {
+        errorMessage = 'Schedule error: ${e.toString()}';
+      } else {
+        errorMessage = e.toString();
+      }
+      
+      FlushbarHelper.showError(context, errorMessage);
+    }
+  } finally {
+    if (mounted) setState(() => _isInitialLoading = false);
   }
+}
+
 
   Future<bool?> _showCheckoutConfirmation() async {
   if (!mounted) return false;
@@ -1432,6 +1528,74 @@ class _DashboardContentState extends State<_DashboardContent> {
             const Icon(Icons.keyboard_arrow_down, color: Colors.white, size: 16),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildWorkLocationBadge() {
+    if (_organizationMember == null) return const SizedBox.shrink();
+    
+    final workLocation = _organizationMember!.workLocation ?? '';
+    
+    if (workLocation.isEmpty) return const SizedBox.shrink();
+    
+    final isOffice = workLocation.toUpperCase().startsWith('OFFICE_');
+    final isField = workLocation.toUpperCase().startsWith('FIELD_');
+    
+    if (!isOffice && !isField) return const SizedBox.shrink();
+    
+    // Extract city name
+    String cityName = '';
+    if (workLocation.contains('_')) {
+      final parts = workLocation.split('_');
+      if (parts.length > 1) {
+        cityName = parts[1];
+      }
+    }
+    
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: isOffice 
+            ? primaryColor.withOpacity(0.15) 
+            : successColor.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isOffice 
+              ? primaryColor.withOpacity(0.3) 
+              : successColor.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isOffice ? Icons.business : Icons.explore,
+            size: 14,
+            color: isOffice ? primaryColor : successColor,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            isOffice ? 'Office' : 'Field',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: isOffice ? primaryColor : successColor,
+            ),
+          ),
+          if (cityName.isNotEmpty) ...[
+            const SizedBox(width: 4),
+            Text(
+              '· $cityName',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: (isOffice ? primaryColor : successColor).withOpacity(0.7),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -1960,340 +2124,493 @@ class _DashboardContentState extends State<_DashboardContent> {
   }
 
   Widget _buildHeader(String displayName) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 50, 20, 30),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [backgroundColor, backgroundColor.withOpacity(0.8)],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(30),
-          bottomRight: Radius.circular(30),
-        ),
+  return Container(
+    width: double.infinity,
+    padding: const EdgeInsets.fromLTRB(20, 50, 20, 30),
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        colors: [backgroundColor, backgroundColor.withOpacity(0.8)],
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Row(
-                  children: [
-                    if (_organization?.logoUrl != null)
-                      Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
-                          color: Colors.white,
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.network(
-                            _organization!.logoUrl!,
-                            width: 32,
-                            height: 32,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Container(
-                                width: 32,
-                                height: 32,
-                                decoration: BoxDecoration(
-                                  color: primaryColor,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: const Icon(Icons.business, color: Colors.white, size: 20),
-                              );
-                            },
-                          ),
-                        ),
-                      )
-                    else
-                      Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          color: primaryColor,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(Icons.business, color: Colors.white, size: 20),
-                      ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        _organization?.name ?? 'Unknown Organization',
-                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              _buildDeviceInfoChip(),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 25,
-                backgroundColor: Colors.orange.shade400,
-                backgroundImage: _userProfile?.profilePhotoUrl != null
-                    ? NetworkImage(_userProfile!.profilePhotoUrl!)
-                    : null,
-                child: _userProfile?.profilePhotoUrl == null
-                    ? const Icon(Icons.person, color: Colors.white, size: 28)
-                    : null,
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Hello, $displayName',
-                      style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w500),
-                    ),
-                    Text(
-                      _getCurrentStatusText(),
-                      style: TextStyle(color: _getStatusColor(), fontSize: 14, fontWeight: FontWeight.w500),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
+      borderRadius: const BorderRadius.only(
+        bottomLeft: Radius.circular(30),
+        bottomRight: Radius.circular(30),
       ),
-    );
-  }
-
-  Widget _buildStatusCard() {
-    final isOnBreak = _breakInfo != null && _breakInfo!['is_currently_on_break'] == true;
-    final filteredActions = isOnBreak 
-        ? _availableActions.where((action) => action.type != 'break_out').toList()
-        : _availableActions;
-
-    return Transform.translate(
-      offset: const Offset(0, -20),
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 16),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              _getStatusColor().withOpacity(0.1),
-              _getStatusColor().withOpacity(0.05),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: _getStatusColor().withOpacity(0.3), width: 1.5),
-          boxShadow: [
-            BoxShadow(
-              color: _getStatusColor().withOpacity(0.15),
-              blurRadius: 20,
-              offset: const Offset(0, 8),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Row(
+                children: [
+                  if (_organization?.logoUrl != null)
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        color: Colors.white,
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          _organization!.logoUrl!,
+                          width: 32,
+                          height: 32,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: primaryColor,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(Icons.business, color: Colors.white, size: 20),
+                            );
+                          },
+                        ),
+                      ),
+                    )
+                  else
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: primaryColor,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.business, color: Colors.white, size: 20),
+                    ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      _organization?.name ?? 'Unknown Organization',
+                      style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            // ✅ Tambahkan badge work location di sini
+            Row(
+              children: [
+                _buildDeviceInfoChip(),
+                const SizedBox(width: 8),
+                _buildWorkLocationBadge(),
+              ],
             ),
           ],
         ),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(24),
-          ),
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            CircleAvatar(
+              radius: 25,
+              backgroundColor: Colors.orange.shade400,
+              backgroundImage: _userProfile?.profilePhotoUrl != null
+                  ? NetworkImage(_userProfile!.profilePhotoUrl!)
+                  : null,
+              child: _userProfile?.profilePhotoUrl == null
+                  ? const Icon(Icons.person, color: Colors.white, size: 28)
+                  : null,
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [_getStatusColor(), _getStatusColor().withOpacity(0.8)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: _getStatusColor().withOpacity(0.3),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: Icon(_getStatusIcon(), color: Colors.white, size: 28),
+                  Text(
+                    'Hello, $displayName',
+                    style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w500),
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _getCurrentStatusText(),
-                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, letterSpacing: -0.3),
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            Icon(Icons.access_time, size: 16, color: Colors.grey.shade600),
-                            const SizedBox(width: 6),
-                            Text(
-                              TimezoneHelper.formatOrgTime(TimezoneHelper.nowInOrgTime(), 'HH:mm'),
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: Colors.grey.shade700),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
+                  Text(
+                    _getCurrentStatusText(),
+                    style: TextStyle(color: _getStatusColor(), fontSize: 14, fontWeight: FontWeight.w500),
                   ),
-                  if (_isRefreshing)
-                    SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-                      ),
-                    ),
                 ],
               ),
-              const SizedBox(height: 20),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(12),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
+ Widget _buildStatusCard() {
+  final isOnBreak = _breakInfo != null && _breakInfo!['is_currently_on_break'] == true;
+  final filteredActions = isOnBreak
+      ? _availableActions.where((action) => action.type != 'break_out').toList()
+      : _availableActions;
+
+  return Transform.translate(
+    offset: const Offset(0, -20),
+    child: Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            _getStatusColor().withOpacity(0.1),
+            _getStatusColor().withOpacity(0.05),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: _getStatusColor().withOpacity(0.3), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: _getStatusColor().withOpacity(0.15),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [_getStatusColor(), _getStatusColor().withOpacity(0.8)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: _getStatusColor().withOpacity(0.3),
+                        blurRadius: 12,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Icon(_getStatusIcon(), color: Colors.white, size: 28),
                 ),
-                child: Column(
-                  children: [
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _getCurrentStatusText(),
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, letterSpacing: -0.3),
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(Icons.access_time, size: 16, color: Colors.grey.shade600),
+                          const SizedBox(width: 6),
+                          Text(
+                            TimezoneHelper.formatOrgTime(TimezoneHelper.nowInOrgTime(), 'HH:mm'),
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: Colors.grey.shade700),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                if (_isRefreshing)
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.calendar_today, size: 14, color: Colors.grey.shade600),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          TimezoneHelper.formatOrgTime(TimezoneHelper.nowInOrgTime(), 'EEEE, dd MMMM yyyy'),
+                          style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_selectedDevice != null) ...[
+                    const SizedBox(height: 8),
+                    Divider(height: 1, color: Colors.grey.shade300),
+                    const SizedBox(height: 8),
+                    FutureBuilder<bool>(
+                      future: _organizationMember != null
+                          ? _attendanceService.requiresGpsValidation(_organizationMember!.id)
+                          : Future.value(true),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(
+                            child: SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          );
+                        }
+                        final requiresGps = snapshot.data ?? true;
+
+                        if (!requiresGps) {
+                          return FutureBuilder<Map<String, String>>(
+                            future: _organizationMember != null
+                                ? _attendanceService.getWorkLocationDetails(_organizationMember!.id)
+                                : Future.value({'type': 'unknown', 'location': '', 'city': ''}),
+                            builder: (context, locationSnapshot) {
+                              if (locationSnapshot.connectionState == ConnectionState.waiting) {
+                                return const Center(
+                                  child: SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  ),
+                                );
+                              }
+                              final locationDetails = locationSnapshot.data ?? {'type': 'unknown', 'location': '', 'city': ''};
+                              final city = locationDetails['city'] ?? '';
+
+                              return Row(
+                                children: [
+                                  Icon(Icons.explore, size: 14, color: successColor),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      city.isNotEmpty
+                                          ? 'Field work in $city - GPS not required'
+                                          : 'Field work - GPS not required',
+                                      style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: successColor.withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.check_circle, size: 12, color: successColor),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'Ready',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: successColor,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                          );
+                        }
+
+                        return Row(
+                          children: [
+                            Icon(Icons.location_on, size: 14, color: Colors.grey.shade600),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _selectedDevice!.deviceName,
+                                style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: (_selectedDevice!.hasValidCoordinates && _gpsPosition != null && _isWithinRadius != null)
+                                    ? (_isWithinRadius! ? successColor.withOpacity(0.15) : warningColor.withOpacity(0.15))
+                                    : Colors.grey.shade200,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    (_selectedDevice!.hasValidCoordinates && _gpsPosition != null && _isWithinRadius != null)
+                                        ? (_isWithinRadius! ? Icons.check_circle : Icons.location_off)
+                                        : Icons.location_searching,
+                                    size: 12,
+                                    color: (_selectedDevice!.hasValidCoordinates && _gpsPosition != null && _isWithinRadius != null)
+                                        ? (_isWithinRadius! ? successColor : warningColor)
+                                        : Colors.grey.shade600,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    (_selectedDevice!.hasValidCoordinates && _gpsPosition != null && _isWithinRadius != null)
+                                        ? (_isWithinRadius! ? _formatDistance(_distanceToDevice) : 'Out of range')
+                                        : 'Locating...',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: (_selectedDevice!.hasValidCoordinates && _gpsPosition != null && _isWithinRadius != null)
+                                          ? (_isWithinRadius! ? successColor : warningColor)
+                                          : Colors.grey.shade600,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ] else ...[
+                    const SizedBox(height: 8),
+                    Divider(height: 1, color: Colors.grey.shade300),
+                    const SizedBox(height: 8),
                     Row(
                       children: [
-                        Icon(Icons.calendar_today, size: 14, color: Colors.grey.shade600),
+                        Icon(Icons.warning, size: 14, color: Colors.orange),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            TimezoneHelper.formatOrgTime(TimezoneHelper.nowInOrgTime(), 'EEEE, dd MMMM yyyy'),
+                            'No attendance location selected',
                             style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
                           ),
                         ),
-                      ],
-                    ),
-                    if (_selectedDevice != null) ...[
-                      const SizedBox(height: 8),
-                      Divider(height: 1, color: Colors.grey.shade300),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Icon(Icons.location_on, size: 14, color: Colors.grey.shade600),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _selectedDevice!.deviceName,
-                              style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
+                        GestureDetector(
+                          onTap: () => _navigateToDeviceSelection(),
+                          child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
-                              color: (_selectedDevice!.hasValidCoordinates && _gpsPosition != null && _isWithinRadius != null)
-                                  ? (_isWithinRadius! ? successColor.withOpacity(0.15) : warningColor.withOpacity(0.15))
-                                  : Colors.grey.shade200,
+                              color: Colors.orange.withOpacity(0.15),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(
-                                  (_selectedDevice!.hasValidCoordinates && _gpsPosition != null && _isWithinRadius != null)
-                                      ? (_isWithinRadius! ? Icons.check_circle : Icons.location_off)
-                                      : Icons.location_searching,
-                                  size: 12,
-                                  color: (_selectedDevice!.hasValidCoordinates && _gpsPosition != null && _isWithinRadius != null)
-                                      ? (_isWithinRadius! ? successColor : warningColor)
-                                      : Colors.grey.shade600,
-                                ),
+                                Icon(Icons.location_on, size: 12, color: Colors.orange),
                                 const SizedBox(width: 4),
                                 Text(
-                                  (_selectedDevice!.hasValidCoordinates && _gpsPosition != null && _isWithinRadius != null)
-                                      ? (_isWithinRadius! ? _formatDistance(_distanceToDevice) : 'Out of range')
-                                      : 'Locating...',
+                                  'Select Location',
                                   style: TextStyle(
                                     fontSize: 11,
-                                    color: (_selectedDevice!.hasValidCoordinates && _gpsPosition != null && _isWithinRadius != null)
-                                        ? (_isWithinRadius! ? successColor : warningColor)
-                                        : Colors.grey.shade600,
+                                    color: Colors.orange,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                        ],
-                      ),
-                    ],
+                        ),
+                      ],
+                    ),
                   ],
-                ),
-              ),
-              if (filteredActions.isNotEmpty) ...[
-                const SizedBox(height: 20),
-                Row(
-                  children: filteredActions.take(2).map((action) {
-                    return Expanded(
-                      child: Padding(
-                        padding: EdgeInsets.only(
-                          right: filteredActions.indexOf(action) == 0 ? 8 : 0,
-                          left: filteredActions.indexOf(action) == 1 ? 8 : 0,
-                        ),
-                        child: ElevatedButton(
-                          onPressed: action.isEnabled && !_isInitialLoading && (_isWithinRadius ?? false)
-                              ? () => _performAttendance(action.type)
-                              : null,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: action.isEnabled && (_isWithinRadius ?? false)
-                                ? primaryColor
-                                : Colors.grey.shade300,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            elevation: action.isEnabled && (_isWithinRadius ?? false) ? 4 : 0,
-                            shadowColor: primaryColor.withOpacity(0.4),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                          ),
-                          child: _isInitialLoading && action.isEnabled
-                              ? SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                  ),
-                                )
-                              : Text(
-                                  action.label,
-                                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                  if (filteredActions.isNotEmpty) ...[
+                    const SizedBox(height: 20),
+                    FutureBuilder<bool>(
+                      future: _organizationMember != null
+                          ? _attendanceService.requiresGpsValidation(_organizationMember!.id)
+                          : Future.value(true),
+                      builder: (context, gpsRequirementSnapshot) {
+                        if (gpsRequirementSnapshot.connectionState == ConnectionState.waiting) {
+                          return const Center(
+                            child: SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          );
+                        }
+                        final requiresGps = gpsRequirementSnapshot.data ?? true;
+
+                        return Row(
+                          children: filteredActions.take(2).map((action) {
+                            bool shouldEnable = action.isEnabled && !_isInitialLoading;
+
+                            if (requiresGps) {
+                              shouldEnable = shouldEnable && (_isWithinRadius ?? false);
+                            }
+
+                            return Expanded(
+                              child: Padding(
+                                padding: EdgeInsets.only(
+                                  right: filteredActions.indexOf(action) == 0 ? 8 : 0,
+                                  left: filteredActions.indexOf(action) == 1 ? 8 : 0,
                                 ),
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ],
-            ],
-          ),
+                                child: ElevatedButton(
+                                  onPressed: shouldEnable
+                                      ? () => _performAttendance(action.type)
+                                      : null,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: shouldEnable
+                                        ? primaryColor
+                                        : Colors.grey.shade300,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(vertical: 16),
+                                    elevation: shouldEnable ? 4 : 0,
+                                    shadowColor: primaryColor.withOpacity(0.4),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                  ),
+                                  child: _isInitialLoading && action.isEnabled
+                                      ? const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                          ),
+                                        )
+                                      : Text(
+                                          action.label,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 15,
+                                          ),
+                                        ),
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        );
+                      },
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildOverviewCard() {
     return Container(
