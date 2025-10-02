@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import '../services/camera_service.dart';
+import '../helpers/flushbar_helper.dart';
 
 class CameraSelfieScreen extends StatefulWidget {
   final List<CameraDescription> cameras;
@@ -55,7 +56,12 @@ class _CameraSelfieScreenState extends State<CameraSelfieScreen>
   Future<void> _initializeController() async {
     try {
       if (widget.cameras.isEmpty) {
-        _showSnackBar('No cameras available');
+        if (mounted) {
+          FlushbarHelper.showError(
+            context,
+            'No cameras available',
+          );
+        }
         return;
       }
 
@@ -79,7 +85,10 @@ class _CameraSelfieScreenState extends State<CameraSelfieScreen>
     } catch (e) {
       debugPrint('Error initializing selfie camera: $e');
       if (mounted) {
-        _showSnackBar('Failed to initialize camera: $e');
+        FlushbarHelper.showError(
+          context,
+          'Failed to initialize camera: $e',
+        );
       }
     }
   }
@@ -109,7 +118,10 @@ class _CameraSelfieScreenState extends State<CameraSelfieScreen>
     } catch (e) {
       debugPrint('Error taking picture: $e');
       if (mounted) {
-        _showSnackBar('Failed to take picture: $e');
+        FlushbarHelper.showError(
+          context,
+          'Failed to take picture: $e',
+        );
       }
     } finally {
       if (mounted) {
@@ -118,18 +130,6 @@ class _CameraSelfieScreenState extends State<CameraSelfieScreen>
         });
       }
     }
-  }
-
-  void _showSnackBar(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
   }
 
   @override

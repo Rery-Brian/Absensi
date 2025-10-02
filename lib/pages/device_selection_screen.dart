@@ -3,6 +3,7 @@ import 'package:geolocator/geolocator.dart' as geolocator;
 import '../models/attendance_model.dart';
 import '../services/device_service.dart';
 import '../services/attendance_service.dart';
+import '../helpers/flushbar_helper.dart';
 
 class DeviceSelectionScreen extends StatefulWidget {
   final String organizationId;
@@ -85,7 +86,12 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
       debugPrint('Current selected device: ${selectedDevice?.deviceName}');
     } catch (e) {
       debugPrint('Error loading devices: $e');
-      _showSnackBar('Failed to load devices: $e', isError: true);
+      if (mounted) {
+        FlushbarHelper.showError(
+          context,
+          'Failed to load devices: $e',
+        );
+      }
       setState(() => _isLoading = false);
     }
   }
@@ -147,7 +153,12 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
       await _deviceService.setSelectedDevice(device);
       debugPrint('Device selected successfully: ${device.deviceName}');
 
-      _showSnackBar('${device.deviceName} selected successfully');
+      if (mounted) {
+        FlushbarHelper.showSuccess(
+          context,
+          '${device.deviceName} selected successfully',
+        );
+      }
 
       await Future.delayed(const Duration(milliseconds: 500));
 
@@ -167,7 +178,12 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
       }
     } catch (e) {
       debugPrint('Error selecting device: $e');
-      _showSnackBar('Failed to select device: $e', isError: true);
+      if (mounted) {
+        FlushbarHelper.showError(
+          context,
+          'Failed to select device: $e',
+        );
+      }
       setState(() {
         _selectedDevice = _previouslySelectedDevice;
       });
@@ -176,18 +192,6 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
         setState(() => _isSelecting = false);
       }
     }
-  }
-
-  void _showSnackBar(String message, {bool isError = false}) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? Colors.red : primaryColor,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
   }
 
   String _formatDistance(double distanceInMeters) {

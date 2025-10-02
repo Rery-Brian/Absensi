@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
 import '../helpers/timezone_helper.dart';
+import '../helpers/flushbar_helper.dart';
 import '../services/attendance_service.dart';
 
 class BreakPage extends StatefulWidget {
@@ -86,7 +87,12 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       }
     } catch (e) {
       debugPrint('Error loading break data: $e');
-      _showSnackBar('Failed to load break data. Please try again.', isError: true);
+      if (mounted) {
+        FlushbarHelper.showError(
+          context,
+          'Failed to load break data. Please try again.',
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -249,7 +255,12 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       }
     } catch (e) {
       debugPrint('Error checking break status: $e');
-      _showSnackBar('Failed to check break status. Please try again.', isError: true);
+      if (mounted) {
+        FlushbarHelper.showError(
+          context,
+          'Failed to check break status. Please try again.',
+        );
+      }
     }
   }
 
@@ -381,12 +392,23 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       _hasExceeded = false;
 
       _startTimer();
-      _showSnackBar('Break started successfully', isError: false);
+      
+      if (mounted) {
+        FlushbarHelper.showSuccess(
+          context,
+          'Break started successfully',
+        );
+      }
       
       debugPrint('Break started at: $_breakStartTimeText');
     } catch (e) {
       debugPrint('Error starting break: $e');
-      _showSnackBar('Failed to start break. Please try again.', isError: true);
+      if (mounted) {
+        FlushbarHelper.showError(
+          context,
+          'Failed to start break. Please try again.',
+        );
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -398,7 +420,12 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
 
   Future<void> _endBreak() async {
     if (_breakStartTime == null) {
-      _showSnackBar('Break start time not found', isError: true);
+      if (mounted) {
+        FlushbarHelper.showError(
+          context,
+          'Break start time not found',
+        );
+      }
       return;
     }
 
@@ -479,7 +506,11 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
     } catch (e) {
       debugPrint('❌ Error ending break: $e');
       if (mounted) {
-        _showSnackBar('Failed to end break: ${e.toString()}', isError: true);
+        FlushbarHelper.showError(
+          context,
+          'Failed to end break: ${e.toString()}',
+          duration: const Duration(seconds: 5),
+        );
         setState(() {
           _isLoading = false;
         });
@@ -688,19 +719,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  void _showSnackBar(String message, {bool isError = false}) {
-    if (!mounted) return;
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? errorColor : successColor,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
   }

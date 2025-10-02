@@ -14,6 +14,7 @@ import '../pages/device_selection_screen.dart';
 import 'login.dart';
 import '../helpers/timezone_helper.dart';
 import '../helpers/time_helper.dart';
+import '../helpers/flushbar_helper.dart';
 
 class UserDashboard extends StatefulWidget {
   const UserDashboard({super.key});
@@ -111,27 +112,25 @@ class _DashboardContentState extends State<_DashboardContent> {
     super.dispose();
   }
 
- void _startBreakMonitoring() {
-  _breakIndicatorTimer?.cancel();
-  _breakIndicatorTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
-    if (mounted) {
-      // Update UI setiap detik tanpa reload dari database
-      if (_breakInfo != null && _breakInfo!['is_currently_on_break'] == true) {
-        setState(() {}); // Re-render untuk update elapsed time
-      }
-      
-      // Reload data setiap 30 detik untuk sinkronisasi
-      if (timer.tick % 30 == 0) {
-        try {
-          await _loadBreakInfo();
-          if (mounted) setState(() {});
-        } catch (e) {
-          debugPrint('Error monitoring break: $e');
+  void _startBreakMonitoring() {
+    _breakIndicatorTimer?.cancel();
+    _breakIndicatorTimer = Timer.periodic(const Duration(seconds: 1), (timer) async {
+      if (mounted) {
+        if (_breakInfo != null && _breakInfo!['is_currently_on_break'] == true) {
+          setState(() {});
+        }
+        
+        if (timer.tick % 30 == 0) {
+          try {
+            await _loadBreakInfo();
+            if (mounted) setState(() {});
+          } catch (e) {
+            debugPrint('Error monitoring break: $e');
+          }
         }
       }
-    }
-  });
-}
+    });
+  }
 
   void _startPeriodicLocationUpdates() {
     _periodicLocationTimer = Timer.periodic(locationUpdateInterval, (timer) async {
@@ -164,7 +163,9 @@ class _DashboardContentState extends State<_DashboardContent> {
       await CameraService.initializeCameras();
     } catch (e) {
       debugPrint('Error initializing services: $e');
-      _showSnackBar('Failed to initialize services. Please restart the app.', isError: true);
+      if (mounted) {
+        FlushbarHelper.showError(context, 'Failed to initialize services. Please restart the app.');
+      }
     }
   }
 
@@ -181,7 +182,9 @@ class _DashboardContentState extends State<_DashboardContent> {
       _organizationMember = criticalData[1] as OrganizationMember?;
 
       if (_userProfile == null || _organizationMember == null) {
-        _showSnackBar('No user profile or organization found. Contact admin.', isError: true);
+        if (mounted) {
+          FlushbarHelper.showError(context, 'No user profile or organization found. Contact admin.');
+        }
         setState(() => _isInitialLoading = false);
         return;
       }
@@ -200,7 +203,9 @@ class _DashboardContentState extends State<_DashboardContent> {
       _loadSecondaryDataInBackground();
     } catch (e) {
       debugPrint('Error in _loadUserData: $e');
-      _showSnackBar('Failed to load user data. Please try again.', isError: true);
+      if (mounted) {
+        FlushbarHelper.showError(context, 'Failed to load user data. Please try again.');
+      }
       setState(() => _isInitialLoading = false);
     }
   }
@@ -280,8 +285,10 @@ class _DashboardContentState extends State<_DashboardContent> {
 
       setState(() => _needsDeviceSelection = false);
     } catch (e) {
-      debugPrint('Error checking device selection: $e');
-      _showSnackBar('Failed to check device configuration.', isError: true);
+      debugPrint('Error checking location selection: $e');
+      if (mounted) {
+        FlushbarHelper.showError(context, 'Failed to check location configuration.');
+      }
     }
   }
 
@@ -336,8 +343,8 @@ class _DashboardContentState extends State<_DashboardContent> {
         await _forceDataReload();
       }
       
-      if (deviceChanged) {
-        _showSnackBar('Device changed to ${_selectedDevice?.deviceName ?? "Unknown"}');
+      if (deviceChanged && mounted) {
+        FlushbarHelper.showSuccess(context, 'Location changed to ${_selectedDevice?.deviceName ?? "Unknown"}');
       }
     }
   }
@@ -362,7 +369,9 @@ class _DashboardContentState extends State<_DashboardContent> {
       await _buildDynamicTimeline();
     } catch (e) {
       debugPrint('Error in force data reload: $e');
-      _showSnackBar('Failed to reload data: $e', isError: true);
+      if (mounted) {
+        FlushbarHelper.showError(context, 'Failed to reload data: $e');
+      }
     } finally {
       if (mounted) setState(() => _isInitialLoading = false);
     }
@@ -428,7 +437,9 @@ class _DashboardContentState extends State<_DashboardContent> {
           _isWithinRadius = null;
           _isLocationUpdating = false;
         });
-        _showSnackBar('Unable to get precise location.', isError: true);
+        if (mounted) {
+          FlushbarHelper.showError(context, 'Unable to get precise location.');
+        }
       }
     }
   }
@@ -486,7 +497,9 @@ class _DashboardContentState extends State<_DashboardContent> {
       }
     } catch (e) {
       debugPrint('Error refreshing data: $e');
-      _showSnackBar('Failed to refresh data.', isError: true);
+      if (mounted) {
+        FlushbarHelper.showError(context, 'Failed to refresh data.');
+      }
     } finally {
       if (mounted) setState(() => _isRefreshing = false);
     }
@@ -798,7 +811,9 @@ class _DashboardContentState extends State<_DashboardContent> {
 
   Future<void> _navigateToBreakPage() async {
     if (_organizationMember == null) {
-      _showSnackBar('Organization member data not found.', isError: true);
+      if (mounted) {
+        FlushbarHelper.showError(context, 'Organization member data not found.');
+      }
       return;
     }
 
@@ -825,68 +840,74 @@ class _DashboardContentState extends State<_DashboardContent> {
       }
     } catch (e) {
       debugPrint('Error navigating to break page: $e');
-      _showSnackBar('Failed to open break page.', isError: true);
+      if (mounted) {
+        FlushbarHelper.showError(context, 'Failed to open break page.');
+      }
     }
   }
 
- Future<void> _handleStopBreak() async {
-  if (_organizationMember == null || _isLoading) return;
+  Future<void> _handleStopBreak() async {
+    if (_organizationMember == null || _isLoading) return;
 
-  setState(() => _isLoading = true);
+    setState(() => _isLoading = true);
 
-  try {
-    if (_breakInfo == null || _breakInfo!['break_start_time'] == null) {
-      throw Exception('Break start time not found');
-    }
-    
-    final now = TimezoneHelper.nowInOrgTime();
-    final utcBreakStart = DateTime.parse(_breakInfo!['break_start_time']);
-    final breakStartTime = TimezoneHelper.toOrgTime(utcBreakStart);
-    final actualBreakDuration = now.difference(breakStartTime);
+    try {
+      if (_breakInfo == null || _breakInfo!['break_start_time'] == null) {
+        throw Exception('Break start time not found');
+      }
+      
+      final now = TimezoneHelper.nowInOrgTime();
+      final utcBreakStart = DateTime.parse(_breakInfo!['break_start_time']);
+      final breakStartTime = TimezoneHelper.toOrgTime(utcBreakStart);
+      final actualBreakDuration = now.difference(breakStartTime);
 
-    if (actualBreakDuration.isNegative) {
-      throw Exception('Invalid break duration');
-    }
+      if (actualBreakDuration.isNegative) {
+        throw Exception('Invalid break duration');
+      }
 
-    final memberId = int.tryParse(_organizationMember!.id);
-    final deviceId = _selectedDevice != null ? int.tryParse(_selectedDevice!.id) : null;
+      final memberId = int.tryParse(_organizationMember!.id);
+      final deviceId = _selectedDevice != null ? int.tryParse(_selectedDevice!.id) : null;
 
-    if (memberId == null) {
-      throw Exception('Invalid member ID');
-    }
+      if (memberId == null) {
+        throw Exception('Invalid member ID');
+      }
 
-    await Supabase.instance.client.from('attendance_logs').insert({
-      'organization_member_id': memberId,
-      'event_type': 'break_in',
-      'event_time': now.toUtc().toIso8601String(),
-      'device_id': deviceId,
-      'method': 'mobile_app',
-      'is_verified': true,
-      'verification_method': 'manual',
-    });
+      await Supabase.instance.client.from('attendance_logs').insert({
+        'organization_member_id': memberId,
+        'event_type': 'break_in',
+        'event_time': now.toUtc().toIso8601String(),
+        'device_id': deviceId,
+        'method': 'mobile_app',
+        'is_verified': true,
+        'verification_method': 'manual',
+      });
 
-    await _attendanceService.updateBreakDuration(
-      memberId,
-      actualBreakDuration.inMinutes,
-    );
+      await _attendanceService.updateBreakDuration(
+        memberId,
+        actualBreakDuration.inMinutes,
+      );
 
-    setState(() {
-      _breakInfo = null;
-    });
+      setState(() {
+        _breakInfo = null;
+      });
 
-    _showSnackBar('Break ended - Duration: ${_formatDuration(actualBreakDuration)}');
-    
-    await _refreshData();
-    
-  } catch (e) {
-    debugPrint('Error ending break: $e');
-    _showSnackBar('Failed to end break: ${e.toString()}', isError: true);
-  } finally {
-    if (mounted) {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        FlushbarHelper.showSuccess(context, 'Break ended - Duration: ${_formatDuration(actualBreakDuration)}');
+      }
+      
+      await _refreshData();
+      
+    } catch (e) {
+      debugPrint('Error ending break: $e');
+      if (mounted) {
+        FlushbarHelper.showError(context, 'Failed to end break: ${e.toString()}');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
-}
 
   Future<void> _performAttendance(String actionType) async {
     if (!mounted) return;
@@ -905,7 +926,9 @@ class _DashboardContentState extends State<_DashboardContent> {
 
     try {
       if (_organizationMember == null || _selectedDevice == null || !_selectedDevice!.hasValidCoordinates) {
-        _showSnackBar('Configuration error.', isError: true);
+        if (mounted) {
+          FlushbarHelper.showError(context, 'Configuration error.');
+        }
         return;
       }
 
@@ -917,7 +940,9 @@ class _DashboardContentState extends State<_DashboardContent> {
       }
 
       if (_gpsPosition == null || !_attendanceService.isWithinRadius(_gpsPosition!, _selectedDevice!)) {
-        _showSnackBar('Location requirement not met.', isError: true);
+        if (mounted) {
+          FlushbarHelper.showError(context, 'Location requirement not met.');
+        }
         return;
       }
 
@@ -941,15 +966,21 @@ class _DashboardContentState extends State<_DashboardContent> {
       if (actionType == 'check_in') {
         final imagePath = await _takeSelfie();
         if (imagePath == null) {
-          _showSnackBar('Photo required for check-in', isError: true);
+          if (mounted) {
+            FlushbarHelper.showError(context, 'Photo required for check-in');
+          }
           return;
         }
 
-        if (mounted) _showSnackBar('Uploading photo...');
+        if (mounted) {
+          FlushbarHelper.showInfo(context, 'Uploading photo...');
+        }
         photoUrl = await _attendanceService.uploadPhoto(imagePath);
         
         if (photoUrl == null) {
-          _showSnackBar('Failed to upload photo.', isError: true);
+          if (mounted) {
+            FlushbarHelper.showError(context, 'Failed to upload photo.');
+          }
           return;
         }
 
@@ -967,116 +998,161 @@ class _DashboardContentState extends State<_DashboardContent> {
         scheduleDetails: _todayScheduleDetails,
       );
 
-     if (success) {
-  if (mounted) await _showSuccessAttendancePopup(actionType);
-  
-  // Force reload break info immediately untuk update indicator
-  await _loadBreakInfo();
-  
-  unawaited(_refreshData());
-  triggerAttendanceHistoryRefresh();
-}
+      if (success) {
+        if (mounted) await _showSuccessAttendancePopup(actionType);
+        
+        await _loadBreakInfo();
+        
+        unawaited(_refreshData());
+        triggerAttendanceHistoryRefresh();
+      }
     } catch (e) {
       debugPrint('Error performing attendance: $e');
-      _showSnackBar('Failed to perform attendance: $e', isError: true);
+      if (mounted) {
+        FlushbarHelper.showError(context, 'Failed to perform attendance: $e');
+      }
     } finally {
       if (mounted) setState(() => _isInitialLoading = false);
     }
   }
 
   Future<bool?> _showCheckoutConfirmation() async {
-    if (!mounted) return false;
+  if (!mounted) return false;
 
-    return showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          child: Container(
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 60,
-                  height: 60,
-                  decoration: BoxDecoration(
-                    color: warningColor.withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(Icons.logout, color: warningColor, size: 30),
-                ),
-                const SizedBox(height: 20),
-                const Text(
-                  'Confirm Check-out',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Are you sure you want to check out? This will end your work session for today.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey, fontSize: 15, height: 1.4),
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.of(context).pop(false),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.grey.shade700,
-                          side: BorderSide(color: Colors.grey.shade300),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: const Text('Cancel', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: () => Navigator.of(context).pop(true),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: primaryColor,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        child: const Text('Yes, Check Out', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+  return showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (BuildContext context) {
+      return Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
           ),
-        );
-      },
-    );
-  }
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Icon circle
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: warningColor.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.logout,
+                  color: warningColor,
+                  size: 30,
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // Title
+              const Text(
+                'Confirm Check-out',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black87,
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Description
+              const Text(
+                'Are you sure you want to check out? '
+                'This will end your work session for today.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.grey,
+                  fontSize: 15,
+                  height: 1.4,
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Action buttons
+              Row(
+                children: [
+                  // Cancel button
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.grey.shade700,
+                        side: BorderSide(color: Colors.grey.shade300),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'Cancel',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(width: 12),
+
+                  // Confirm button
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primaryColor,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text(
+                        'Yes, Check Out',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
 
   Future<String?> _takeSelfie() async {
     if (!CameraService.isInitialized) {
-      _showSnackBar('Camera not available.', isError: true);
+      if (mounted) {
+        FlushbarHelper.showError(context, 'Camera not available.');
+      }
       return null;
     }
 
     final hasPermission = await CameraService.requestCameraPermission();
     if (!hasPermission) {
-      _showSnackBar('Camera permission required.', isError: true);
+      if (mounted) {
+        FlushbarHelper.showError(context, 'Camera permission required.');
+      }
       return null;
     }
 
@@ -1090,7 +1166,9 @@ class _DashboardContentState extends State<_DashboardContent> {
       );
       return result;
     } catch (e) {
-      _showSnackBar('Failed to take photo: $e', isError: true);
+      if (mounted) {
+        FlushbarHelper.showError(context, 'Failed to take photo: $e');
+      }
       return null;
     }
   }
@@ -1209,18 +1287,6 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
-  void _showSnackBar(String message, {bool isError = false}) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? errorColor : primaryColor,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-    );
-  }
-
   String _getDisplayName() {
     final user = Supabase.instance.client.auth.currentUser;
 
@@ -1257,25 +1323,26 @@ class _DashboardContentState extends State<_DashboardContent> {
   }
 
   Duration _getBreakElapsedTime() {
-  if (_breakInfo == null || 
-      _breakInfo!['is_currently_on_break'] != true ||
-      _breakInfo!['break_start_time'] == null) {
-    return Duration.zero;
-  }
-  
-  try {
-    final utcBreakStart = DateTime.parse(_breakInfo!['break_start_time']);
-    final breakStartTime = TimezoneHelper.toOrgTime(utcBreakStart);
-    final now = TimezoneHelper.nowInOrgTime();
-    final elapsed = now.difference(breakStartTime);
+    if (_breakInfo == null || 
+        _breakInfo!['is_currently_on_break'] != true ||
+        _breakInfo!['break_start_time'] == null) {
+      return Duration.zero;
+    }
     
-    return elapsed.isNegative ? Duration.zero : elapsed;
-  } catch (e) {
-    debugPrint('Error calculating break elapsed time: $e');
-    debugPrint('Break info: $_breakInfo');
-    return Duration.zero;
+    try {
+      final utcBreakStart = DateTime.parse(_breakInfo!['break_start_time']);
+      final breakStartTime = TimezoneHelper.toOrgTime(utcBreakStart);
+      final now = TimezoneHelper.nowInOrgTime();
+      final elapsed = now.difference(breakStartTime);
+      
+      return elapsed.isNegative ? Duration.zero : elapsed;
+    } catch (e) {
+      debugPrint('Error calculating break elapsed time: $e');
+      debugPrint('Break info: $_breakInfo');
+      return Duration.zero;
+    }
   }
-}
+
   Widget _buildDeviceInfoChip() {
     if (_selectedDevice == null) {
       return GestureDetector(
@@ -1291,7 +1358,7 @@ class _DashboardContentState extends State<_DashboardContent> {
             children: const [
               Icon(Icons.warning, color: Colors.orange, size: 16),
               SizedBox(width: 4),
-              Text('No Device', style: TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.w500)),
+              Text('No Location', style: TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.w500)),
               SizedBox(width: 4),
               Icon(Icons.keyboard_arrow_down, color: Colors.orange, size: 16),
             ],
@@ -1334,142 +1401,142 @@ class _DashboardContentState extends State<_DashboardContent> {
     );
   }
 
- Widget _buildBreakIndicator() {
-  if (_breakInfo == null || _breakInfo!['is_currently_on_break'] != true) {
-    return const SizedBox.shrink();
-  }
+  Widget _buildBreakIndicator() {
+    if (_breakInfo == null || _breakInfo!['is_currently_on_break'] != true) {
+      return const SizedBox.shrink();
+    }
 
-  final elapsedTime = _getBreakElapsedTime();
-  final screenSize = MediaQuery.of(context).size;
+    final elapsedTime = _getBreakElapsedTime();
+    final screenSize = MediaQuery.of(context).size;
 
-  return Positioned(
-    left: _indicatorPosition.dx,
-    top: _indicatorPosition.dy,
-    child: GestureDetector(
-      onPanStart: (details) => setState(() => _isDragging = true),
-      onPanUpdate: (details) {
-        setState(() {
-          double newX = _indicatorPosition.dx + details.delta.dx;
-          double newY = _indicatorPosition.dy + details.delta.dy;
+    return Positioned(
+      left: _indicatorPosition.dx,
+      top: _indicatorPosition.dy,
+      child: GestureDetector(
+        onPanStart: (details) => setState(() => _isDragging = true),
+        onPanUpdate: (details) {
+          setState(() {
+            double newX = _indicatorPosition.dx + details.delta.dx;
+            double newY = _indicatorPosition.dy + details.delta.dy;
 
-          newX = newX.clamp(0.0, screenSize.width - 180);
-          newY = newY.clamp(50.0, screenSize.height - 200);
+            newX = newX.clamp(0.0, screenSize.width - 180);
+            newY = newY.clamp(50.0, screenSize.height - 200);
 
-          _indicatorPosition = Offset(newX, newY);
-        });
-      },
-      onPanEnd: (details) => setState(() => _isDragging = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        width: 160,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [primaryColor, primaryColor.withOpacity(0.9)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(_isDragging ? 0.3 : 0.2),
-              blurRadius: _isDragging ? 20 : 15,
-              offset: Offset(0, _isDragging ? 8 : 4),
+            _indicatorPosition = Offset(newX, newY);
+          });
+        },
+        onPanEnd: (details) => setState(() => _isDragging = false),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          width: 160,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [primaryColor, primaryColor.withOpacity(0.9)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
-          ],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
             borderRadius: BorderRadius.circular(16),
-            onTap: () => _navigateToBreakPage(),
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(0.3),
-                          shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(_isDragging ? 0.3 : 0.2),
+                blurRadius: _isDragging ? 20 : 15,
+                offset: Offset(0, _isDragging ? 8 : 4),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: () => _navigateToBreakPage(),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.3),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.coffee, color: Colors.white, size: 18),
                         ),
-                        child: const Icon(Icons.coffee, color: Colors.white, size: 18),
-                      ),
-                      const SizedBox(width: 8),
-                      const Expanded(
-                        child: Text(
-                          'On Break',
-                          style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'On Break',
+                            style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(8),
+                      ],
                     ),
-                    child: Center(
-                      child: Text(
-                        _formatDuration(elapsedTime),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'monospace',
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    width: double.infinity,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(8),
-                        onTap: _isLoading ? null : () => _handleStopBreak(),
-                        child: Center(
-                          child: _isLoading
-                              ? SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    color: primaryColor,
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : Text(
-                                  'Stop Break',
-                                  style: TextStyle(
-                                    color: primaryColor,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
+                      ),
+                      child: Center(
+                        child: Text(
+                          _formatDuration(elapsedTime),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'monospace',
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: _isLoading ? null : () => _handleStopBreak(),
+                          child: Center(
+                            child: _isLoading
+                                ? SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      color: primaryColor,
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : Text(
+                                    'Stop Break',
+                                    style: TextStyle(
+                                      color: primaryColor,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1585,7 +1652,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                                 style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w500),
                               ),
                               const Text(
-                                'Device Setup Required',
+                                'Location Setup Required',
                                 style: TextStyle(color: Colors.orange, fontSize: 14, fontWeight: FontWeight.w500),
                               ),
                             ],
@@ -1626,13 +1693,13 @@ class _DashboardContentState extends State<_DashboardContent> {
                         ),
                         const SizedBox(height: 24),
                         const Text(
-                          'Attendance Device Required',
+                          'Attendance Location Required',
                           style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87),
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 12),
                         const Text(
-                          'Please select an attendance device to continue using the attendance system.',
+                          'Please select an attendance location to continue using the attendance system.',
                           textAlign: TextAlign.center,
                           style: TextStyle(color: Colors.grey, fontSize: 16, height: 1.5),
                         ),
@@ -1971,7 +2038,6 @@ class _DashboardContentState extends State<_DashboardContent> {
   }
 
   Widget _buildStatusCard() {
-    // Filter out break_out action if currently on break
     final isOnBreak = _breakInfo != null && _breakInfo!['is_currently_on_break'] == true;
     final filteredActions = isOnBreak 
         ? _availableActions.where((action) => action.type != 'break_out').toList()

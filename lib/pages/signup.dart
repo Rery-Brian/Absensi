@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:absensiwajah/pages/login.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../helpers/flushbar_helper.dart';
 
 final supabase = Supabase.instance.client;
 
@@ -28,17 +29,26 @@ class _SignupState extends State<Signup> {
     final password = _passwordController.text.trim();
 
     if (name.isEmpty || email.isEmpty || password.isEmpty) {
-      _showSnackBar('Name, email, and password are required', isError: true);
+      FlushbarHelper.showError(
+        context,
+        'Name, email, and password are required',
+      );
       return;
     }
 
     if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email)) {
-      _showSnackBar('Invalid email format', isError: true);
+      FlushbarHelper.showError(
+        context,
+        'Invalid email format',
+      );
       return;
     }
 
     if (password.length < 6) {
-      _showSnackBar('Password must be at least 6 characters', isError: true);
+      FlushbarHelper.showError(
+        context,
+        'Password must be at least 6 characters',
+      );
       return;
     }
 
@@ -59,7 +69,12 @@ class _SignupState extends State<Signup> {
       if (res.user != null) {
         _showSuccessDialog();
       } else {
-        _showSnackBar('Failed to create account', isError: true);
+        if (mounted) {
+          FlushbarHelper.showError(
+            context,
+            'Failed to create account',
+          );
+        }
       }
     } catch (e) {
       String errorMessage = 'Registration failed: ';
@@ -74,7 +89,13 @@ class _SignupState extends State<Signup> {
         errorMessage += e.toString();
       }
 
-      _showSnackBar(errorMessage, isError: true);
+      if (mounted) {
+        FlushbarHelper.showError(
+          context,
+          errorMessage,
+          duration: const Duration(seconds: 5),
+        );
+      }
     } finally {
       setState(() {
         _isLoading = false;
@@ -191,18 +212,6 @@ class _SignupState extends State<Signup> {
           ),
         );
       },
-    );
-  }
-
-  void _showSnackBar(String message, {bool isError = false}) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? Colors.red : primaryColor,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
     );
   }
 
