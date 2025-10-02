@@ -57,12 +57,11 @@ class _SignupState extends State<Signup> {
     });
 
     try {
-      // Signup dengan metadata nama
       final AuthResponse res = await supabase.auth.signUp(
         email: email,
         password: password,
         data: {
-          'name': name, // Ini akan digunakan oleh trigger
+          'name': name,
         },
       );
 
@@ -148,7 +147,7 @@ class _SignupState extends State<Signup> {
                             ),
                           ],
                         ),
-                        child: Icon(
+                        child: const Icon(
                           Icons.check_circle,
                           size: 40,
                           color: primaryColor,
@@ -182,11 +181,9 @@ class _SignupState extends State<Signup> {
                   child: ElevatedButton(
                     onPressed: () {
                       Navigator.of(context).pop();
-                      // Clear form
                       _nameController.clear();
                       _emailController.clear();
                       _passwordController.clear();
-                      // Redirect ke login
                       Navigator.pushReplacement(
                         context,
                         MaterialPageRoute(builder: (_) => const Login()),
@@ -217,418 +214,278 @@ class _SignupState extends State<Signup> {
 
   @override
   Widget build(BuildContext context) {
-    final screenHeight = MediaQuery.of(context).size.height;
-    final screenWidth = MediaQuery.of(context).size.width;
+    final size = MediaQuery.of(context).size;
+    final orientation = MediaQuery.of(context).orientation;
+    final isLandscape = orientation == Orientation.landscape;
+    
+    final isSmallScreen = size.width < 360;
+
+    double headerHeight = isLandscape 
+        ? 180.0
+        : (isSmallScreen ? size.height * 0.30 : size.height * 0.35);
+    
+    double logoSize = isLandscape ? 50 : (isSmallScreen ? 70 : 80);
+    double titleFontSize = isLandscape ? 20 : (isSmallScreen ? 24 : 28);
+    double subtitleFontSize = isLandscape ? 11 : (isSmallScreen ? 13 : 14);
+    double cardTopOffset = isLandscape ? -15 : -20;
 
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
       body: SafeArea(
-        child: Column(
-          children: [
-            // Header dengan gradient dan logo - matching login size
-            Container(
-              width: double.infinity,
-              height: screenHeight * 0.35, // Same as login
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    backgroundColor,
-                    backgroundColor.withValues(alpha: 0.8),
-                  ],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              // Header
+              Container(
+                width: double.infinity,
+                height: headerHeight,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      backgroundColor,
+                      backgroundColor.withValues(alpha: 0.8),
+                    ],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                  ),
+                  borderRadius: const BorderRadius.only(
+                    bottomLeft: Radius.circular(30),
+                    bottomRight: Radius.circular(30),
+                  ),
                 ),
-                borderRadius: const BorderRadius.only(
-                  bottomLeft: Radius.circular(30),
-                  bottomRight: Radius.circular(30),
-                ),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const SizedBox(height: 20),
-                  // Logo dengan background circle - matching login size
-                  Container(
-                    width: 80, // Same as login
-                    height: 80, // Same as login
-                    padding: const EdgeInsets.all(16),
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Image(
-                      image: AssetImage("images/logo.png"),
-                      fit: BoxFit.contain,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  // Title
-                  const Text(
-                    "Absensi",
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 28, // Same as login
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  // Subtitle
-                  Text(
-                    "Create Your Account",
-                    style: TextStyle(
-                      fontSize: 14, // Same as login
-                      color: Colors.white.withValues(alpha: 0.8),
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Expanded untuk mengisi sisa ruang
-            Expanded(
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  // Form signup card - compact design matching login
-                  Positioned(
-                    top: -20,
-                    left: 16,
-                    right: 16,
-                    child: Container(
-                      padding: const EdgeInsets.all(20), // Same as login
-                      decoration: BoxDecoration(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(height: isLandscape ? 10 : 20),
+                    Container(
+                      width: logoSize,
+                      height: logoSize,
+                      padding: EdgeInsets.all(logoSize * 0.2),
+                      decoration: const BoxDecoration(
                         color: Colors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.1),
-                            blurRadius: 15,
-                            offset: const Offset(0, 8),
-                          ),
-                        ],
+                        shape: BoxShape.circle,
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Text(
-                            "Create Account",
-                            style: TextStyle(
-                              fontSize: 20, // Same as login
-                              fontWeight: FontWeight.w600,
-                              color: Colors.black87,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            "Fill in your details to get started",
-                            style: TextStyle(
-                              fontSize: 14, // Same as login
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                          const SizedBox(height: 20),
+                      child: const Image(
+                        image: AssetImage("images/logo.png"),
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                    SizedBox(height: isLandscape ? 8 : 16),
+                    Text(
+                      "Absensi",
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: titleFontSize,
+                        color: Colors.white,
+                      ),
+                    ),
+                    SizedBox(height: isLandscape ? 2 : 4),
+                    Text(
+                      "Create Your Account",
+                      style: TextStyle(
+                        fontSize: subtitleFontSize,
+                        color: Colors.white.withValues(alpha: 0.8),
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
 
-                          // Name TextField - compact
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                "Full Name",
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.grey.shade700,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              TextField(
-                                controller: _nameController,
-                                enabled: !_isLoading,
-                                decoration: InputDecoration(
-                                  hintText: "Enter your full name",
-                                  hintStyle: TextStyle(
-                                    color: Colors.grey.shade400,
-                                    fontSize: 14,
-                                  ),
-                                  filled: true,
-                                  fillColor: Colors.grey.shade50,
-                                  prefixIcon: Icon(
-                                    Icons.person_outline,
-                                    color: Colors.grey.shade500,
-                                    size: 20,
-                                  ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide(
-                                      color: Colors.grey.shade300,
-                                    ),
-                                  ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide(
-                                      color: Colors.grey.shade300,
-                                    ),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: const BorderSide(
-                                      color: primaryColor,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 12,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
+              // Form card
+              Transform.translate(
+                offset: Offset(0, cardTopOffset),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _buildSignupForm(
+                    isSmallScreen: isSmallScreen,
+                    isLandscape: isLandscape,
+                  ),
+                ),
+              ),
+              
+              if (isLandscape) const SizedBox(height: 20),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
-                          // Email TextField - compact
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                "Email",
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.grey.shade700,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              TextField(
-                                controller: _emailController,
-                                enabled: !_isLoading,
-                                keyboardType: TextInputType.emailAddress,
-                                decoration: InputDecoration(
-                                  hintText: "Enter your email",
-                                  hintStyle: TextStyle(
-                                    color: Colors.grey.shade400,
-                                    fontSize: 14,
-                                  ),
-                                  filled: true,
-                                  fillColor: Colors.grey.shade50,
-                                  prefixIcon: Icon(
-                                    Icons.mail_outline,
-                                    color: Colors.grey.shade500,
-                                    size: 20,
-                                  ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide(
-                                      color: Colors.grey.shade300,
-                                    ),
-                                  ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide(
-                                      color: Colors.grey.shade300,
-                                    ),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: const BorderSide(
-                                      color: primaryColor,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 12,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
+  Widget _buildSignupForm({
+    required bool isSmallScreen,
+    required bool isLandscape,
+  }) {
+    double welcomeFontSize = isLandscape ? 16 : (isSmallScreen ? 18 : 20);
+    double labelFontSize = isLandscape ? 11 : (isSmallScreen ? 12 : 13);
+    double hintFontSize = isLandscape ? 12 : (isSmallScreen ? 13 : 14);
+    double buttonFontSize = isLandscape ? 13 : (isSmallScreen ? 14 : 15);
+    double dividerFontSize = isLandscape ? 10 : (isSmallScreen ? 11 : 12);
+    double cardPadding = isLandscape ? 14 : (isSmallScreen ? 16 : 20);
+    
+    double verticalSpacing = isLandscape ? 6 : (isSmallScreen ? 8 : 10);
+    double sectionSpacing = isLandscape ? 8 : (isSmallScreen ? 12 : 15);
+    double buttonVerticalPadding = isLandscape ? 8 : (isSmallScreen ? 10 : 12);
 
-                          // Password TextField - compact
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                "Password",
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.grey.shade700,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              TextField(
-                                controller: _passwordController,
-                                enabled: !_isLoading,
-                                obscureText: _obscurePassword,
-                                decoration: InputDecoration(
-                                  hintText: "Enter your password (min. 6 chars)",
-                                  hintStyle: TextStyle(
-                                    color: Colors.grey.shade400,
-                                    fontSize: 14,
-                                  ),
-                                  filled: true,
-                                  fillColor: Colors.grey.shade50,
-                                  prefixIcon: Icon(
-                                    Icons.lock_outline,
-                                    color: Colors.grey.shade500,
-                                    size: 20,
-                                  ),
-                                  suffixIcon: IconButton(
-                                    icon: Icon(
-                                      _obscurePassword
-                                          ? Icons.visibility_off_outlined
-                                          : Icons.visibility_outlined,
-                                      color: Colors.grey.shade500,
-                                      size: 20,
-                                    ),
-                                    onPressed: _isLoading ? null : () {
-                                      setState(() {
-                                        _obscurePassword = !_obscurePassword;
-                                      });
-                                    },
-                                  ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide(
-                                      color: Colors.grey.shade300,
-                                    ),
-                                  ),
-                                  enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: BorderSide(
-                                      color: Colors.grey.shade300,
-                                    ),
-                                  ),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                    borderSide: const BorderSide(
-                                      color: primaryColor,
-                                      width: 2,
-                                    ),
-                                  ),
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 12,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 15),
-
-                          // Create Account Button - compact
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: _isLoading ? null : _signUp,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: primaryColor,
-                                foregroundColor: Colors.white,
-                                disabledBackgroundColor: Colors.grey.shade300,
-                                padding: const EdgeInsets.symmetric(vertical: 12),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                elevation: 0,
-                              ),
-                              child: _isLoading
-                                  ? const SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        valueColor:
-                                            AlwaysStoppedAnimation<Color>(
-                                              Colors.white,
-                                            ),
-                                      ),
-                                    )
-                                  : const Text(
-                                      "Create Account",
-                                      style: TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                            ),
-                          ),
-
-                          // Loading indicator - compact
-                          if (_isLoading) ...[
-                            const SizedBox(height: 10),
-                            Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: primaryColor.withValues(alpha: 0.1),
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(
-                                  color: primaryColor.withValues(alpha: 0.3),
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  SizedBox(
-                                    width: 14,
-                                    height: 14,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                        primaryColor,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  const Expanded(
-                                    child: Text(
-                                      'Creating your account...',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.black87,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-
-                          // Login Link - fixed positioning
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 0, top: 0),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  "Already have an account? ",
-                                  style: TextStyle(
-                                    color: Colors.grey.shade600,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                                TextButton(
-                                  onPressed: _isLoading ? null : () {
-                                    Navigator.pushReplacement(
-                                      context,
-                                      MaterialPageRoute(builder: (_) => const Login()),
-                                    );
-                                  },
-                                  child: const Text(
-                                    "Sign In",
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      color: primaryColor,
-                                      fontSize: 14,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
+    return Container(
+      padding: EdgeInsets.all(cardPadding),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            "Create Account",
+            style: TextStyle(
+              fontSize: welcomeFontSize,
+              fontWeight: FontWeight.w600,
+              color: Colors.black87,
+            ),
+          ),
+          SizedBox(height: isLandscape ? 2 : 4),
+          Text(
+            "Fill in your details to get started",
+            style: TextStyle(
+              fontSize: hintFontSize,
+              color: Colors.grey.shade600,
+            ),
+          ),
+          SizedBox(height: sectionSpacing + (isLandscape ? 0 : 5)),
+          
+          // Name Field
+          _buildTextField(
+            controller: _nameController,
+            label: "Full Name",
+            hint: "Enter your full name",
+            icon: Icons.person_outline,
+            labelFontSize: labelFontSize,
+            hintFontSize: hintFontSize,
+            isLandscape: isLandscape,
+          ),
+          SizedBox(height: verticalSpacing),
+          
+          // Email Field
+          _buildTextField(
+            controller: _emailController,
+            label: "Email",
+            hint: "Enter your email",
+            icon: Icons.mail_outline,
+            keyboardType: TextInputType.emailAddress,
+            labelFontSize: labelFontSize,
+            hintFontSize: hintFontSize,
+            isLandscape: isLandscape,
+          ),
+          SizedBox(height: verticalSpacing),
+          
+          // Password Field
+          _buildTextField(
+            controller: _passwordController,
+            label: "Password",
+            hint: "Enter your password (min. 6 chars)",
+            icon: Icons.lock_outline,
+            obscureText: _obscurePassword,
+            labelFontSize: labelFontSize,
+            hintFontSize: hintFontSize,
+            isLandscape: isLandscape,
+            suffixIcon: IconButton(
+              icon: Icon(
+                _obscurePassword
+                    ? Icons.visibility_off_outlined
+                    : Icons.visibility_outlined,
+                color: Colors.grey.shade500,
+                size: isLandscape ? 18 : 20,
+              ),
+              onPressed: _isLoading
+                  ? null
+                  : () {
+                      setState(() {
+                        _obscurePassword = !_obscurePassword;
+                      });
+                    },
+            ),
+          ),
+          SizedBox(height: sectionSpacing),
+          
+          // Create Account Button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _isLoading ? null : _signUp,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primaryColor,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: Colors.grey.shade300,
+                disabledForegroundColor: Colors.white,
+                padding: EdgeInsets.symmetric(
+                  vertical: buttonVerticalPadding,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                elevation: 0,
+              ),
+              child: _isLoading
+                  ? SizedBox(
+                      width: isLandscape ? 16 : 18,
+                      height: isLandscape ? 16 : 18,
+                      child: const CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Colors.white,
+                        ),
+                      ),
+                    )
+                  : Text(
+                      "Create Account",
+                      style: TextStyle(
+                        fontSize: buttonFontSize,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+            ),
+          ),
+          
+          // Loading indicator
+          if (_isLoading) ...[
+            SizedBox(height: verticalSpacing),
+            Container(
+              padding: EdgeInsets.all(isLandscape ? 6 : (isSmallScreen ? 8 : 10)),
+              decoration: BoxDecoration(
+                color: primaryColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: primaryColor.withValues(alpha: 0.3),
+                ),
+              ),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: isLandscape ? 12 : 14,
+                    height: isLandscape ? 12 : 14,
+                    child: const CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        primaryColor,
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: isLandscape ? 8 : 10),
+                  Expanded(
+                    child: Text(
+                      'Creating your account...',
+                      style: TextStyle(
+                        fontSize: dividerFontSize,
+                        color: Colors.black87,
                       ),
                     ),
                   ),
@@ -636,8 +493,122 @@ class _SignupState extends State<Signup> {
               ),
             ),
           ],
-        ),
+          
+          // Login Link
+          Padding(
+            padding: EdgeInsets.only(top: isLandscape ? 4 : (isSmallScreen ? 8 : 0)),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  "Already have an account? ",
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: hintFontSize,
+                  ),
+                ),
+                TextButton(
+                  onPressed: _isLoading
+                      ? null
+                      : () {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const Login(),
+                            ),
+                          );
+                        },
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.symmetric(horizontal: isLandscape ? 2 : 4),
+                    minimumSize: const Size(0, 0),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: Text(
+                    "Sign In",
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: primaryColor,
+                      fontSize: hintFontSize,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
+    );
+  }
+
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    required String hint,
+    required IconData icon,
+    required double labelFontSize,
+    required double hintFontSize,
+    required bool isLandscape,
+    TextInputType? keyboardType,
+    bool obscureText = false,
+    Widget? suffixIcon,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: labelFontSize,
+            fontWeight: FontWeight.w500,
+            color: Colors.grey.shade700,
+          ),
+        ),
+        SizedBox(height: isLandscape ? 4 : 6),
+        TextField(
+          controller: controller,
+          obscureText: obscureText,
+          enabled: !_isLoading,
+          keyboardType: keyboardType,
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: TextStyle(
+              color: Colors.grey.shade400,
+              fontSize: hintFontSize,
+            ),
+            filled: true,
+            fillColor: Colors.grey.shade50,
+            prefixIcon: Icon(
+              icon,
+              color: Colors.grey.shade500,
+              size: isLandscape ? 18 : 20,
+            ),
+            suffixIcon: suffixIcon,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(
+                color: Colors.grey.shade300,
+              ),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(
+                color: Colors.grey.shade300,
+              ),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(
+                color: primaryColor,
+                width: 2,
+              ),
+            ),
+            contentPadding: EdgeInsets.symmetric(
+              horizontal: isLandscape ? 10 : 12,
+              vertical: isLandscape ? 10 : 12,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
