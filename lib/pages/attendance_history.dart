@@ -667,7 +667,7 @@ Map<String, dynamic> _processAttendanceDataFromLogs(
       case 'check_out':
         return 'Check Out';
       default:
-        return type.replaceAll('_', ' ').toUpperCase();
+        return type.replaceAll('_', ' ').toUpperCase(); 
     }
   }
 

@@ -1012,7 +1012,7 @@ Future<void> autoEndBreakOnCheckout(String organizationMemberId, int? deviceId) 
     });
   }
 
- Future<void> _validateAttendanceSequence(
+Future<void> _validateAttendanceSequence(
   String type, 
   AttendanceRecord? existingRecord, 
   List<AttendanceLog> todayLogs,
@@ -1020,11 +1020,29 @@ Future<void> autoEndBreakOnCheckout(String organizationMemberId, int? deviceId) 
 ) async {
   final now = TimeHelper.getCurrentTime();
   
+  // ✅ NEW: Check if schedule exists for check-in
+  if (type == 'check_in') {
+    // Validate schedule exists
+    if (scheduleDetails == null) {
+      throw _ValidationException(
+        'No work schedule assigned. Please contact your administrator to set up your schedule.'
+      );
+    }
+    
+    // Validate if today is a working day
+    if (!scheduleDetails.isWorkingDay) {
+      throw _ValidationException(
+        'Today is not a working day according to your schedule.'
+      );
+    }
+  }
+  
+  // Existing validation for non-working day
   if (scheduleDetails != null && !scheduleDetails.isWorkingDay) {
     throw _ValidationException('Today is not a working day according to your schedule.');
   }
 
-  // ✅ TAMBAHAN BARU: Validasi work hours untuk check-in dan check-out
+  // Rest of existing validation code...
   if (scheduleDetails?.startTime != null && scheduleDetails?.endTime != null) {
     final isBeforeWork = TimeHelper.isBeforeWorkHours(
       scheduleDetails!.startTime!,
@@ -1035,7 +1053,6 @@ Future<void> autoEndBreakOnCheckout(String organizationMemberId, int? deviceId) 
       graceMinutes: 30
     );
 
-    // Cegah check-in jika sudah melewati jam kerja
     if (type == 'check_in' && isAfterWork) {
       final endTime = scheduleDetails.endTime!;
       throw _ValidationException(
@@ -1043,7 +1060,6 @@ Future<void> autoEndBreakOnCheckout(String organizationMemberId, int? deviceId) 
       );
     }
 
-    // Cegah check-in jika terlalu pagi
     if (type == 'check_in' && isBeforeWork) {
       final startTime = scheduleDetails.startTime!;
       throw _ValidationException(
@@ -1051,7 +1067,6 @@ Future<void> autoEndBreakOnCheckout(String organizationMemberId, int? deviceId) 
       );
     }
 
-    // Cegah check-out jika sudah melewati jam kerja
     if (type == 'check_out' && isAfterWork) {
       final endTime = scheduleDetails.endTime!;
       throw _ValidationException(
@@ -1166,6 +1181,27 @@ bool _isWithinWorkHours(WorkScheduleDetails? scheduleDetails, {int graceMinutes 
     final diff = TimeHelper.calculateTimeDifference(actual, scheduled);
     return TimeHelper.isTimeBefore(actual, scheduled) ? diff : 0;
   }
+
+  Future<bool> hasActiveSchedule(String organizationMemberId) async {
+  try {
+    final schedule = await loadCurrentSchedule(organizationMemberId);
+    if (schedule == null) return false;
+    
+    if (schedule.workScheduleId != null) {
+      final dayOfWeek = TimeHelper.getCurrentDayOfWeek();
+      final scheduleDetails = await loadWorkScheduleDetails(
+        schedule.workScheduleId!, 
+        dayOfWeek
+      );
+      return scheduleDetails != null;
+    }
+    
+    return schedule.shiftId != null;
+  } catch (e) {
+    debugPrint('Error checking schedule: $e');
+    return false;
+  }
+}
 Future<int> getTodayCheckInCount(String organizationMemberId) async {
   try {
     await _validateUserAccess(organizationMemberId);
@@ -1267,7 +1303,10 @@ Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) 
     final currentTime = TimeHelper.getCurrentTime();
     List<AttendanceAction> actions = [];
 
-    // ✅ CEK: Apakah sudah melewati work hours?
+    // ✅ NEW: Check if schedule exists
+    final hasSchedule = scheduleDetails != null;
+    final isWorkingDay = scheduleDetails?.isWorkingDay ?? false;
+    
     final isAfterWorkHours = scheduleDetails?.endTime != null 
         ? TimeHelper.isAfterWorkHours(scheduleDetails!.endTime!, graceMinutes: 30)
         : false;
@@ -1278,15 +1317,32 @@ Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) 
 
     switch (status) {
       case AttendanceStatus.notCheckedIn:
+        String? checkInReason;
+        bool canCheckIn = true;
+        
+        // Check schedule availability
+        if (!hasSchedule) {
+          checkInReason = 'No work schedule assigned. Contact your administrator.';
+          canCheckIn = false;
+        } else if (!isWorkingDay) {
+          checkInReason = 'Today is not a working day';
+          canCheckIn = false;
+        } else if (isAfterWorkHours) {
+          checkInReason = 'Work hours have ended for today';
+          canCheckIn = false;
+        } else if (isBeforeWorkHours) {
+          checkInReason = 'Too early to check in';
+          canCheckIn = false;
+        } else {
+          checkInReason = _getCheckInReason(currentTime, scheduleDetails);
+          canCheckIn = _canCheckIn(currentTime, scheduleDetails);
+        }
+        
         actions.add(AttendanceAction(
           type: 'check_in',
           label: 'Check In',
-          isEnabled: !isAfterWorkHours && !isBeforeWorkHours && _canCheckIn(currentTime, scheduleDetails),
-          reason: isAfterWorkHours 
-              ? 'Work hours have ended for today'
-              : isBeforeWorkHours
-                  ? 'Too early to check in'
-                  : _getCheckInReason(currentTime, scheduleDetails),
+          isEnabled: canCheckIn,
+          reason: checkInReason,
         ));
         break;
 
@@ -1295,16 +1351,24 @@ Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) 
           actions.add(AttendanceAction(
             type: 'break_out',
             label: 'Take Break',
-            isEnabled: !isAfterWorkHours,
-            reason: isAfterWorkHours ? 'Work hours have ended' : null,
+            isEnabled: !isAfterWorkHours && hasSchedule,
+            reason: !hasSchedule 
+                ? 'No schedule assigned'
+                : isAfterWorkHours 
+                    ? 'Work hours have ended' 
+                    : null,
           ));
         }
         
         actions.add(AttendanceAction(
           type: 'check_out',
           label: 'Check Out',
-          isEnabled: !isAfterWorkHours,
-          reason: isAfterWorkHours ? 'Work hours have ended for today' : null,
+          isEnabled: !isAfterWorkHours && hasSchedule,
+          reason: !hasSchedule 
+              ? 'No schedule assigned'
+              : isAfterWorkHours 
+                  ? 'Work hours have ended for today' 
+                  : null,
         ));
         break;
 
@@ -1312,8 +1376,12 @@ Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) 
         actions.add(AttendanceAction(
           type: 'break_in',
           label: 'Resume Work',
-          isEnabled: !isAfterWorkHours,
-          reason: isAfterWorkHours ? 'Work hours have ended' : null,
+          isEnabled: !isAfterWorkHours && hasSchedule,
+          reason: !hasSchedule 
+              ? 'No schedule assigned'
+              : isAfterWorkHours 
+                  ? 'Work hours have ended' 
+                  : null,
         ));
         break;
 
@@ -1324,12 +1392,14 @@ Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) 
         actions.add(AttendanceAction(
           type: 'check_in',
           label: 'Check In',
-          isEnabled: !isAfterWorkHours && !isBeforeWorkHours,
-          reason: isAfterWorkHours 
-              ? 'Work hours have ended for today'
-              : isBeforeWorkHours
-                  ? 'Too early to check in'
-                  : null,
+          isEnabled: hasSchedule && !isAfterWorkHours && !isBeforeWorkHours,
+          reason: !hasSchedule
+              ? 'No work schedule assigned. Contact your administrator.'
+              : isAfterWorkHours 
+                  ? 'Work hours have ended for today'
+                  : isBeforeWorkHours
+                      ? 'Too early to check in'
+                      : null,
         ));
         break;
     }
