@@ -4,6 +4,7 @@ import '../models/attendance_model.dart';
 import '../services/device_service.dart';
 import '../services/attendance_service.dart';
 import '../helpers/flushbar_helper.dart';
+import '../helpers/localization_helper.dart';
 
 class DeviceSelectionScreen extends StatefulWidget {
   final String organizationId;
@@ -89,7 +90,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
       if (mounted) {
         FlushbarHelper.showError(
           context,
-          'Failed to load devices: $e',
+          '${LocalizationHelper.getText('failed_to_load')} ${LocalizationHelper.getText('location')}: $e',
         );
       }
       setState(() => _isLoading = false);
@@ -156,7 +157,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
       if (mounted) {
         FlushbarHelper.showSuccess(
           context,
-          '${device.deviceName} selected successfully',
+          '${device.deviceName} ${LocalizationHelper.getText('success').toLowerCase()}',
         );
       }
 
@@ -181,7 +182,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
       if (mounted) {
         FlushbarHelper.showError(
           context,
-          'Failed to select device: $e',
+          '${LocalizationHelper.getText('failed_to_save')} ${LocalizationHelper.getText('location')}: $e',
         );
       }
       setState(() {
@@ -196,9 +197,9 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
 
   String _formatDistance(double distanceInMeters) {
     if (distanceInMeters < 1000) {
-      return '${distanceInMeters.toInt()}m away';
+      return '${distanceInMeters.toInt()}m ${LocalizationHelper.getText('away')}';
     } else {
-      return '${(distanceInMeters / 1000).toStringAsFixed(1)}km away';
+      return '${(distanceInMeters / 1000).toStringAsFixed(1)}km ${LocalizationHelper.getText('away')}';
     }
   }
 
@@ -207,7 +208,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
-        title: const Text('Select Location'),
+        title: Text(LocalizationHelper.getText('select_location')),
         backgroundColor: backgroundColor,
         foregroundColor: Colors.white,
         elevation: 0,
@@ -227,15 +228,15 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
   }
 
   Widget _buildLoadingView() {
-    return const Center(
+    return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 16),
+          const CircularProgressIndicator(),
+          const SizedBox(height: 16),
           Text(
-            'Loading locations...',
-            style: TextStyle(fontSize: 16, color: Colors.grey),
+            LocalizationHelper.getText('loading'),
+            style: const TextStyle(fontSize: 16, color: Colors.grey),
           ),
         ],
       ),
@@ -274,7 +275,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Choose your attendance location',
+                  LocalizationHelper.getText('choose_attendance_location'),
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.75),
                     fontSize: 13,
@@ -330,7 +331,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
           fontSize: 15,
         ),
         decoration: InputDecoration(
-          hintText: 'Search location...',
+          hintText: LocalizationHelper.getText('search_location'),
           hintStyle: TextStyle(
             color: Colors.white.withOpacity(0.5),
             fontSize: 15,
@@ -378,7 +379,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
             ),
             const SizedBox(height: 20),
             Text(
-              'No locations found',
+              LocalizationHelper.getText('no_locations_found'),
               style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,
@@ -387,7 +388,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Try a different search term',
+              LocalizationHelper.getText('try_different_search'),
               style: TextStyle(
                 fontSize: 14,
                 color: Colors.grey.shade500,
@@ -418,7 +419,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
             ),
             const SizedBox(width: 10),
             Text(
-              'Location not available',
+              LocalizationHelper.getText('location_not_available'),
               style: TextStyle(
                 color: Colors.orange.shade300,
                 fontSize: 13,
@@ -446,7 +447,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
             ),
             const SizedBox(width: 10),
             Text(
-              'Location detected',
+              LocalizationHelper.getText('location_detected'),
               style: TextStyle(
                 color: Colors.green.shade300,
                 fontSize: 13,
@@ -660,7 +661,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
               ),
               const SizedBox(width: 6),
               Text(
-                '${device.radiusMeters}m radius',
+                '${device.radiusMeters}m ${LocalizationHelper.getText('radius')}',
                 style: TextStyle(
                   fontSize: 12,
                   color: Colors.green.shade700,
@@ -748,9 +749,9 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
               ),
             ),
             const SizedBox(height: 24),
-            const Text(
-              'No Locations Available',
-              style: TextStyle(
+            Text(
+              LocalizationHelper.getText('no_locations_available'),
+              style: const TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
                 color: Colors.black87,
@@ -759,7 +760,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
             ),
             const SizedBox(height: 12),
             Text(
-              'No attendance locations have been configured for your organization yet.',
+              LocalizationHelper.getText('no_locations_configured'),
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Colors.grey.shade600,
@@ -771,7 +772,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
             ElevatedButton.icon(
               onPressed: _loadDevices,
               icon: const Icon(Icons.refresh_rounded, size: 20),
-              label: const Text('Refresh'),
+              label: Text(LocalizationHelper.getText('refresh')),
               style: ElevatedButton.styleFrom(
                 backgroundColor: primaryColor,
                 foregroundColor: Colors.white,
@@ -792,7 +793,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
     return Container(
       padding: const EdgeInsets.all(20),
       child: Text(
-        'You can change your location anytime from the profile settings.',
+        LocalizationHelper.getText('change_location_anytime'),
         textAlign: TextAlign.center,
         style: TextStyle(
           fontSize: 12,

@@ -5,6 +5,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'signup.dart';
 import 'dashboard.dart';
 import 'main_dashboard.dart';
+import '../helpers/localization_helper.dart';
 
 class Login extends StatefulWidget {
   const Login({super.key});
@@ -139,9 +140,7 @@ class _LoginState extends State<Login> {
 
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-            builder: (context) => const MainDashboard(),
-          ),
+          MaterialPageRoute(builder: (context) => const MainDashboard()),
         );
       } else {
         throw Exception('Login gagal: User null dari Supabase');
@@ -202,9 +201,7 @@ class _LoginState extends State<Login> {
         if (!mounted) return;
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-            builder: (context) => const MainDashboard(),
-          ),
+          MaterialPageRoute(builder: (context) => const MainDashboard()),
         );
       } else {
         if (!mounted) return;
@@ -300,15 +297,15 @@ class _LoginState extends State<Login> {
     final size = MediaQuery.of(context).size;
     final orientation = MediaQuery.of(context).orientation;
     final isLandscape = orientation == Orientation.landscape;
-    
+
     // Responsive sizing
     final isSmallScreen = size.width < 360;
 
     // Dynamic values - landscape lebih kecil
-    double headerHeight = isLandscape 
-        ? 180.0  // Fixed height untuk landscape
+    double headerHeight = isLandscape
+        ? 180.0 // Fixed height untuk landscape
         : (isSmallScreen ? size.height * 0.30 : size.height * 0.35);
-    
+
     double logoSize = isLandscape ? 50 : (isSmallScreen ? 70 : 80);
     double titleFontSize = isLandscape ? 20 : (isSmallScreen ? 24 : 28);
     double subtitleFontSize = isLandscape ? 11 : (isSmallScreen ? 13 : 14);
@@ -391,7 +388,7 @@ class _LoginState extends State<Login> {
                   ),
                 ),
               ),
-              
+
               // Extra padding di bawah untuk landscape
               if (isLandscape) const SizedBox(height: 20),
             ],
@@ -412,7 +409,7 @@ class _LoginState extends State<Login> {
     double buttonFontSize = isLandscape ? 13 : (isSmallScreen ? 14 : 15);
     double dividerFontSize = isLandscape ? 10 : (isSmallScreen ? 11 : 12);
     double cardPadding = isLandscape ? 14 : (isSmallScreen ? 16 : 20);
-    
+
     double verticalSpacing = isLandscape ? 6 : (isSmallScreen ? 8 : 10);
     double sectionSpacing = isLandscape ? 8 : (isSmallScreen ? 12 : 15);
     double buttonVerticalPadding = isLandscape ? 8 : (isSmallScreen ? 10 : 12);
@@ -435,7 +432,7 @@ class _LoginState extends State<Login> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            "Welcome Back",
+            LocalizationHelper.getText('welcome_back'),
             style: TextStyle(
               fontSize: welcomeFontSize,
               fontWeight: FontWeight.w600,
@@ -444,14 +441,14 @@ class _LoginState extends State<Login> {
           ),
           SizedBox(height: isLandscape ? 2 : 4),
           Text(
-            "Sign in to continue",
+            LocalizationHelper.getText('sign_in_to_continue'),
             style: TextStyle(
               fontSize: hintFontSize,
               color: Colors.grey.shade600,
             ),
           ),
           SizedBox(height: sectionSpacing + (isLandscape ? 2 : 5)),
-          
+
           // Google Sign In Button - DIPINDAH KE ATAS
           SizedBox(
             width: double.infinity,
@@ -461,10 +458,7 @@ class _LoginState extends State<Login> {
                 backgroundColor: Colors.white,
                 foregroundColor: Colors.black87,
                 disabledBackgroundColor: Colors.grey.shade100,
-                side: BorderSide(
-                  color: Colors.grey.shade300,
-                  width: 1.5,
-                ),
+                side: BorderSide(color: Colors.grey.shade300, width: 1.5),
                 padding: EdgeInsets.symmetric(
                   vertical: buttonVerticalPadding + 2,
                 ),
@@ -498,7 +492,9 @@ class _LoginState extends State<Login> {
                   ),
                   SizedBox(width: isLandscape ? 10 : 12),
                   Text(
-                    _isLoading ? "Processing..." : "Continue with Google",
+                    _isLoading
+                        ? LocalizationHelper.getText('processing')
+                        : LocalizationHelper.getText('continue_with_google'),
                     style: TextStyle(
                       fontSize: buttonFontSize,
                       fontWeight: FontWeight.w600,
@@ -509,20 +505,17 @@ class _LoginState extends State<Login> {
             ),
           ),
           SizedBox(height: sectionSpacing),
-          
+
           // Divider
           Row(
             children: [
               Expanded(
-                child: Divider(
-                  thickness: 1,
-                  color: Colors.grey.shade300,
-                ),
+                child: Divider(thickness: 1, color: Colors.grey.shade300),
               ),
               Padding(
                 padding: EdgeInsets.symmetric(horizontal: isLandscape ? 8 : 12),
                 child: Text(
-                  "or sign in with email",
+                  LocalizationHelper.getText('or_sign_in_with_email'),
                   style: TextStyle(
                     color: Colors.grey.shade500,
                     fontSize: dividerFontSize,
@@ -531,20 +524,17 @@ class _LoginState extends State<Login> {
                 ),
               ),
               Expanded(
-                child: Divider(
-                  thickness: 1,
-                  color: Colors.grey.shade300,
-                ),
+                child: Divider(thickness: 1, color: Colors.grey.shade300),
               ),
             ],
           ),
           SizedBox(height: sectionSpacing),
-          
+
           // Email Field
           _buildTextField(
             controller: _emailController,
-            label: "Email",
-            hint: "Enter your email",
+            label: LocalizationHelper.getText('email'),
+            hint: LocalizationHelper.getText('enter_your_email'),
             icon: Icons.mail_outline,
             keyboardType: TextInputType.emailAddress,
             labelFontSize: labelFontSize,
@@ -552,12 +542,12 @@ class _LoginState extends State<Login> {
             isLandscape: isLandscape,
           ),
           SizedBox(height: verticalSpacing),
-          
+
           // Password Field
           _buildTextField(
             controller: _passwordController,
-            label: "Password",
-            hint: "Enter your password",
+            label: LocalizationHelper.getText('password'),
+            hint: LocalizationHelper.getText('enter_your_password'),
             icon: Icons.lock_outline,
             obscureText: _obscurePassword,
             labelFontSize: labelFontSize,
@@ -581,7 +571,7 @@ class _LoginState extends State<Login> {
             ),
           ),
           SizedBox(height: sectionSpacing),
-          
+
           // Sign In Button
           SizedBox(
             width: double.infinity,
@@ -592,9 +582,7 @@ class _LoginState extends State<Login> {
                 foregroundColor: Colors.white,
                 disabledBackgroundColor: Colors.grey.shade300,
                 disabledForegroundColor: Colors.white,
-                padding: EdgeInsets.symmetric(
-                  vertical: buttonVerticalPadding,
-                ),
+                padding: EdgeInsets.symmetric(vertical: buttonVerticalPadding),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
@@ -606,13 +594,11 @@ class _LoginState extends State<Login> {
                       height: isLandscape ? 16 : 18,
                       child: const CircularProgressIndicator(
                         strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          Colors.white,
-                        ),
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                       ),
                     )
                   : Text(
-                      "Sign In",
+                      LocalizationHelper.getText('sign_in'),
                       style: TextStyle(
                         fontSize: buttonFontSize,
                         fontWeight: FontWeight.w600,
@@ -620,18 +606,18 @@ class _LoginState extends State<Login> {
                     ),
             ),
           ),
-          
+
           // Loading indicator
           if (_isLoading) ...[
             SizedBox(height: verticalSpacing + 2),
             Container(
-              padding: EdgeInsets.all(isLandscape ? 6 : (isSmallScreen ? 8 : 10)),
+              padding: EdgeInsets.all(
+                isLandscape ? 6 : (isSmallScreen ? 8 : 10),
+              ),
               decoration: BoxDecoration(
                 color: primaryColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: primaryColor.withValues(alpha: 0.3),
-                ),
+                border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
               ),
               child: Row(
                 children: [
@@ -640,15 +626,13 @@ class _LoginState extends State<Login> {
                     height: isLandscape ? 12 : 14,
                     child: const CircularProgressIndicator(
                       strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        primaryColor,
-                      ),
+                      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
                     ),
                   ),
                   SizedBox(width: isLandscape ? 8 : 10),
                   Expanded(
                     child: Text(
-                      'Processing login...',
+                       LocalizationHelper.getText('processing'),
                       style: TextStyle(
                         fontSize: dividerFontSize,
                         color: Colors.black87,
@@ -659,15 +643,17 @@ class _LoginState extends State<Login> {
               ),
             ),
           ],
-          
+
           // Sign Up Link
           Padding(
-            padding: EdgeInsets.only(top: isLandscape ? 6 : (isSmallScreen ? 10 : 12)),
+            padding: EdgeInsets.only(
+              top: isLandscape ? 6 : (isSmallScreen ? 10 : 12),
+            ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                  "Don't have an account? ",
+                 LocalizationHelper.getText('dont_have_account'),
                   style: TextStyle(
                     color: Colors.grey.shade600,
                     fontSize: hintFontSize,
@@ -679,18 +665,18 @@ class _LoginState extends State<Login> {
                       : () {
                           Navigator.pushReplacement(
                             context,
-                            MaterialPageRoute(
-                              builder: (_) => Signup(),
-                            ),
+                            MaterialPageRoute(builder: (_) => Signup()),
                           );
                         },
                   style: TextButton.styleFrom(
-                    padding: EdgeInsets.symmetric(horizontal: isLandscape ? 2 : 4),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isLandscape ? 2 : 4,
+                    ),
                     minimumSize: const Size(0, 0),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                   child: Text(
-                    "Sign Up",
+                   LocalizationHelper.getText('sign_up'),
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
                       color: primaryColor,
@@ -751,22 +737,15 @@ class _LoginState extends State<Login> {
             suffixIcon: suffixIcon,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(
-                color: Colors.grey.shade300,
-              ),
+              borderSide: BorderSide(color: Colors.grey.shade300),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(
-                color: Colors.grey.shade300,
-              ),
+              borderSide: BorderSide(color: Colors.grey.shade300),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(
-                color: primaryColor,
-                width: 2,
-              ),
+              borderSide: const BorderSide(color: primaryColor, width: 2),
             ),
             contentPadding: EdgeInsets.symmetric(
               horizontal: isLandscape ? 10 : 12,

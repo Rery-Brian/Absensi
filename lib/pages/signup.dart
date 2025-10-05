@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:absensiwajah/pages/login.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../helpers/flushbar_helper.dart';
+import '../helpers/localization_helper.dart';
 
 final supabase = Supabase.instance.client;
 
@@ -37,10 +38,7 @@ class _SignupState extends State<Signup> {
     }
 
     if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email)) {
-      FlushbarHelper.showError(
-        context,
-        'Invalid email format',
-      );
+      FlushbarHelper.showError(context, 'Invalid email format');
       return;
     }
 
@@ -60,24 +58,19 @@ class _SignupState extends State<Signup> {
       final AuthResponse res = await supabase.auth.signUp(
         email: email,
         password: password,
-        data: {
-          'name': name,
-        },
+        data: {'name': name},
       );
 
       if (res.user != null) {
         _showSuccessDialog();
       } else {
         if (mounted) {
-          FlushbarHelper.showError(
-            context,
-            'Failed to create account',
-          );
+          FlushbarHelper.showError(context, 'Failed to create account');
         }
       }
     } catch (e) {
       String errorMessage = 'Registration failed: ';
-      
+
       if (e.toString().contains('already registered')) {
         errorMessage += 'Email already registered';
       } else if (e.toString().contains('invalid email')) {
@@ -130,7 +123,10 @@ class _SignupState extends State<Signup> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 20),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 30,
+                    horizontal: 20,
+                  ),
                   child: Column(
                     children: [
                       Container(
@@ -166,10 +162,7 @@ class _SignupState extends State<Signup> {
                       const SizedBox(height: 8),
                       const Text(
                         'Your account has been created successfully',
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 16,
-                        ),
+                        style: TextStyle(color: Colors.white70, fontSize: 16),
                         textAlign: TextAlign.center,
                       ),
                     ],
@@ -199,7 +192,10 @@ class _SignupState extends State<Signup> {
                     ),
                     child: const Text(
                       'Continue to Login',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ),
@@ -217,13 +213,13 @@ class _SignupState extends State<Signup> {
     final size = MediaQuery.of(context).size;
     final orientation = MediaQuery.of(context).orientation;
     final isLandscape = orientation == Orientation.landscape;
-    
+
     final isSmallScreen = size.width < 360;
 
-    double headerHeight = isLandscape 
+    double headerHeight = isLandscape
         ? 180.0
         : (isSmallScreen ? size.height * 0.30 : size.height * 0.35);
-    
+
     double logoSize = isLandscape ? 50 : (isSmallScreen ? 70 : 80);
     double titleFontSize = isLandscape ? 20 : (isSmallScreen ? 24 : 28);
     double subtitleFontSize = isLandscape ? 11 : (isSmallScreen ? 13 : 14);
@@ -281,7 +277,7 @@ class _SignupState extends State<Signup> {
                     ),
                     SizedBox(height: isLandscape ? 2 : 4),
                     Text(
-                      "Create Your Account",
+                      LocalizationHelper.getText('create_account'),
                       style: TextStyle(
                         fontSize: subtitleFontSize,
                         color: Colors.white.withValues(alpha: 0.8),
@@ -303,7 +299,7 @@ class _SignupState extends State<Signup> {
                   ),
                 ),
               ),
-              
+
               if (isLandscape) const SizedBox(height: 20),
             ],
           ),
@@ -322,7 +318,7 @@ class _SignupState extends State<Signup> {
     double buttonFontSize = isLandscape ? 13 : (isSmallScreen ? 14 : 15);
     double dividerFontSize = isLandscape ? 10 : (isSmallScreen ? 11 : 12);
     double cardPadding = isLandscape ? 14 : (isSmallScreen ? 16 : 20);
-    
+
     double verticalSpacing = isLandscape ? 6 : (isSmallScreen ? 8 : 10);
     double sectionSpacing = isLandscape ? 8 : (isSmallScreen ? 12 : 15);
     double buttonVerticalPadding = isLandscape ? 8 : (isSmallScreen ? 10 : 12);
@@ -345,7 +341,7 @@ class _SignupState extends State<Signup> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            "Create Account",
+            LocalizationHelper.getText('create_account'),
             style: TextStyle(
               fontSize: welcomeFontSize,
               fontWeight: FontWeight.w600,
@@ -354,31 +350,31 @@ class _SignupState extends State<Signup> {
           ),
           SizedBox(height: isLandscape ? 2 : 4),
           Text(
-            "Fill in your details to get started",
+            LocalizationHelper.getText('fill_in_your_details'),
             style: TextStyle(
               fontSize: hintFontSize,
               color: Colors.grey.shade600,
             ),
           ),
           SizedBox(height: sectionSpacing + (isLandscape ? 0 : 5)),
-          
+
           // Name Field
           _buildTextField(
             controller: _nameController,
-            label: "Full Name",
-            hint: "Enter your full name",
+            label: LocalizationHelper.getText('full_name'),
+            hint: LocalizationHelper.getText('enter_your_full_name'),
             icon: Icons.person_outline,
             labelFontSize: labelFontSize,
             hintFontSize: hintFontSize,
             isLandscape: isLandscape,
           ),
           SizedBox(height: verticalSpacing),
-          
+
           // Email Field
           _buildTextField(
             controller: _emailController,
-            label: "Email",
-            hint: "Enter your email",
+            label: LocalizationHelper.getText('email'),
+            hint: LocalizationHelper.getText('enter_your_email'),
             icon: Icons.mail_outline,
             keyboardType: TextInputType.emailAddress,
             labelFontSize: labelFontSize,
@@ -386,12 +382,12 @@ class _SignupState extends State<Signup> {
             isLandscape: isLandscape,
           ),
           SizedBox(height: verticalSpacing),
-          
+
           // Password Field
           _buildTextField(
             controller: _passwordController,
-            label: "Password",
-            hint: "Enter your password (min. 6 chars)",
+            label: LocalizationHelper.getText('password'),
+            hint: LocalizationHelper.getText('enter_your_password'),
             icon: Icons.lock_outline,
             obscureText: _obscurePassword,
             labelFontSize: labelFontSize,
@@ -415,7 +411,7 @@ class _SignupState extends State<Signup> {
             ),
           ),
           SizedBox(height: sectionSpacing),
-          
+
           // Create Account Button
           SizedBox(
             width: double.infinity,
@@ -426,9 +422,7 @@ class _SignupState extends State<Signup> {
                 foregroundColor: Colors.white,
                 disabledBackgroundColor: Colors.grey.shade300,
                 disabledForegroundColor: Colors.white,
-                padding: EdgeInsets.symmetric(
-                  vertical: buttonVerticalPadding,
-                ),
+                padding: EdgeInsets.symmetric(vertical: buttonVerticalPadding),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
@@ -440,13 +434,11 @@ class _SignupState extends State<Signup> {
                       height: isLandscape ? 16 : 18,
                       child: const CircularProgressIndicator(
                         strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          Colors.white,
-                        ),
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                       ),
                     )
                   : Text(
-                      "Create Account",
+                      LocalizationHelper.getText('create_account'),
                       style: TextStyle(
                         fontSize: buttonFontSize,
                         fontWeight: FontWeight.w600,
@@ -454,18 +446,18 @@ class _SignupState extends State<Signup> {
                     ),
             ),
           ),
-          
+
           // Loading indicator
           if (_isLoading) ...[
             SizedBox(height: verticalSpacing),
             Container(
-              padding: EdgeInsets.all(isLandscape ? 6 : (isSmallScreen ? 8 : 10)),
+              padding: EdgeInsets.all(
+                isLandscape ? 6 : (isSmallScreen ? 8 : 10),
+              ),
               decoration: BoxDecoration(
                 color: primaryColor.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: primaryColor.withValues(alpha: 0.3),
-                ),
+                border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
               ),
               child: Row(
                 children: [
@@ -474,15 +466,13 @@ class _SignupState extends State<Signup> {
                     height: isLandscape ? 12 : 14,
                     child: const CircularProgressIndicator(
                       strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        primaryColor,
-                      ),
+                      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
                     ),
                   ),
                   SizedBox(width: isLandscape ? 8 : 10),
                   Expanded(
                     child: Text(
-                      'Creating your account...',
+                      LocalizationHelper.getText('creating_account'),
                       style: TextStyle(
                         fontSize: dividerFontSize,
                         color: Colors.black87,
@@ -493,15 +483,17 @@ class _SignupState extends State<Signup> {
               ),
             ),
           ],
-          
+
           // Login Link
           Padding(
-            padding: EdgeInsets.only(top: isLandscape ? 4 : (isSmallScreen ? 8 : 0)),
+            padding: EdgeInsets.only(
+              top: isLandscape ? 4 : (isSmallScreen ? 8 : 0),
+            ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                  "Already have an account? ",
+                   LocalizationHelper.getText('already_have_account'),
                   style: TextStyle(
                     color: Colors.grey.shade600,
                     fontSize: hintFontSize,
@@ -513,18 +505,18 @@ class _SignupState extends State<Signup> {
                       : () {
                           Navigator.pushReplacement(
                             context,
-                            MaterialPageRoute(
-                              builder: (_) => const Login(),
-                            ),
+                            MaterialPageRoute(builder: (_) => const Login()),
                           );
                         },
                   style: TextButton.styleFrom(
-                    padding: EdgeInsets.symmetric(horizontal: isLandscape ? 2 : 4),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isLandscape ? 2 : 4,
+                    ),
                     minimumSize: const Size(0, 0),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                   child: Text(
-                    "Sign In",
+                    LocalizationHelper.getText('sign_in'),
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
                       color: primaryColor,
@@ -585,22 +577,15 @@ class _SignupState extends State<Signup> {
             suffixIcon: suffixIcon,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(
-                color: Colors.grey.shade300,
-              ),
+              borderSide: BorderSide(color: Colors.grey.shade300),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(
-                color: Colors.grey.shade300,
-              ),
+              borderSide: BorderSide(color: Colors.grey.shade300),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(
-                color: primaryColor,
-                width: 2,
-              ),
+              borderSide: const BorderSide(color: primaryColor, width: 2),
             ),
             contentPadding: EdgeInsets.symmetric(
               horizontal: isLandscape ? 10 : 12,

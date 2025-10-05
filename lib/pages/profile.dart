@@ -7,13 +7,14 @@ import 'dart:io';
 import '../models/attendance_model.dart';
 import '../services/attendance_service.dart';
 import '../helpers/flushbar_helper.dart';
+import '../helpers/localization_helper.dart'; // ADD THIS
 
 class ProfilePage extends StatefulWidget {
-  final VoidCallback? onProfileUpdated; // Add callback parameter
+  final VoidCallback? onProfileUpdated;
   
   const ProfilePage({
     super.key,
-    this.onProfileUpdated, // Add to constructor
+    this.onProfileUpdated,
   });
 
   @override
@@ -95,7 +96,7 @@ class _ProfilePageState extends State<ProfilePage> {
       if (mounted) {
         FlushbarHelper.showError(
           context,
-          'Failed to load user data',
+          LocalizationHelper.getText('failed_to_load'),
         );
       }
     } finally {
@@ -121,8 +122,9 @@ class _ProfilePageState extends State<ProfilePage> {
         setState(() {
           _organization = Organization(
             id: response['id'].toString(),
-            name: response['name'] ?? 'Unknown Organization',
-            code: '', countryCode: '', // Code not needed for display
+            name: response['name'] ?? LocalizationHelper.getText('unknown_organization'),
+            code: '', 
+            countryCode: '',
           );
         });
       }
@@ -131,16 +133,103 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  // === LANGUAGE DIALOG ===
+  Future<void> _showLanguageDialog() async {
+    final currentLang = LocalizationHelper.currentLanguage;
+    
+    await showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.language, color: primaryColor, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Text(LocalizationHelper.getText('language')),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildLanguageOption('id', 'Indonesia', '🇮🇩', currentLang == 'id'),
+              const SizedBox(height: 12),
+              _buildLanguageOption('en', 'English', '🇬🇧', currentLang == 'en'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(LocalizationHelper.getText('cancel')),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildLanguageOption(String code, String name, String flag, bool isSelected) {
+    return InkWell(
+      onTap: () async {
+        await LocalizationHelper.setLanguage(code);
+        if (mounted) {
+          Navigator.pop(context);
+          setState(() {}); // Rebuild with new language
+          FlushbarHelper.showSuccess(
+            context,
+            'Language changed to $name',
+          );
+        }
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: isSelected ? primaryColor : Colors.grey.shade300,
+            width: isSelected ? 2 : 1,
+          ),
+          borderRadius: BorderRadius.circular(12),
+          color: isSelected ? primaryColor.withOpacity(0.05) : null,
+        ),
+        child: Row(
+          children: [
+            Text(flag, style: const TextStyle(fontSize: 24)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                name,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                  color: isSelected ? primaryColor : Colors.black87,
+                ),
+              ),
+            ),
+            if (isSelected)
+              Icon(Icons.check_circle, color: primaryColor, size: 24),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<String?> _uploadProfileImage(File imageFile) async {
     try {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) return null;
 
       final bytes = await imageFile.readAsBytes();
-      // Use user ID as folder structure for better organization and security
       final fileName = '${user.id}/${user.id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
       
-      // Delete old profile photo if exists
       if (_userProfile?.profilePhotoUrl != null) {
         try {
           final oldFileName = _userProfile!.profilePhotoUrl!
@@ -153,7 +242,6 @@ class _ProfilePageState extends State<ProfilePage> {
         }
       }
       
-      // Upload new photo
       await Supabase.instance.client.storage
           .from('profile-photos/profiles')
           .uploadBinary(fileName, bytes, 
@@ -176,7 +264,6 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _pickImage() async {
     try {
-      // Show source selection dialog
       final source = await showModalBottomSheet<ImageSource>(
         context: context,
         shape: const RoundedRectangleBorder(
@@ -196,9 +283,11 @@ class _ProfilePageState extends State<ProfilePage> {
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              const Text(
-                'Select Photo Source',
-                style: TextStyle(
+              Text(
+                LocalizationHelper.currentLanguage == 'id' 
+                    ? 'Pilih Sumber Foto' 
+                    : 'Select Photo Source',
+                style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
                 ),
@@ -224,7 +313,7 @@ class _ProfilePageState extends State<ProfilePage> {
                               color: primaryColor,
                             ),
                             const SizedBox(height: 8),
-                            const Text('Camera'),
+                            Text(LocalizationHelper.currentLanguage == 'id' ? 'Kamera' : 'Camera'),
                           ],
                         ),
                       ),
@@ -249,7 +338,7 @@ class _ProfilePageState extends State<ProfilePage> {
                               color: primaryColor,
                             ),
                             const SizedBox(height: 8),
-                            const Text('Gallery'),
+                            Text(LocalizationHelper.currentLanguage == 'id' ? 'Galeri' : 'Gallery'),
                           ],
                         ),
                       ),
@@ -260,7 +349,7 @@ class _ProfilePageState extends State<ProfilePage> {
               const SizedBox(height: 20),
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel'),
+                child: Text(LocalizationHelper.getText('cancel')),
               ),
             ],
           ),
@@ -282,11 +371,9 @@ class _ProfilePageState extends State<ProfilePage> {
           _isUploadingImage = true;
         });
 
-        // Upload image immediately
         final imageUrl = await _uploadProfileImage(_selectedImage!);
         
         if (imageUrl != null) {
-          // Update profile photo URL in database
           final user = Supabase.instance.client.auth.currentUser;
           if (user != null) {
             await Supabase.instance.client
@@ -297,19 +384,16 @@ class _ProfilePageState extends State<ProfilePage> {
                 })
                 .eq('id', user.id);
             
-            // Reload user data to reflect changes
             await _loadUserData();
             
             if (mounted) {
               FlushbarHelper.showSuccess(
                 context,
-                'Profile photo updated successfully!',
+                LocalizationHelper.getText('photo_updated'),
               );
             }
             
-            // Call the callback to notify parent widget
             if (widget.onProfileUpdated != null) {
-              debugPrint('Calling profile update callback');
               widget.onProfileUpdated!();
             }
           }
@@ -317,7 +401,9 @@ class _ProfilePageState extends State<ProfilePage> {
           if (mounted) {
             FlushbarHelper.showError(
               context,
-              'Failed to upload image',
+              LocalizationHelper.currentLanguage == 'id'
+                  ? 'Gagal mengunggah gambar'
+                  : 'Failed to upload image',
             );
           }
         }
@@ -325,17 +411,12 @@ class _ProfilePageState extends State<ProfilePage> {
     } catch (e) {
       debugPrint('Error picking image: $e');
       if (mounted) {
-        if (e.toString().contains('channel-error')) {
-          FlushbarHelper.showError(
-            context,
-            'Image picker not available. Please check app permissions.',
-          );
-        } else {
-          FlushbarHelper.showError(
-            context,
-            'Failed to pick image. Please try again.',
-          );
-        }
+        FlushbarHelper.showError(
+          context,
+          LocalizationHelper.currentLanguage == 'id'
+              ? 'Gagal memilih gambar'
+              : 'Failed to pick image',
+        );
       }
     } finally {
       setState(() {
@@ -360,7 +441,6 @@ class _ProfilePageState extends State<ProfilePage> {
         throw Exception('User not authenticated');
       }
 
-      // Update user_profiles table
       await Supabase.instance.client
           .from('user_profiles')
           .update({
@@ -372,7 +452,6 @@ class _ProfilePageState extends State<ProfilePage> {
           })
           .eq('id', user.id);
 
-      // Refresh user data
       await _loadUserData();
       
       setState(() {
@@ -382,13 +461,11 @@ class _ProfilePageState extends State<ProfilePage> {
       if (mounted) {
         FlushbarHelper.showSuccess(
           context,
-          'Profile updated successfully!',
+          LocalizationHelper.getText('profile_updated'),
         );
       }
       
-      // Call the callback to notify parent widget about profile update
       if (widget.onProfileUpdated != null) {
-        debugPrint('Calling profile update callback after saving profile');
         widget.onProfileUpdated!();
       }
     } catch (e) {
@@ -396,7 +473,7 @@ class _ProfilePageState extends State<ProfilePage> {
       if (mounted) {
         FlushbarHelper.showError(
           context,
-          'Failed to update profile: $e',
+          '${LocalizationHelper.getText('failed_to_update')}: $e',
           duration: const Duration(seconds: 5),
         );
       }
@@ -420,7 +497,7 @@ class _ProfilePageState extends State<ProfilePage> {
     setState(() {
       _isEditMode = false;
     });
-    _populateControllers(); // Reset form data
+    _populateControllers();
   }
 
   Future<void> _selectDate() async {
@@ -451,7 +528,6 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  /// ====== LOGOUT FUNCTION ======
   Future<void> _performLogout() async {
     try {
       await _attendanceService.signOut();
@@ -467,7 +543,7 @@ class _ProfilePageState extends State<ProfilePage> {
       if (mounted) {
         FlushbarHelper.showError(
           context,
-          'Failed to logout: $e',
+          '${LocalizationHelper.getText('failed_to_load')}: $e',
         );
       }
     }
@@ -482,11 +558,11 @@ class _ProfilePageState extends State<ProfilePage> {
       builder: (BuildContext context) {
         return AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          title: const Text('Confirm Logout'),
-          content: const Text('Are you sure you want to logout?'),
+          title: Text(LocalizationHelper.getText('confirm_logout')),
+          content: Text(LocalizationHelper.getText('are_you_sure_logout')),
           actions: <Widget>[
             TextButton(
-              child: const Text('Cancel'),
+              child: Text(LocalizationHelper.getText('cancel')),
               onPressed: () => Navigator.of(context).pop(),
             ),
             ElevatedButton(
@@ -494,7 +570,10 @@ class _ProfilePageState extends State<ProfilePage> {
                 backgroundColor: Colors.red,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
-              child: const Text('Logout', style: TextStyle(color: Colors.white)),
+              child: Text(
+                LocalizationHelper.getText('logout'),
+                style: const TextStyle(color: Colors.white),
+              ),
               onPressed: () async {
                 Navigator.of(context).pop(); 
                 await _performLogout(); 
@@ -520,7 +599,6 @@ class _ProfilePageState extends State<ProfilePage> {
     }
 
     final user = Supabase.instance.client.auth.currentUser;
-    // Use display_name from user profile instead of parsing email
     final displayName = _userProfile?.displayName ?? _userProfile?.fullName ?? user?.email?.split('@')[0] ?? 'User';
     final email = user?.email ?? 'No email';
 
@@ -540,7 +618,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 _buildSupportSection(context),
                 _buildLogoutSection(context),
               ],
-              const SizedBox(height: 100), // Space for bottom navigation
+              const SizedBox(height: 100),
             ],
           ),
         ),
@@ -554,7 +632,7 @@ class _ProfilePageState extends State<ProfilePage> {
       padding: const EdgeInsets.fromLTRB(20, 50, 20, 40),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [backgroundColor, backgroundColor.withValues(alpha: 0.8)],
+          colors: [backgroundColor, backgroundColor.withOpacity(0.8)],
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
         ),
@@ -565,9 +643,9 @@ class _ProfilePageState extends State<ProfilePage> {
       ),
       child: Column(
         children: [
-          const Text(
-            'Profile',
-            style: TextStyle(
+          Text(
+            LocalizationHelper.getText('profile'),
+            style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.w600,
               color: Colors.white,
@@ -658,9 +736,9 @@ class _ProfilePageState extends State<ProfilePage> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               decoration: BoxDecoration(
-                color: primaryColor.withValues(alpha: 0.2),
+                color: primaryColor.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
+                border: Border.all(color: primaryColor.withOpacity(0.3)),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -698,7 +776,7 @@ class _ProfilePageState extends State<ProfilePage> {
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
+              color: Colors.black.withOpacity(0.1),
               blurRadius: 15,
               offset: const Offset(0, 5),
             ),
@@ -714,9 +792,9 @@ class _ProfilePageState extends State<ProfilePage> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
-                      'Personal Information',
-                      style: TextStyle(
+                    Text(
+                      LocalizationHelper.getText('personal_information'),
+                      style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w600,
                         color: Colors.black87,
@@ -726,7 +804,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       OutlinedButton.icon(
                         onPressed: _toggleEditMode,
                         icon: const Icon(Icons.edit, size: 16),
-                        label: const Text('Edit'),
+                        label: Text(LocalizationHelper.getText('edit')),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: primaryColor,
                           side: BorderSide(color: primaryColor),
@@ -755,7 +833,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             ),
                             padding: const EdgeInsets.symmetric(vertical: 12),
                           ),
-                          child: const Text('Cancel'),
+                          child: Text(LocalizationHelper.getText('cancel')),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -774,8 +852,8 @@ class _ProfilePageState extends State<ProfilePage> {
                           child: _isSaving
                               ? Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
-                                  children: const [
-                                    SizedBox(
+                                  children: [
+                                    const SizedBox(
                                       width: 16,
                                       height: 16,
                                       child: CircularProgressIndicator(
@@ -783,11 +861,11 @@ class _ProfilePageState extends State<ProfilePage> {
                                         valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                                       ),
                                     ),
-                                    SizedBox(width: 8),
-                                    Text('Saving...'),
+                                    const SizedBox(width: 8),
+                                    Text(LocalizationHelper.getText('saving')),
                                   ],
                                 )
-                              : const Text('Save Changes'),
+                              : Text(LocalizationHelper.getText('save_changes')),
                         ),
                       ),
                     ],
@@ -795,16 +873,20 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
               _buildProfileField(
                 icon: Icons.person_outline,
-                title: 'Display Name',
+                title: LocalizationHelper.getText('display_name'),
                 controller: _fullNameController,
-                currentValue: _userProfile?.displayName ?? _userProfile?.fullName ?? 'Not provided',
+                currentValue: _userProfile?.displayName ?? _userProfile?.fullName ?? LocalizationHelper.getText('not_provided'),
                 isEditable: true,
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) {
-                    return 'Display name is required';
+                    return LocalizationHelper.currentLanguage == 'id' 
+                        ? 'Nama tampilan wajib diisi'
+                        : 'Display name is required';
                   }
                   if (value.trim().length > 20) {
-                    return 'Display name maximum 20 characters';
+                    return LocalizationHelper.currentLanguage == 'id'
+                        ? 'Nama tampilan maksimal 20 karakter'
+                        : 'Display name maximum 20 characters';
                   }
                   return null;
                 },
@@ -812,14 +894,16 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
               _buildProfileField(
                 icon: Icons.phone_outlined,
-                title: 'Phone Number',
+                title: LocalizationHelper.getText('phone_number'),
                 controller: _phoneController,
-                currentValue: _userProfile?.phone ?? 'Not provided',
+                currentValue: _userProfile?.phone ?? LocalizationHelper.getText('not_provided'),
                 isEditable: true,
                 keyboardType: TextInputType.phone,
                 validator: (value) {
                   if (value != null && value.trim().isNotEmpty && value.trim().length > 12) {
-                    return 'Phone number maximum 12 characters';
+                    return LocalizationHelper.currentLanguage == 'id'
+                        ? 'Nomor telepon maksimal 12 karakter'
+                        : 'Phone number maximum 12 characters';
                   }
                   return null;
                 },
@@ -829,23 +913,23 @@ class _ProfilePageState extends State<ProfilePage> {
               _buildDateOfBirthField(),
               _buildProfileField(
                 icon: Icons.badge_outlined,
-                title: 'Employee ID',
+                title: LocalizationHelper.getText('employee_id'),
                 controller: null,
-                currentValue: _organizationMember?.employeeId ?? 'Not assigned',
+                currentValue: _organizationMember?.employeeId ?? LocalizationHelper.getText('not_assigned'),
                 isEditable: false,
               ),
               _buildProfileField(
                 icon: Icons.work_outline,
-                title: 'Position',
+                title: LocalizationHelper.getText('position'),
                 controller: null,
-                currentValue: _organizationMember?.position?.title ?? 'Not specified',
+                currentValue: _organizationMember?.position?.title ?? LocalizationHelper.getText('not_specified'),
                 isEditable: false,
               ),
               _buildProfileField(
                 icon: Icons.business_outlined,
-                title: 'Department',
+                title: LocalizationHelper.getText('department'),
                 controller: null,
-                currentValue: _organizationMember?.department?.name ?? 'Not specified',
+                currentValue: _organizationMember?.department?.name ?? LocalizationHelper.getText('not_specified'),
                 isEditable: false,
                 isLast: true,
               ),
@@ -856,12 +940,11 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  // Implement remaining widgets with same pattern...
-  // Due to character limit, continuing with core widget implementations
-  
   Widget _buildGenderField() {
     final canEdit = _isEditMode;
-    final genderDisplay = _selectedGender == 'male' ? 'Male' : 'Female';
+    final genderDisplay = _selectedGender == 'male' 
+        ? LocalizationHelper.getText('male')
+        : LocalizationHelper.getText('female');
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
@@ -873,7 +956,7 @@ class _ProfilePageState extends State<ProfilePage> {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: primaryColor.withValues(alpha: 0.1),
+              color: primaryColor.withOpacity(0.1),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(Icons.person_pin, color: primaryColor, size: 20),
@@ -883,14 +966,17 @@ class _ProfilePageState extends State<ProfilePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Gender', style: TextStyle(fontSize: 14, color: Colors.grey)),
+                Text(
+                  LocalizationHelper.getText('gender'),
+                  style: const TextStyle(fontSize: 14, color: Colors.grey),
+                ),
                 const SizedBox(height: 4),
                 if (canEdit)
                   Row(
                     children: [
                       Expanded(
                         child: RadioListTile<String>(
-                          title: const Text('Male'),
+                          title: Text(LocalizationHelper.getText('male')),
                           value: 'male',
                           groupValue: _selectedGender,
                           activeColor: primaryColor,
@@ -900,7 +986,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       ),
                       Expanded(
                         child: RadioListTile<String>(
-                          title: const Text('Female'),
+                          title: Text(LocalizationHelper.getText('female')),
                           value: 'female',
                           groupValue: _selectedGender,
                           activeColor: primaryColor,
@@ -924,7 +1010,7 @@ class _ProfilePageState extends State<ProfilePage> {
     final canEdit = _isEditMode;
     final dateDisplay = _selectedDateOfBirth != null
         ? '${_selectedDateOfBirth!.day}/${_selectedDateOfBirth!.month}/${_selectedDateOfBirth!.year}'
-        : 'Not provided';
+        : LocalizationHelper.getText('not_provided');
     return InkWell(
       onTap: canEdit ? _selectDate : null,
       child: Container(
@@ -938,7 +1024,7 @@ class _ProfilePageState extends State<ProfilePage> {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: primaryColor.withValues(alpha: 0.1),
+                color: primaryColor.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(Icons.cake_outlined, color: primaryColor, size: 20),
@@ -948,7 +1034,10 @@ class _ProfilePageState extends State<ProfilePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Date of Birth', style: TextStyle(fontSize: 14, color: Colors.grey)),
+                  Text(
+                    LocalizationHelper.getText('date_of_birth'),
+                    style: const TextStyle(fontSize: 14, color: Colors.grey),
+                  ),
                   const SizedBox(height: 4),
                   Text(dateDisplay, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
                 ],
@@ -985,7 +1074,7 @@ class _ProfilePageState extends State<ProfilePage> {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: primaryColor.withValues(alpha: 0.1),
+              color: primaryColor.withOpacity(0.1),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: primaryColor, size: 20),
@@ -1028,19 +1117,45 @@ class _ProfilePageState extends State<ProfilePage> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 2))],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
             padding: const EdgeInsets.all(20),
-            child: const Text('Account Settings', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+            child: Text(
+              LocalizationHelper.getText('account_settings'),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
           ),
-          _buildMenuItem(icon: Icons.security_outlined, title: 'Security', subtitle: 'Password and authentication', onTap: () => _showComingSoon(context)),
-          _buildMenuItem(icon: Icons.notifications_outlined, title: 'Notifications', subtitle: 'Manage your notification preferences', onTap: () => _showComingSoon(context)),
-          _buildMenuItem(icon: Icons.language_outlined, title: 'Language', subtitle: 'English (Default)', onTap: () => _showComingSoon(context)),
-          _buildMenuItem(icon: Icons.dark_mode_outlined, title: 'Appearance', subtitle: 'Theme and display settings', onTap: () => _showComingSoon(context), isLast: true),
+          _buildMenuItem(
+            icon: Icons.security_outlined,
+            title: LocalizationHelper.getText('security'),
+            subtitle: LocalizationHelper.getText('password_and_authentication'),
+            onTap: () => _showComingSoon(context),
+          ),
+          _buildMenuItem(
+            icon: Icons.notifications_outlined,
+            title: LocalizationHelper.getText('notifications'),
+            subtitle: LocalizationHelper.getText('manage_notification_preferences'),
+            onTap: () => _showComingSoon(context),
+          ),
+          _buildMenuItem(
+            icon: Icons.language_outlined,
+            title: LocalizationHelper.getText('language'),
+            subtitle: LocalizationHelper.currentLanguage == 'en' 
+                ? 'English' 
+                : 'Indonesia',
+            onTap: () => _showLanguageDialog(),
+          ),
+          _buildMenuItem(
+            icon: Icons.dark_mode_outlined,
+            title: LocalizationHelper.getText('appearance'),
+            subtitle: LocalizationHelper.getText('theme_and_display'),
+            onTap: () => _showComingSoon(context),
+            isLast: true,
+          ),
         ],
       ),
     );
@@ -1052,20 +1167,49 @@ class _ProfilePageState extends State<ProfilePage> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 2))],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2))],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
             padding: const EdgeInsets.all(20),
-            child: const Text('Support & Information', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+            child: Text(
+              LocalizationHelper.getText('support_information'),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
           ),
-          _buildMenuItem(icon: Icons.help_outline, title: 'Help Center', subtitle: 'Get help and find answers', onTap: () => _showComingSoon(context)),
-          _buildMenuItem(icon: Icons.contact_support_outlined, title: 'Contact Support', subtitle: 'Get in touch with our team', onTap: () => _showComingSoon(context)),
-          _buildMenuItem(icon: Icons.info_outline, title: 'About', subtitle: 'App version and information', onTap: () => _showAboutDialog(context)),
-          _buildMenuItem(icon: Icons.privacy_tip_outlined, title: 'Privacy Policy', subtitle: 'Learn how we protect your data', onTap: () => _showComingSoon(context)),
-          _buildMenuItem(icon: Icons.article_outlined, title: 'Terms of Service', subtitle: 'Read our terms and conditions', onTap: () => _showComingSoon(context), isLast: true),
+          _buildMenuItem(
+            icon: Icons.help_outline,
+            title: LocalizationHelper.getText('help_center'),
+            subtitle: LocalizationHelper.getText('get_help_and_answers'),
+            onTap: () => _showComingSoon(context),
+          ),
+          _buildMenuItem(
+            icon: Icons.contact_support_outlined,
+            title: LocalizationHelper.getText('contact_support'),
+            subtitle: LocalizationHelper.getText('contact_our_team'),
+            onTap: () => _showComingSoon(context),
+          ),
+          _buildMenuItem(
+            icon: Icons.info_outline,
+            title: LocalizationHelper.getText('about'),
+            subtitle: LocalizationHelper.getText('app_version_info'),
+            onTap: () => _showAboutDialog(context),
+          ),
+          _buildMenuItem(
+            icon: Icons.privacy_tip_outlined,
+            title: LocalizationHelper.getText('privacy_policy'),
+            subtitle: LocalizationHelper.getText('learn_data_protection'),
+            onTap: () => _showComingSoon(context),
+          ),
+          _buildMenuItem(
+            icon: Icons.article_outlined,
+            title: LocalizationHelper.getText('terms_of_service'),
+            subtitle: LocalizationHelper.getText('read_terms_and_conditions'),
+            onTap: () => _showComingSoon(context),
+            isLast: true,
+          ),
         ],
       ),
     );
@@ -1077,12 +1221,12 @@ class _ProfilePageState extends State<ProfilePage> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, 2))],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2))],
       ),
       child: _buildMenuItem(
         icon: Icons.logout,
-        title: 'Logout',
-        subtitle: 'Sign out from your account',
+        title: LocalizationHelper.getText('logout'),
+        subtitle: LocalizationHelper.getText('sign_out_account'),
         onTap: () => _showLogoutConfirmation(context),
         textColor: Colors.red,
         iconColor: Colors.red,
@@ -1114,7 +1258,7 @@ class _ProfilePageState extends State<ProfilePage> {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: (iconColor ?? primaryColor).withValues(alpha: 0.1),
+                color: (iconColor ?? primaryColor).withOpacity(0.1),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(icon, color: iconColor ?? primaryColor, size: 20),
@@ -1124,7 +1268,14 @@ class _ProfilePageState extends State<ProfilePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: textColor ?? Colors.black87)),
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: textColor ?? Colors.black87,
+                    ),
+                  ),
                   const SizedBox(height: 2),
                   Text(subtitle, style: const TextStyle(fontSize: 12, color: Colors.grey)),
                 ],
@@ -1148,20 +1299,20 @@ class _ProfilePageState extends State<ProfilePage> {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: primaryColor.withValues(alpha: 0.1),
+                color: primaryColor.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(Icons.schedule, color: primaryColor, size: 20),
             ),
             const SizedBox(width: 12),
-            const Text('Coming Soon'),
+            Text(LocalizationHelper.getText('coming_soon')),
           ],
         ),
-        content: const Text('This feature is currently under development and will be available in a future update.'),
+        content: Text(LocalizationHelper.getText('feature_under_development')),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
+            child: Text(LocalizationHelper.getText('ok')),
           ),
         ],
       ),
@@ -1179,27 +1330,30 @@ class _ProfilePageState extends State<ProfilePage> {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: primaryColor.withValues(alpha: 0.1),
+                color: primaryColor.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: Icon(Icons.info_outline, color: primaryColor, size: 20),
             ),
             const SizedBox(width: 12),
-            const Text('About This App'),
+            Text(LocalizationHelper.getText('about_this_app')),
           ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
-          children: const [
-            Text('Attendance App v1.0.0', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
-            SizedBox(height: 10),
-            Text('This app helps you manage your attendance and organization-related tasks with ease.'),
+          children: [
+            Text(
+              LocalizationHelper.getText('attendance_app_version'),
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+            ),
+            const SizedBox(height: 10),
+            Text(LocalizationHelper.getText('app_description')),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('CLOSE'),
+            child: Text(LocalizationHelper.getText('close').toUpperCase()),
           ),
         ],
       ),

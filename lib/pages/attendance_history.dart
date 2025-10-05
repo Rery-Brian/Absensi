@@ -1,4 +1,4 @@
-// attendance_history_page.dart - Updated untuk menampilkan multiple check-ins
+// attendance_history_page.dart - Updated with localization
 
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../helpers/timezone_helper.dart';
+import '../helpers/localization_helper.dart';
 import 'login.dart';
 
 class AttendanceHistoryPage extends StatefulWidget {
@@ -52,11 +53,10 @@ class AttendanceHistoryPageState extends State<AttendanceHistoryPage> {
     super.dispose();
   }
 
-void _initializeData() async {
+  void _initializeData() async {
     if (!mounted) return;
     
     try {
-      // Pastikan timezone sudah terinisialisasi sebelum memanggil method lain
       if (!TimezoneHelper.isInitialized) {
         TimezoneHelper.initialize('UTC');
       }
@@ -189,7 +189,6 @@ void _initializeData() async {
 
       final memberId = _organizationMember!['id'];
       
-      // PERUBAHAN UTAMA: Load dari attendance_logs DAN attendance_records
       final logsData = await _loadAttendanceLogs(memberId);
       final recordsData = await _loadAttendanceRecords(memberId);
       
@@ -207,7 +206,6 @@ void _initializeData() async {
     }
   }
 
-  // TAMBAHAN: Method untuk load attendance_logs
   Future<List<Map<String, dynamic>>> _loadAttendanceLogs(int memberId) async {
     try {
       final response = await supabase
@@ -252,7 +250,6 @@ void _initializeData() async {
     }
   }
 
-  // PERUBAHAN: Process data dari logs + records
   void _processAndSetAttendanceData(
     List<Map<String, dynamic>> logs,
     List<Map<String, dynamic>> records,
@@ -272,7 +269,7 @@ void _initializeData() async {
     _updateFilteredData();
   }
 
-Map<String, dynamic> _processAttendanceDataFromLogs(
+  Map<String, dynamic> _processAttendanceDataFromLogs(
     List<Map<String, dynamic>> logs,
     List<Map<String, dynamic>> records,
   ) {
@@ -280,7 +277,6 @@ Map<String, dynamic> _processAttendanceDataFromLogs(
     int checkIns = 0;
     int checkOuts = 0;
 
-    // Create map untuk cepat cari data dari records berdasarkan date
     final Map<String, Map<String, dynamic>> recordsByDate = {};
     for (final record in records) {
       if (record['attendance_date'] != null) {
@@ -288,7 +284,6 @@ Map<String, dynamic> _processAttendanceDataFromLogs(
       }
     }
 
-    // Group logs by date and event_time untuk identifikasi unik
     final Map<String, List<Map<String, dynamic>>> logsByDate = {};
     for (final log in logs) {
       if (log['event_time'] != null) {
@@ -301,7 +296,6 @@ Map<String, dynamic> _processAttendanceDataFromLogs(
       }
     }
 
-    // Process logs - setiap log jadi 1 entry dengan foto yang tepat
     for (final log in logs) {
       if (log['event_time'] != null) {
         final eventTime = DateTime.parse(log['event_time']);
@@ -311,14 +305,11 @@ Map<String, dynamic> _processAttendanceDataFromLogs(
 
         groupedData[dateOnly] ??= [];
 
-        // Cari record yang sesuai
         final matchingRecord = recordsByDate[dateString];
         
         if (log['event_type'] == 'check_in') {
-          // Untuk check-in: coba ambil foto dari log dulu, lalu record
           String? photoUrl = _extractPhotoFromLog(log);
           
-          // Jika tidak ada di log, ambil dari record
           if (photoUrl == null && matchingRecord != null) {
             photoUrl = matchingRecord['check_in_photo_url'];
           }
@@ -339,17 +330,11 @@ Map<String, dynamic> _processAttendanceDataFromLogs(
           checkIns++;
           
         } else if (log['event_type'] == 'check_out') {
-          // Untuk check-out: coba ambil foto dari log dulu, lalu record
           String? photoUrl = _extractPhotoFromLog(log);
           
-          // Jika tidak ada di log, ambil dari record check_out_photo_url
           if (photoUrl == null && matchingRecord != null) {
             photoUrl = matchingRecord['check_out_photo_url'];
-            debugPrint('Using check_out_photo_url from record: $photoUrl');
           }
-          
-          // Jika masih null, jangan gunakan check_in_photo_url
-          debugPrint('Final photo for check_out log ${log['id']}: $photoUrl');
           
           groupedData[dateOnly]!.add({
             'type': 'check_out',
@@ -370,7 +355,6 @@ Map<String, dynamic> _processAttendanceDataFromLogs(
       }
     }
 
-    // Sort events by time for each date
     for (final dateEvents in groupedData.values) {
       dateEvents.sort((a, b) {
         final timeA = DateTime.parse(a['event_time']);
@@ -379,18 +363,13 @@ Map<String, dynamic> _processAttendanceDataFromLogs(
       });
     }
 
-    debugPrint('=== PROCESSED DATA SUMMARY ===');
-    debugPrint('Total Check-ins: $checkIns');
-    debugPrint('Total Check-outs: $checkOuts');
-    debugPrint('Total dates with attendance: ${groupedData.length}');
-
     return {
       'attendanceByDate': groupedData,
       'totalCheckIns': checkIns,
       'totalCheckOuts': checkOuts,
     };
   }
-  // Helper untuk ekstrak foto dari JSONB location field
+
   String? _extractPhotoFromLog(Map<String, dynamic> log) {
     try {
       final location = log['location'];
@@ -446,13 +425,12 @@ Map<String, dynamic> _processAttendanceDataFromLogs(
     return _attendanceByDate[dateOnly] ?? [];
   }
 
- Future<void> _showEventDetails(Map<String, dynamic> event) async {
+  Future<void> _showEventDetails(Map<String, dynamic> event) async {
     if (!mounted) return;
     
     final eventTime = DateTime.parse(event['event_time']);
     final orgTime = TimezoneHelper.toOrgTime(eventTime);
 
-    // Load device name if device_id exists
     String? deviceName;
     if (event['device_id'] != null) {
       try {
@@ -561,21 +539,21 @@ Map<String, dynamic> _processAttendanceDataFromLogs(
                       ),
                       child: Column(
                         children: [
-                          _buildDetailRow(Icons.calendar_today, 'Date',
+                          _buildDetailRow(Icons.calendar_today, LocalizationHelper.getText('date'),
                               TimezoneHelper.formatOrgTime(orgTime, 'EEEE, dd MMMM yyyy')),
-                          _buildDetailRow(Icons.access_time, 'Time',
+                          _buildDetailRow(Icons.access_time, LocalizationHelper.getText('time'),
                               '${TimezoneHelper.formatOrgTime(orgTime, 'HH:mm:ss')} ${TimezoneHelper.currentTimeZone.name}'),
                           if (event['late_minutes'] != null && event['late_minutes'] > 0)
-                            _buildDetailRow(Icons.schedule, 'Late',
-                                '${event['late_minutes']} minutes'),
+                            _buildDetailRow(Icons.schedule, LocalizationHelper.getText('late'),
+                                '${event['late_minutes']} ${LocalizationHelper.getText('minutes')}'),
                           if (event['early_leave_minutes'] != null && event['early_leave_minutes'] > 0)
-                            _buildDetailRow(Icons.schedule, 'Early Leave',
+                            _buildDetailRow(Icons.schedule, LocalizationHelper.getText('early_leave'),
                                 _formatEarlyLeave(event['early_leave_minutes'])),
                           if (event['work_duration_minutes'] != null)
-                            _buildDetailRow(Icons.work, 'Work Duration',
-                                '${(event['work_duration_minutes'] / 60).toStringAsFixed(1)} hours'),
+                            _buildDetailRow(Icons.work, LocalizationHelper.getText('work_duration'),
+                                '${(event['work_duration_minutes'] / 60).toStringAsFixed(1)} ${LocalizationHelper.getText('hours')}'),
                           if (deviceName != null)
-                            _buildDetailRow(Icons.devices, 'Location', deviceName),
+                            _buildDetailRow(Icons.devices, LocalizationHelper.getText('location'), deviceName),
                         ],
                       ),
                     ),
@@ -592,10 +570,11 @@ Map<String, dynamic> _processAttendanceDataFromLogs(
   String _formatEarlyLeave(int minutes) {
     if (minutes > 60) {
       final hours = minutes / 60;
-      return '${hours.toStringAsFixed(1)} hours';
+      return '${hours.toStringAsFixed(1)} ${LocalizationHelper.getText('hours')}';
     }
-    return '$minutes minutes';
+    return '$minutes ${LocalizationHelper.getText('minutes')}';
   }
+
   void _showFullImage(BuildContext context, String photoUrl) {
     showDialog(
       context: context,
@@ -622,7 +601,7 @@ Map<String, dynamic> _processAttendanceDataFromLogs(
               style: ElevatedButton.styleFrom(
                 backgroundColor: primaryColor,
               ),
-              child: const Text('Close'),
+              child: Text(LocalizationHelper.getText('close')),
             ),
           ],
         ),
@@ -652,53 +631,12 @@ Map<String, dynamic> _processAttendanceDataFromLogs(
     );
   }
 
-  Widget _buildLocationRow(dynamic location) {
-    if (location == null) return const SizedBox.shrink();
-
-    String locationText = 'Unknown';
-    bool isWithinRadius = true;
-
-    if (location is Map) {
-      if (location['latitude'] != null && location['longitude'] != null) {
-        locationText = '${location['latitude']?.toString().substring(0, 8)}, ${location['longitude']?.toString().substring(0, 8)}';
-      }
-      isWithinRadius = location['is_within_radius'] ?? true;
-    }
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          Icon(
-            isWithinRadius ? Icons.location_on : Icons.location_off,
-            size: 16,
-            color: isWithinRadius ? primaryColor : Colors.red,
-          ),
-          const SizedBox(width: 8),
-          const Text(
-            'Location: ',
-            style: TextStyle(fontWeight: FontWeight.w500),
-          ),
-          Expanded(
-            child: Text(
-              locationText,
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.grey.shade600,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   String _getEventLabel(String type) {
     switch (type) {
       case 'check_in':
-        return 'Check In';
+        return LocalizationHelper.getText('check_in');
       case 'check_out':
-        return 'Check Out';
+        return LocalizationHelper.getText('check_out');
       default:
         return type.replaceAll('_', ' ').toUpperCase(); 
     }
@@ -742,16 +680,24 @@ Map<String, dynamic> _processAttendanceDataFromLogs(
     }
   }
 
-  // ... Rest of the code (logout, build methods) tetap sama ...
-  
   @override
   Widget build(BuildContext context) {
     if (!_isInitialized || _isLoading) {
       return Scaffold(
         backgroundColor: Colors.grey.shade100,
-        body: const Center(
-          child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                LocalizationHelper.getText('loading'),
+                style: const TextStyle(color: Colors.grey),
+              ),
+            ],
           ),
         ),
       );
@@ -808,16 +754,16 @@ Map<String, dynamic> _processAttendanceDataFromLogs(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
-                            'Attendance History',
-                            style: TextStyle(
+                          Text(
+                            LocalizationHelper.getText('attendance_history'),
+                            style: const TextStyle(
                               color: Colors.white,
                               fontSize: 20,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
                           Text(
-                            _organization?['name'] ?? 'Unknown Organization',
+                            _organization?['name'] ?? LocalizationHelper.getText('unknown_organization'),
                             style: const TextStyle(
                               color: Colors.white70,
                               fontSize: 14,
@@ -902,9 +848,9 @@ Map<String, dynamic> _processAttendanceDataFromLogs(
               children: [
                 Icon(Icons.analytics_outlined, color: primaryColor),
                 const SizedBox(width: 8),
-                const Text(
-                  'Attendance Summary',
-                  style: TextStyle(
+                Text(
+                  LocalizationHelper.getText('attendance_summary'),
+                  style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w600,
                   ),
@@ -915,13 +861,25 @@ Map<String, dynamic> _processAttendanceDataFromLogs(
             Row(
               children: [
                 Expanded(
-                  child: _buildStatItem('Check Ins', _totalCheckIns.toString(), Colors.green),
+                  child: _buildStatItem(
+                    LocalizationHelper.getText('check_ins'), 
+                    _totalCheckIns.toString(), 
+                    Colors.green
+                  ),
                 ),
                 Expanded(
-                  child: _buildStatItem('Check Outs', _totalCheckOuts.toString(), Colors.red),
+                  child: _buildStatItem(
+                    LocalizationHelper.getText('check_outs'), 
+                    _totalCheckOuts.toString(), 
+                    Colors.red
+                  ),
                 ),
                 Expanded(
-                  child: _buildStatItem('Records', _allAttendanceRecords.length.toString(), Colors.blue),
+                  child: _buildStatItem(
+                    LocalizationHelper.getText('records'), 
+                    _allAttendanceRecords.length.toString(), 
+                    Colors.blue
+                  ),
                 ),
               ],
             ),
@@ -983,9 +941,9 @@ Map<String, dynamic> _processAttendanceDataFromLogs(
               children: [
                 Icon(Icons.calendar_today, color: primaryColor),
                 const SizedBox(width: 8),
-                const Text(
-                  'Calendar View',
-                  style: TextStyle(
+                Text(
+                  LocalizationHelper.getText('calendar_view'),
+                  style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w600,
                   ),
@@ -994,7 +952,7 @@ Map<String, dynamic> _processAttendanceDataFromLogs(
             ),
           ),
           TableCalendar<Map<String, dynamic>>(
-            locale: 'id_ID',
+            locale: LocalizationHelper.currentLanguage == 'id' ? 'id_ID' : 'en_US',
             firstDay: DateTime.utc(2020, 1, 1),
             lastDay: DateTime.utc(2030, 12, 31),
             focusedDay: _focusedDay,
@@ -1042,131 +1000,128 @@ Map<String, dynamic> _processAttendanceDataFromLogs(
     );
   }
 
-Widget _buildSelectedDayEvents() {
-  if (_filteredData.isEmpty) {
-    return _buildEmptyState();
-  }
+  Widget _buildSelectedDayEvents() {
+    if (_filteredData.isEmpty) {
+      return _buildEmptyState();
+    }
 
-  return Container(
-    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-    decoration: BoxDecoration(
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [Colors.white, Colors.grey.shade50],
-      ),
-      borderRadius: BorderRadius.circular(16),
-      boxShadow: [
-        BoxShadow(
-          color: primaryColor.withOpacity(0.12),
-          blurRadius: 15,
-          offset: const Offset(0, 4),
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Colors.white, Colors.grey.shade50],
         ),
-      ],
-      border: Border.all(
-        color: primaryColor.withOpacity(0.1),
-        width: 1,
-      ),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // HEADER
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                primaryColor.withOpacity(0.1),
-                primaryColor.withOpacity(0.05),
-              ],
-            ),
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(16),
-              topRight: Radius.circular(16),
-            ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.12),
+            blurRadius: 15,
+            offset: const Offset(0, 4),
           ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: primaryColor,
-                  borderRadius: BorderRadius.circular(8),
-                  boxShadow: [
-                    BoxShadow(
-                      color: primaryColor.withOpacity(0.3),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.event_note,
-                  color: Colors.white,
-                  size: 20,
-                ),
+        ],
+        border: Border.all(
+          color: primaryColor.withOpacity(0.1),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  primaryColor.withOpacity(0.1),
+                  primaryColor.withOpacity(0.05),
+                ],
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Daily Events',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    Text(
-                      TimezoneHelper.formatOrgTime(_selectedDay, 'EEE, dd MMM yyyy'),
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(16),
+                topRight: Radius.circular(16),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: primaryColor,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  '${_filteredData.length}',
-                  style: const TextStyle(
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: primaryColor,
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(
+                        color: primaryColor.withOpacity(0.3),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.event_note,
                     color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
+                    size: 20,
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        LocalizationHelper.getText('daily_events'),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
+                      Text(
+                        TimezoneHelper.formatOrgTime(_selectedDay, 'EEE, dd MMM yyyy'),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: primaryColor,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '${_filteredData.length}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-
-        // LIST
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-          child: ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _filteredData.length,
-            separatorBuilder: (context, index) => const SizedBox(height: 8),
-            itemBuilder: (context, index) {
-              return _buildEventListItem(_filteredData[index]);
-            },
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+            child: ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _filteredData.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                return _buildEventListItem(_filteredData[index]);
+              },
+            ),
           ),
-        ),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
 
   Widget _buildEmptyState() {
     return Container(
@@ -1189,7 +1144,7 @@ Widget _buildSelectedDayEvents() {
             const Icon(Icons.event_busy, color: Colors.grey, size: 48),
             const SizedBox(height: 12),
             Text(
-              'No attendance data for ${TimezoneHelper.formatOrgTime(_selectedDay, 'dd MMM yyyy')}',
+              '${LocalizationHelper.getText('no_attendance_data')} ${TimezoneHelper.formatOrgTime(_selectedDay, 'dd MMM yyyy')}',
               style: const TextStyle(
                 color: Colors.grey,
                 fontSize: 16,
@@ -1376,9 +1331,9 @@ Widget _buildSelectedDayEvents() {
               ),
             ],
           ),
-          child: const Text(
-            'Record',
-            style: TextStyle(
+          child: Text(
+            LocalizationHelper.getText('record'),
+            style: const TextStyle(
               fontSize: 10,
               color: Colors.white,
               fontWeight: FontWeight.bold,
