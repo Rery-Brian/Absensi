@@ -125,7 +125,6 @@ class LocalizationHelper {
     'office': 'Kantor',
     'gps_not_required': 'GPS tidak diperlukan',
     'ready': 'Siap',
-    'away_from': 'dari',
     'move_closer': 'Silakan bergerak lebih dekat ke lokasi absensi',
     'checking': 'Memeriksa...',
     'check_again': 'Periksa Lagi',
@@ -143,8 +142,6 @@ class LocalizationHelper {
     'unable_to_get_location_gps': 'Tidak dapat mendapatkan lokasi Anda. Silakan aktifkan GPS dan coba lagi.',
     'you_are_away_from': 'Anda berada',
     'please_move_closer': 'Silakan bergerak lebih dekat ke lokasi absensi.',
-    'meters_away': 'm dari',
-    'km_away': 'km dari',
     'unknown_distance': 'Jarak tidak diketahui',
     'within_radius': 'dalam radius',
     
@@ -389,7 +386,6 @@ class LocalizationHelper {
     'office': 'Office',
     'gps_not_required': 'GPS not required',
     'ready': 'Ready',
-    'away_from': 'from',
     'move_closer': 'Please move closer to the attendance location',
     'organization_member_not_found': 'Organization member data not found.',
     'checking': 'Checking...',
@@ -407,8 +403,6 @@ class LocalizationHelper {
     'unable_to_get_location_gps': 'Unable to get your location. Please enable GPS and try again.',
     'you_are_away_from': 'You are',
     'please_move_closer': 'Please move closer to the attendance location.',
-    'meters_away': 'm from',
-    'km_away': 'km from',
     'unknown_distance': 'Unknown distance',
     'within_radius': 'within radius',
     
