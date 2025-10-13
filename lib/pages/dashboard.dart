@@ -16,6 +16,7 @@ import '../helpers/timezone_helper.dart';
 import '../helpers/time_helper.dart';
 import '../helpers/flushbar_helper.dart';
 import '../helpers/localization_helper.dart';
+import 'attendance_map_widget.dart';
 
 class UserDashboard extends StatefulWidget {
   const UserDashboard({super.key});
@@ -154,6 +155,283 @@ class _DashboardContentState extends State<_DashboardContent> {
     });
   }
 
+  Future<bool?> _showMapPreviewDialog() async {
+  if (!mounted) return false;
+
+  return showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (BuildContext context) {
+      final size = MediaQuery.of(context).size;
+      final topPadding = MediaQuery.of(context).padding.top;
+      final bottomPadding = MediaQuery.of(context).padding.bottom;
+
+      return Dialog(
+        insetPadding: EdgeInsets.zero,
+        backgroundColor: Colors.transparent,
+        child: Container(
+          width: size.width,
+          height: size.height,
+          color: Colors.white,
+          child: Stack(
+            children: [
+              // === FULL MAP (dengan padding untuk UI elements) ===
+              Positioned.fill(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    top: topPadding + 76, // Header height
+                    bottom: bottomPadding + 140, // Info bar + buttons height
+                  ),
+                  child: AttendanceMapWidget(
+                    userPosition: _gpsPosition,
+                    officePosition: _currentPosition,
+                    userPhotoUrl: _userProfile?.profilePhotoUrl,
+                    officePhotoUrl: _organization?.logoUrl,
+                    userName: _getDisplayName(),
+                    officeName: _selectedDevice?.deviceName ?? 'Office',
+                    radiusMeters: _selectedDevice?.radiusMeters.toDouble() ?? 100,
+                    showRadius: true,
+                  ),
+                ),
+              ),
+
+              // === HEADER ===
+              Positioned(
+                top: topPadding + 12,
+                left: 16,
+                right: 16,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.08),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: primaryColor.withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.map, color: primaryColor, size: 18),
+                      ),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Verify Your Location',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.black87,
+                              ),
+                            ),
+                            SizedBox(height: 1),
+                            Text(
+                              'Make sure you are within office area',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.black54,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.black87, size: 20),
+                        onPressed: () => Navigator.pop(context, false),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(
+                          minWidth: 32,
+                          minHeight: 32,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // === INFO BAR (USER + OFFICE) ===
+              Positioned(
+                bottom: bottomPadding + 74,
+                left: 16,
+                right: 16,
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.08),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF6366F1).withOpacity(0.1),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.person,
+                                color: Color(0xFF6366F1),
+                                size: 14,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _getDisplayName(),
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.black87,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        width: 1,
+                        height: 20,
+                        color: Colors.grey.shade300,
+                        margin: const EdgeInsets.symmetric(horizontal: 10),
+                      ),
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF10B981).withOpacity(0.1),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.business,
+                                color: Color(0xFF10B981),
+                                size: 14,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _selectedDevice?.deviceName ?? 'Office',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.black87,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // === BOTTOM BUTTONS ===
+              Positioned(
+                bottom: bottomPadding + 16,
+                left: 16,
+                right: 16,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: Colors.grey.shade300),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          backgroundColor: Colors.white,
+                        ),
+                        child: const Text(
+                          'Cancel',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 2,
+                      child: ElevatedButton(
+                        onPressed: (_isWithinRadius ?? false)
+                            ? () => Navigator.pop(context, true)
+                            : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primaryColor,
+                          disabledBackgroundColor: Colors.grey.shade300,
+                          foregroundColor: Colors.white,
+                          disabledForegroundColor: Colors.grey.shade600,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          elevation: 0,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              (_isWithinRadius ?? false)
+                                  ? Icons.check_circle
+                                  : Icons.warning_amber_rounded,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              (_isWithinRadius ?? false)
+                                  ? 'Confirm Location'
+                                  : 'Out of Range',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
   Future<void> refreshUserProfile() async {
     debugPrint('DashboardContent: refreshUserProfile called');
     try {
@@ -1097,6 +1375,12 @@ Future<void> _buildDynamicTimeline() async {
       await _navigateToBreakPage();
       return;
     }
+
+    // ✅ TAMBAHKAN INI - Show map preview untuk office worker
+  if (_requiresGpsValidation && actionType == 'check_in') {
+    final mapConfirmed = await _showMapPreviewDialog();
+    if (mapConfirmed != true) return;
+  }
 
     if (actionType == 'check_out') {
       final confirmed = await _showCheckoutConfirmation();
