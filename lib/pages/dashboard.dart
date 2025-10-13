@@ -784,40 +784,93 @@ class _DashboardContentState extends State<_DashboardContent> {
     return items;
   }
 
-  Future<void> _buildDynamicTimeline() async {
-    _timelineItems.clear();
+Future<void> _buildDynamicTimeline() async {
+  _timelineItems.clear();
 
-    try {
-      final scheduleItems = await _getScheduleItemsFromDatabase();
-      if (scheduleItems.isEmpty) {
-        if (mounted) setState(() {});
-        return;
-      }
-
-      final currentTime = TimeHelper.getCurrentTime();
-
-      for (var scheduleItem in scheduleItems) {
-        final scheduleTime = TimeHelper.parseTimeString(scheduleItem.time);
-        final status = _getItemStatus(scheduleItem, scheduleTime, currentTime);
-
-        _timelineItems.add(
-          TimelineItem(
-            time: scheduleItem.time,
-            label: scheduleItem.label,
-            subtitle: scheduleItem.subtitle,
-            type: scheduleItem.type,
-            status: status,
-            statusDescription: _getStatusDescription(scheduleItem.type, status),
-          ),
-        );
-      }
-
+  try {
+    final scheduleItems = await _getScheduleItemsFromDatabase();
+    if (scheduleItems.isEmpty) {
       if (mounted) setState(() {});
-    } catch (e) {
-      debugPrint('Error building timeline: $e');
-      if (mounted) setState(() {});
+      return;
     }
+
+    final currentTime = TimeHelper.getCurrentTime();
+
+    // Group items by type untuk menggabungkan check-in/check-out dan break
+    ScheduleItem? checkInItem;
+    ScheduleItem? checkOutItem;
+    ScheduleItem? breakOutItem;
+    ScheduleItem? breakInItem;
+
+    for (var item in scheduleItems) {
+      switch (item.type) {
+        case AttendanceActionType.checkIn:
+          checkInItem = item;
+          break;
+        case AttendanceActionType.checkOut:
+          checkOutItem = item;
+          break;
+        case AttendanceActionType.breakOut:
+          breakOutItem = item;
+          break;
+        case AttendanceActionType.breakIn:
+          breakInItem = item;
+          break;
+      }
+    }
+
+    // Tambahkan Work Period (Check In - Check Out)
+    if (checkInItem != null && checkOutItem != null) {
+      final checkInTime = TimeHelper.parseTimeString(checkInItem.time);
+      final status = _getItemStatus(checkInItem, checkInTime, currentTime);
+      
+      _timelineItems.add(
+        TimelineItem(
+          time: checkInItem.time,
+          endTime: checkOutItem.time,
+          label: LocalizationHelper.getText('work_time'),
+          subtitle: LocalizationHelper.getText('work_period'),
+          type: AttendanceActionType.checkIn,
+          status: status,
+          statusDescription: _getStatusDescription(AttendanceActionType.checkIn, status),
+        ),
+      );
+    }
+
+    // Tambahkan Break Period (Break Out - Break In)
+    if (breakOutItem != null) {
+      final breakStartTime = TimeHelper.parseTimeString(breakOutItem.time);
+      final status = _getItemStatus(breakOutItem, breakStartTime, currentTime);
+      
+      // Hitung break end time
+      String breakEndTime = breakOutItem.time;
+      if (_todayScheduleDetails?.breakEnd != null) {
+        breakEndTime = _formatTimeFromDatabase(_todayScheduleDetails!.breakEnd!);
+      } else if (_todayScheduleDetails?.breakDurationMinutes != null) {
+        final breakStart = breakStartTime;
+        final totalMinutes = TimeHelper.timeToMinutes(breakStart) + _todayScheduleDetails!.breakDurationMinutes!;
+        breakEndTime = TimeHelper.formatTimeOfDay(TimeHelper.minutesToTime(totalMinutes));
+      }
+      
+      _timelineItems.add(
+        TimelineItem(
+          time: breakOutItem.time,
+          endTime: breakEndTime,
+          label: LocalizationHelper.getText('break_time'),
+          subtitle: LocalizationHelper.getText('break_period'),
+          type: AttendanceActionType.breakOut,
+          status: status,
+          statusDescription: _getStatusDescription(AttendanceActionType.breakOut, status),
+        ),
+      );
+    }
+
+    if (mounted) setState(() {});
+  } catch (e) {
+    debugPrint('Error building timeline: $e');
+    if (mounted) setState(() {});
   }
+}
 
   TimelineStatus _getItemStatus(
     ScheduleItem item,
@@ -2430,8 +2483,7 @@ String _formatDistance(double? distanceInMeters) {
       ),
     );
   }
-
- Widget _buildStatusCard() {
+Widget _buildStatusCard() {
   final isOnBreak = _breakInfo != null && _breakInfo!['is_currently_on_break'] == true;
   final filteredActions = isOnBreak
       ? _availableActions.where((action) => action.type != 'break_out').toList()
@@ -2471,45 +2523,47 @@ String _formatDistance(double? distanceInMeters) {
           children: [
             Row(
               children: [
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [_getStatusColor(), _getStatusColor().withOpacity(0.8)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: _getStatusColor().withOpacity(0.3),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Icon(_getStatusIcon(), color: Colors.white, size: 28),
-                ),
-                const SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        _getCurrentStatusText(),
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, letterSpacing: -0.3),
-                      ),
-                      const SizedBox(height: 4),
-                      Row(
-                        children: [
-                          Icon(Icons.access_time, size: 16, color: Colors.grey.shade600),
-                          const SizedBox(width: 6),
-                          Text(
-                            TimezoneHelper.formatOrgTime(TimezoneHelper.nowInOrgTime(), 'HH:mm'),
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: Colors.grey.shade700),
+                      Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [_getStatusColor(), _getStatusColor().withOpacity(0.8)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
                           ),
-                        ],
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: _getStatusColor().withOpacity(0.3),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Icon(_getStatusIcon(), color: Colors.white, size: 28),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  flex: 2,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Hanya tampilkan jam saja yang besar
+                      Text(
+                        TimezoneHelper.formatOrgTime(TimezoneHelper.nowInOrgTime(), 'HH:mm'),
+                        style: const TextStyle(
+                          fontSize: 42,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: -0.5,
+                        ),
                       ),
                     ],
                   ),
@@ -2747,6 +2801,7 @@ String _formatDistance(double? distanceInMeters) {
   );
 }
 
+
   Widget _buildOverviewCard() {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -2933,80 +2988,75 @@ String _formatDistance(double? distanceInMeters) {
     );
   }
 
-  Widget _buildTimelineItem(TimelineItem item, int index) {
-    return Padding(
-      padding: EdgeInsets.only(
-        top: index == 0 ? 0 : 12,
-        bottom: index == _timelineItems.length - 1 ? 0 : 0,
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: _getItemStatusColor(item.status),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              _getItemIcon(item.type),
-              color: item.status == TimelineStatus.active
-                  ? Colors.white
-                  : item.status == TimelineStatus.completed
-                  ? Colors.white
-                  : Colors.grey,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      item.time,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _getItemStatusColor(
-                          item.status,
-                        ).withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        item.statusDescription,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: _getItemStatusColor(item.status),
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  item.subtitle,
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+Widget _buildTimelineItem(TimelineItem item, int index) {
+  // Format waktu dengan rentang jika ada end time
+  String displayTime = item.time;
+  if (item.endTime != null && item.endTime!.isNotEmpty) {
+    displayTime = '${item.time} - ${item.endTime}';
   }
+
+  return Padding(
+    padding: EdgeInsets.only(
+      top: index == 0 ? 0 : 12,
+      bottom: index == _timelineItems.length - 1 ? 0 : 0,
+    ),
+    child: Row(
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: _getItemStatusColor(item.status),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            _getItemIcon(item.type),
+            color: item.status == TimelineStatus.active
+                ? Colors.white
+                : item.status == TimelineStatus.completed
+                ? Colors.white
+                : Colors.grey,
+            size: 20,
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                item.label,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: _getItemStatusColor(item.status).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  displayTime,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: _getItemStatusColor(item.status),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 
   Color _getItemStatusColor(TimelineStatus status) {
     switch (status) {
@@ -3035,6 +3085,7 @@ String _formatDistance(double? distanceInMeters) {
 
 void unawaited(Future<void> future) {}
 
+// Update TimelineItem class to include schedule details
 class TimelineItem {
   final String time;
   final String label;
@@ -3042,6 +3093,9 @@ class TimelineItem {
   final AttendanceActionType type;
   final TimelineStatus status;
   final String statusDescription;
+  final String? endTime;
+  final String? breakStart;  // NEW
+  final String? breakEnd;    // NEW
 
   TimelineItem({
     required this.time,
@@ -3050,6 +3104,9 @@ class TimelineItem {
     required this.type,
     required this.status,
     required this.statusDescription,
+    this.endTime,
+    this.breakStart,   // NEW
+    this.breakEnd,     // NEW
   });
 }
 

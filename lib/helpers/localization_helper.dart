@@ -5,11 +5,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 class LocalizationHelper {
   static const String _languageKey = 'selected_language';
   static const String defaultLanguage = 'id'; // Indonesian sebagai default
-  
+
   static String _currentLanguage = defaultLanguage;
-  
+
   static String get currentLanguage => _currentLanguage;
-  
+
   // Load saved language preference
   static Future<void> initialize() async {
     try {
@@ -21,7 +21,7 @@ class LocalizationHelper {
       _currentLanguage = defaultLanguage;
     }
   }
-  
+
   // Save language preference
   static Future<void> setLanguage(String languageCode) async {
     try {
@@ -33,22 +33,26 @@ class LocalizationHelper {
       debugPrint('Error saving language: $e');
     }
   }
-  
+
   // Get text based on current language
   static String getText(String key) {
-    return _translations[_currentLanguage]?[key] ?? 
-           _translations[defaultLanguage]?[key] ?? 
-           key;
+    return _translations[_currentLanguage]?[key] ??
+        _translations[defaultLanguage]?[key] ??
+        key;
   }
-  
+
   // Translations map
   static final Map<String, Map<String, String>> _translations = {
     'id': _indonesianTranslations,
     'en': _englishTranslations,
   };
-  
+
   // Indonesian translations
   static final Map<String, String> _indonesianTranslations = {
+    'work_time': 'Waktu Kerja',
+    'work_period': 'Waktu Kerja',
+    'break_time': 'Waktu Istirahat',
+    'break_period': 'Waktu Istirahat',
     // Common
     'ok': 'OK',
     'cancel': 'Batal',
@@ -65,7 +69,7 @@ class LocalizationHelper {
     'info': 'Informasi',
     'retry': 'Coba Lagi',
     'continue': 'Lanjutkan',
-    
+
     // Login & Auth
     'login': 'Masuk',
     'signup': 'Daftar',
@@ -94,7 +98,7 @@ class LocalizationHelper {
     'creating_account': 'Membuat akun Anda...',
     'confirm_logout': 'Konfirmasi Keluar',
     'are_you_sure_logout': 'Apakah Anda yakin ingin keluar?',
-    
+
     // Dashboard
     'hello': 'Halo',
     'ready_to_start': 'Siap untuk memulai',
@@ -129,7 +133,7 @@ class LocalizationHelper {
     'checking': 'Memeriksa...',
     'check_again': 'Periksa Lagi',
     'organization_member_not_found': 'Data anggota organisasi tidak ditemukan.',
-    
+
     // NEW: Dashboard Status & Location
     'field_work_in': 'Kerja lapangan di',
     'field_work_gps_not_required': 'Kerja lapangan - GPS tidak diperlukan',
@@ -137,25 +141,27 @@ class LocalizationHelper {
     'configuration_error': 'Kesalahan konfigurasi.',
     'office_worker_mode': 'Mode pekerja kantor - memvalidasi GPS dan radius',
     'field_worker_mode': 'Mode pekerja lapangan - validasi GPS dilewati',
-    'attendance_location_not_configured': 'Lokasi absensi belum dikonfigurasi. Silakan hubungi admin.',
+    'attendance_location_not_configured':
+        'Lokasi absensi belum dikonfigurasi. Silakan hubungi admin.',
     'getting_your_location': 'Mendapatkan lokasi Anda...',
-    'unable_to_get_location_gps': 'Tidak dapat mendapatkan lokasi Anda. Silakan aktifkan GPS dan coba lagi.',
+    'unable_to_get_location_gps':
+        'Tidak dapat mendapatkan lokasi Anda. Silakan aktifkan GPS dan coba lagi.',
     'you_are_away_from': 'Anda berada',
     'please_move_closer': 'Silakan bergerak lebih dekat ke lokasi absensi.',
     'unknown_distance': 'Jarak tidak diketahui',
     'within_radius': 'dalam radius',
-    
+
     // NEW: Checkout Confirmation
     'confirm_check_out': 'Konfirmasi Check-out',
     'sure_to_check_out': 'Apakah Anda yakin ingin check out?',
     'end_work_session': 'Ini akan mengakhiri sesi kerja Anda untuk hari ini.',
     'yes_check_out': 'Ya, Check Out',
-    
+
     // NEW: Photo & Upload
     'photo_required_check_in': 'Foto diperlukan untuk check-in',
     'uploading_photo': 'Mengunggah foto...',
     'failed_upload_photo': 'Gagal mengunggah foto. Silakan coba lagi.',
-    
+
     // NEW: Attendance Success
     'attendance_successful': 'Absensi Berhasil!',
     'check_in_completed': 'Check-in selesai',
@@ -163,7 +169,7 @@ class LocalizationHelper {
     'break_started': 'Istirahat dimulai',
     'work_resumed': 'Kerja dilanjutkan',
     'attendance_recorded': 'Absensi tercatat',
-    
+
     // NEW: Errors
     'failed_to_perform_attendance': 'Gagal melakukan absensi',
     'location_error': 'Kesalahan lokasi',
@@ -171,7 +177,7 @@ class LocalizationHelper {
     'camera_not_available': 'Kamera tidak tersedia.',
     'camera_permission_required': 'Izin kamera diperlukan.',
     'failed_to_take_photo': 'Gagal mengambil foto',
-    
+
     // NEW: Break
     'on_break_indicator': 'Sedang Istirahat',
     'stop_break': 'Hentikan Istirahat',
@@ -180,18 +186,18 @@ class LocalizationHelper {
     'break_start_time_not_found': 'Waktu mulai istirahat tidak ditemukan',
     'invalid_break_duration': 'Durasi istirahat tidak valid',
     'invalid_member_id': 'ID anggota tidak valid',
-    
+
     // NEW: Organization & Device Selection
     'organization': 'Organisasi',
     'location_changed_to': 'Lokasi diubah ke',
     'unknown_device': 'Tidak Diketahui',
     'failed_to_reload_data': 'Gagal memuat ulang data',
-    
+
     // Attendance
     'stop_break': 'Hentikan Istirahat',
     'break_ended': 'Istirahat berakhir',
     'duration': 'Durasi',
-    
+
     // Profile
     'profile': 'Profil',
     'personal_information': 'Informasi Pribadi',
@@ -223,7 +229,8 @@ class LocalizationHelper {
     'privacy_policy': 'Kebijakan Privasi',
     'terms_of_service': 'Ketentuan Layanan',
     'coming_soon': 'Segera Hadir',
-    'feature_under_development': 'Fitur ini sedang dalam pengembangan dan akan tersedia di pembaruan mendatang.',
+    'feature_under_development':
+        'Fitur ini sedang dalam pengembangan dan akan tersedia di pembaruan mendatang.',
     'password_and_authentication': 'Kata sandi dan autentikasi',
     'manage_notification_preferences': 'Kelola preferensi notifikasi Anda',
     'english_default': 'Inggris (Default)',
@@ -237,8 +244,9 @@ class LocalizationHelper {
     'sign_out_account': 'Keluar dari akun Anda',
     'about_this_app': 'Tentang Aplikasi Ini',
     'attendance_app_version': 'Aplikasi Absensi v1.0.0',
-    'app_description': 'Aplikasi ini membantu Anda mengelola absensi dan tugas terkait organisasi dengan mudah.',
-    
+    'app_description':
+        'Aplikasi ini membantu Anda mengelola absensi dan tugas terkait organisasi dengan mudah.',
+
     // History
     'attendance_history': 'Riwayat Absensi',
     'attendance_summary': 'Ringkasan Absensi',
@@ -259,7 +267,7 @@ class LocalizationHelper {
     'record': 'Catatan',
     'present': 'Hadir',
     'absent': 'Tidak Hadir',
-    
+
     // Device Selection
     'select_attendance_location': 'Pilih Lokasi Absensi',
     'choose_attendance_location': 'Pilih lokasi absensi Anda',
@@ -269,21 +277,26 @@ class LocalizationHelper {
     'no_locations_found': 'Lokasi tidak ditemukan',
     'try_different_search': 'Coba istilah pencarian lain',
     'no_locations_available': 'Tidak Ada Lokasi Tersedia',
-    'no_locations_configured': 'Belum ada lokasi absensi yang dikonfigurasi untuk organisasi Anda.',
-    'change_location_anytime': 'Anda dapat mengubah lokasi Anda kapan saja dari pengaturan profil.',
+    'no_locations_configured':
+        'Belum ada lokasi absensi yang dikonfigurasi untuk organisasi Anda.',
+    'change_location_anytime':
+        'Anda dapat mengubah lokasi Anda kapan saja dari pengaturan profil.',
     'radius': 'radius',
     'away': 'jauhnya',
     'attendance_location_required': 'Lokasi Absensi Diperlukan',
-    'select_location_to_continue': 'Silakan pilih lokasi absensi untuk melanjutkan menggunakan sistem absensi.',
-    
+    'select_location_to_continue':
+        'Silakan pilih lokasi absensi untuk melanjutkan menggunakan sistem absensi.',
+
     // Organization
     'organization_setup_required': 'Pengaturan Organisasi Diperlukan',
-    'need_organization_member': 'Anda perlu terdaftar sebagai anggota organisasi untuk menggunakan sistem absensi ini.',
-    'contact_hr_admin': 'Hubungi administrator HR Anda untuk ditambahkan ke organisasi Anda.',
+    'need_organization_member':
+        'Anda perlu terdaftar sebagai anggota organisasi untuk menggunakan sistem absensi ini.',
+    'contact_hr_admin':
+        'Hubungi administrator HR Anda untuk ditambahkan ke organisasi Anda.',
     'account_setup_required': 'Pengaturan Akun Diperlukan',
     'location_setup_required': 'Pengaturan Lokasi Diperlukan',
     'unknown_organization': 'Organisasi Tidak Diketahui',
-    
+
     // Errors & Messages
     'failed_to_load': 'Gagal memuat',
     'failed_to_update': 'Gagal memperbarui',
@@ -295,21 +308,29 @@ class LocalizationHelper {
     'please_try_again': 'Silakan coba lagi',
     'something_went_wrong': 'Terjadi kesalahan',
     'no_internet_connection': 'Tidak ada koneksi internet',
-    'unable_to_get_precise_location': 'Tidak dapat mendapatkan lokasi yang presisi.',
+    'unable_to_get_precise_location':
+        'Tidak dapat mendapatkan lokasi yang presisi.',
     'enable_gps_and_try_again': 'Silakan aktifkan GPS dan coba lagi',
     'out_of_range': 'Di luar jangkauan',
     'locating': 'Menemukan lokasi...',
     'failed_to_refresh_data': 'Gagal memuat ulang data.',
-    'failed_to_load_user_data': 'Gagal memuat data pengguna. Silakan coba lagi.',
-    'no_user_profile_found': 'Tidak ada profil pengguna atau organisasi. Hubungi admin.',
+    'failed_to_load_user_data':
+        'Gagal memuat data pengguna. Silakan coba lagi.',
+    'no_user_profile_found':
+        'Tidak ada profil pengguna atau organisasi. Hubungi admin.',
     'failed_to_check_location': 'Gagal memeriksa konfigurasi lokasi.',
-    'failed_to_initialize_services': 'Gagal menginisialisasi layanan. Silakan restart aplikasi.',
+    'failed_to_initialize_services':
+        'Gagal menginisialisasi layanan. Silakan restart aplikasi.',
     'failed_to_open_break_page': 'Gagal membuka halaman istirahat.',
     'user': 'Pengguna',
   };
-  
+
   // English translations
   static final Map<String, String> _englishTranslations = {
+    'work_time': 'Work Time',
+    'work_period': 'Work Period',
+    'break_time': 'Break Time',
+    'break_period': 'Break Period',
     // Common
     'ok': 'OK',
     'cancel': 'Cancel',
@@ -326,7 +347,7 @@ class LocalizationHelper {
     'info': 'Info',
     'retry': 'Retry',
     'continue': 'Continue',
-    
+
     // Login & Auth
     'login': 'Login',
     'signup': 'Sign Up',
@@ -348,14 +369,15 @@ class LocalizationHelper {
     'enter_your_full_name': 'Enter your full name',
     'smart_attendance_system': 'Smart Attendance System',
     'registration_successful': 'Registration Successful!',
-    'account_created_successfully': 'Your account has been created successfully',
+    'account_created_successfully':
+        'Your account has been created successfully',
     'continue_to_login': 'Continue to Login',
     'fill_in_your_details': 'Fill in your details to get started',
     'processing': 'Processing...',
     'creating_account': 'Creating your account...',
     'confirm_logout': 'Confirm Logout',
     'are_you_sure_logout': 'Are you sure you want to logout?',
-    
+
     // Dashboard
     'hello': 'Hello',
     'ready_to_start': 'Ready to start',
@@ -390,7 +412,7 @@ class LocalizationHelper {
     'organization_member_not_found': 'Organization member data not found.',
     'checking': 'Checking...',
     'check_again': 'Check Again',
-    
+
     // NEW: Dashboard Status & Location
     'field_work_in': 'Field work in',
     'field_work_gps_not_required': 'Field work - GPS not required',
@@ -398,25 +420,27 @@ class LocalizationHelper {
     'configuration_error': 'Configuration error.',
     'office_worker_mode': 'Office worker mode - validating GPS and radius',
     'field_worker_mode': 'Field worker mode - GPS validation skipped',
-    'attendance_location_not_configured': 'Attendance location not configured. Please contact admin.',
+    'attendance_location_not_configured':
+        'Attendance location not configured. Please contact admin.',
     'getting_your_location': 'Getting your location...',
-    'unable_to_get_location_gps': 'Unable to get your location. Please enable GPS and try again.',
+    'unable_to_get_location_gps':
+        'Unable to get your location. Please enable GPS and try again.',
     'you_are_away_from': 'You are',
     'please_move_closer': 'Please move closer to the attendance location.',
     'unknown_distance': 'Unknown distance',
     'within_radius': 'within radius',
-    
+
     // NEW: Checkout Confirmation
     'confirm_check_out': 'Confirm Check-out',
     'sure_to_check_out': 'Are you sure you want to check out?',
     'end_work_session': 'This will end your work session for today.',
     'yes_check_out': 'Yes, Check Out',
-    
+
     // NEW: Photo & Upload
     'photo_required_check_in': 'Photo required for check-in',
     'uploading_photo': 'Uploading photo...',
     'failed_upload_photo': 'Failed to upload photo. Please try again.',
-    
+
     // NEW: Attendance Success
     'attendance_successful': 'Attendance Successful!',
     'check_in_completed': 'Check-in completed',
@@ -424,7 +448,7 @@ class LocalizationHelper {
     'break_started': 'Break started',
     'work_resumed': 'Work resumed',
     'attendance_recorded': 'Attendance recorded',
-    
+
     // NEW: Errors
     'failed_to_perform_attendance': 'Failed to perform attendance',
     'location_error': 'Location error',
@@ -432,7 +456,7 @@ class LocalizationHelper {
     'camera_not_available': 'Camera not available.',
     'camera_permission_required': 'Camera permission required.',
     'failed_to_take_photo': 'Failed to take photo',
-    
+
     // NEW: Break
     'on_break_indicator': 'On Break',
     'stop_break': 'Stop Break',
@@ -441,18 +465,18 @@ class LocalizationHelper {
     'break_start_time_not_found': 'Break start time not found',
     'invalid_break_duration': 'Invalid break duration',
     'invalid_member_id': 'Invalid member ID',
-    
+
     // NEW: Organization & Device Selection
     'organization': 'Organization',
     'location_changed_to': 'Location changed to',
     'unknown_device': 'Unknown',
     'failed_to_reload_data': 'Failed to reload data',
-    
+
     // Attendance
     'stop_break': 'Stop Break',
     'break_ended': 'Break ended',
     'duration': 'Duration',
-    
+
     // Profile
     'profile': 'Profile',
     'personal_information': 'Personal Information',
@@ -484,7 +508,8 @@ class LocalizationHelper {
     'privacy_policy': 'Privacy Policy',
     'terms_of_service': 'Terms of Service',
     'coming_soon': 'Coming Soon',
-    'feature_under_development': 'This feature is currently under development and will be available in a future update.',
+    'feature_under_development':
+        'This feature is currently under development and will be available in a future update.',
     'password_and_authentication': 'Password and authentication',
     'manage_notification_preferences': 'Manage your notification preferences',
     'english_default': 'English (Default)',
@@ -498,8 +523,9 @@ class LocalizationHelper {
     'sign_out_account': 'Sign out from your account',
     'about_this_app': 'About This App',
     'attendance_app_version': 'Attendance App v1.0.0',
-    'app_description': 'This app helps you manage your attendance and organization-related tasks with ease.',
-    
+    'app_description':
+        'This app helps you manage your attendance and organization-related tasks with ease.',
+
     // History
     'attendance_history': 'Attendance History',
     'attendance_summary': 'Attendance Summary',
@@ -520,7 +546,7 @@ class LocalizationHelper {
     'record': 'Record',
     'present': 'Present',
     'absent': 'Absent',
-    
+
     // Device Selection
     'select_attendance_location': 'Select Attendance Location',
     'choose_attendance_location': 'Choose your attendance location',
@@ -530,21 +556,26 @@ class LocalizationHelper {
     'no_locations_found': 'No locations found',
     'try_different_search': 'Try a different search term',
     'no_locations_available': 'No Locations Available',
-    'no_locations_configured': 'No attendance locations have been configured for your organization yet.',
-    'change_location_anytime': 'You can change your location anytime from the profile settings.',
+    'no_locations_configured':
+        'No attendance locations have been configured for your organization yet.',
+    'change_location_anytime':
+        'You can change your location anytime from the profile settings.',
     'radius': 'radius',
     'away': 'away',
     'attendance_location_required': 'Attendance Location Required',
-    'select_location_to_continue': 'Please select an attendance location to continue using the attendance system.',
-    
+    'select_location_to_continue':
+        'Please select an attendance location to continue using the attendance system.',
+
     // Organization
     'organization_setup_required': 'Organization Setup Required',
-    'need_organization_member': 'You need to be registered as a member of an organization to use this attendance system.',
-    'contact_hr_admin': 'Contact your HR administrator to get added to your organization.',
+    'need_organization_member':
+        'You need to be registered as a member of an organization to use this attendance system.',
+    'contact_hr_admin':
+        'Contact your HR administrator to get added to your organization.',
     'account_setup_required': 'Account Setup Required',
     'location_setup_required': 'Location Setup Required',
     'unknown_organization': 'Unknown Organization',
-    
+
     // Errors & Messages
     'failed_to_load': 'Failed to load',
     'failed_to_update': 'Failed to update',
@@ -562,13 +593,15 @@ class LocalizationHelper {
     'locating': 'Locating...',
     'failed_to_refresh_data': 'Failed to refresh data.',
     'failed_to_load_user_data': 'Failed to load user data. Please try again.',
-    'no_user_profile_found': 'No user profile or organization found. Contact admin.',
+    'no_user_profile_found':
+        'No user profile or organization found. Contact admin.',
     'failed_to_check_location': 'Failed to check location configuration.',
-    'failed_to_initialize_services': 'Failed to initialize services. Please restart the app.',
+    'failed_to_initialize_services':
+        'Failed to initialize services. Please restart the app.',
     'failed_to_open_break_page': 'Failed to open break page.',
     'user': 'User',
   };
-  
+
   // Helper method untuk get text dengan fallback
   static String tr(String key, {String? fallback}) {
     return getText(key);
