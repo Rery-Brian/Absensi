@@ -1561,12 +1561,12 @@ class _DashboardContentState extends State<_DashboardContent> {
   }
 
 
- String _formatDistance(double? distanceInMeters) {
+String _formatDistance(double? distanceInMeters) {
     if (distanceInMeters == null) return LocalizationHelper.getText('unknown_distance');
     if (distanceInMeters < 1000) {
-      return '${distanceInMeters.toInt()}${LocalizationHelper.getText('meters_away')}';
+      return '${distanceInMeters.toInt()} m';
     } else {
-      return '${(distanceInMeters / 1000).toStringAsFixed(1)}${LocalizationHelper.getText('km_away')}';
+      return '${(distanceInMeters / 1000).toStringAsFixed(1)} km';
     }
   }
 
