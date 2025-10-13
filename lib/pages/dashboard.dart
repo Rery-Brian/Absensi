@@ -2919,7 +2919,7 @@ Widget _buildStatusCard() {
             Text(
               value,
               style: TextStyle(
-                fontSize: 22,
+                fontSize: 20,
                 fontWeight: FontWeight.bold,
                 color: color,
                 letterSpacing: -0.5,
@@ -2929,9 +2929,9 @@ Widget _buildStatusCard() {
             Text(
               label,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 11,
                 color: Colors.grey.shade600,
-                fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],

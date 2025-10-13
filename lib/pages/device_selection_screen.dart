@@ -30,7 +30,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
   List<AttendanceDevice> _devices = [];
   List<AttendanceDevice> _filteredDevices = [];
   AttendanceDevice? _selectedDevice;
-  AttendanceDevice? _previouslySelectedDevice; 
+  AttendanceDevice? _previouslySelectedDevice;
   bool _isLoading = true;
   bool _isSelecting = false;
   geolocator.Position? _currentPosition;
@@ -61,7 +61,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
       } else {
         _filteredDevices = _devices.where((device) {
           return device.deviceName.toLowerCase().contains(query) ||
-                 (device.location?.toLowerCase().contains(query) ?? false);
+              (device.location?.toLowerCase().contains(query) ?? false);
         }).toList();
       }
     });
@@ -72,7 +72,8 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
       setState(() => _isLoading = true);
 
       final devices = await _deviceService.loadDevices(widget.organizationId);
-      final selectedDevice = await _deviceService.loadSelectedDevice(widget.organizationId);
+      final selectedDevice =
+          await _deviceService.loadSelectedDevice(widget.organizationId);
 
       setState(() {
         _devices = devices;
@@ -84,7 +85,6 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
 
       _calculateDistances();
       debugPrint('Loaded ${devices.length} devices');
-      debugPrint('Current selected device: ${selectedDevice?.deviceName}');
     } catch (e) {
       debugPrint('Error loading devices: $e');
       if (mounted) {
@@ -101,11 +101,6 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
     try {
       debugPrint('Getting current location...');
       _currentPosition = await _attendanceService.getCurrentLocation();
-      if (_currentPosition != null) {
-        debugPrint('Current location: ${_currentPosition!.latitude}, ${_currentPosition!.longitude}');
-      } else {
-        debugPrint('Failed to get current location');
-      }
       _calculateDistances();
     } catch (e) {
       debugPrint('Failed to get current location: $e');
@@ -113,10 +108,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
   }
 
   void _calculateDistances() {
-    if (_currentPosition == null || _devices.isEmpty) {
-      debugPrint('Cannot calculate distances - missing location or devices');
-      return;
-    }
+    if (_currentPosition == null || _devices.isEmpty) return;
 
     final newDistances = <String, double>{};
     for (final device in _devices) {
@@ -128,7 +120,6 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
           device.longitude!,
         );
         newDistances[device.id] = distance;
-        debugPrint('Distance to ${device.deviceName}: ${distance.toStringAsFixed(0)}m');
       }
     }
 
@@ -138,13 +129,8 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
   }
 
   Future<void> _selectDevice(AttendanceDevice device) async {
-    if (_isSelecting) {
-      debugPrint('Device selection already in progress');
-      return;
-    }
+    if (_isSelecting) return;
 
-    debugPrint('Selecting device: ${device.deviceName} (ID: ${device.id})');
-    
     setState(() {
       _isSelecting = true;
       _selectedDevice = device;
@@ -152,7 +138,6 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
 
     try {
       await _deviceService.setSelectedDevice(device);
-      debugPrint('Device selected successfully: ${device.deviceName}');
 
       if (mounted) {
         FlushbarHelper.showSuccess(
@@ -161,13 +146,9 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
         );
       }
 
-      await Future.delayed(const Duration(milliseconds: 500));
+      await Future.delayed(const Duration(milliseconds: 400));
 
       final deviceChanged = _previouslySelectedDevice?.id != device.id;
-
-      debugPrint('Device changed: $deviceChanged');
-      debugPrint('Previous device: ${_previouslySelectedDevice?.deviceName}');
-      debugPrint('New device: ${device.deviceName}');
 
       if (mounted) {
         Navigator.of(context).pop({
@@ -178,7 +159,6 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
         });
       }
     } catch (e) {
-      debugPrint('Error selecting device: $e');
       if (mounted) {
         FlushbarHelper.showError(
           context,
@@ -189,9 +169,7 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
         _selectedDevice = _previouslySelectedDevice;
       });
     } finally {
-      if (mounted) {
-        setState(() => _isSelecting = false);
-      }
+      if (mounted) setState(() => _isSelecting = false);
     }
   }
 
@@ -208,18 +186,20 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
-        title: Text(LocalizationHelper.getText('select_location')),
+        title: Text(
+          LocalizationHelper.getText('select_location'),
+          style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+        ),
         backgroundColor: backgroundColor,
         foregroundColor: Colors.white,
-        elevation: 0,
+        elevation: 2,
+        shadowColor: Colors.black.withOpacity(0.2),
         leading: widget.isRequired
             ? null
             : IconButton(
                 icon: const Icon(Icons.close),
-                onPressed: () => Navigator.of(context).pop({
-                  'success': false, 
-                  'deviceChanged': false
-                }),
+                onPressed: () => Navigator.of(context)
+                    .pop({'success': false, 'deviceChanged': false}),
               ),
       ),
       body: _isLoading ? _buildLoadingView() : _buildDeviceList(),
@@ -227,65 +207,59 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
     );
   }
 
-  Widget _buildLoadingView() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const CircularProgressIndicator(),
-          const SizedBox(height: 16),
-          Text(
-            LocalizationHelper.getText('loading'),
-            style: const TextStyle(fontSize: 16, color: Colors.grey),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _buildLoadingView() => const Center(
+        child: CircularProgressIndicator(),
+      );
 
   Widget _buildDeviceList() {
-    if (_devices.isEmpty) {
-      return _buildEmptyState();
-    }
+    if (_devices.isEmpty) return _buildEmptyState();
 
     return CustomScrollView(
       slivers: [
         SliverToBoxAdapter(
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 18),
-            decoration: BoxDecoration(
-              color: backgroundColor,
-              borderRadius: const BorderRadius.only(
-                bottomLeft: Radius.circular(20),
-                bottomRight: Radius.circular(20),
+          child: SafeArea(
+            bottom: false,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+              decoration: BoxDecoration(
+                color: backgroundColor,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.12),
+                    blurRadius: 6,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(16),
+                  bottomRight: Radius.circular(16),
+                ),
               ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.organizationName,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: -0.5,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.organizationName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: -0.3,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  LocalizationHelper.getText('choose_attendance_location'),
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.75),
-                    fontSize: 13,
+                  const SizedBox(height: 4),
+                  Text(
+                    LocalizationHelper.getText('choose_attendance_location'),
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.75),
+                      fontSize: 12,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                _buildLocationStatus(),
-                const SizedBox(height: 14),
-                _buildSearchBar(),
-              ],
+                  const SizedBox(height: 8),
+                  _buildSearchBar(),
+                ],
+              ),
             ),
           ),
         ),
@@ -293,23 +267,17 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
           padding: const EdgeInsets.all(16),
           sliver: _filteredDevices.isEmpty
               ? SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: _buildNoResultsContent(),
-                )
+                  hasScrollBody: false, child: _buildNoResultsContent())
               : SliverList(
                   delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      final device = _filteredDevices[index];
-                      return _buildDeviceCard(device);
-                    },
+                    (context, index) =>
+                        _buildDeviceCard(_filteredDevices[index]),
                     childCount: _filteredDevices.length,
                   ),
                 ),
         ),
         if (!widget.isRequired)
-          SliverToBoxAdapter(
-            child: _buildFooterMessage(),
-          ),
+          SliverToBoxAdapter(child: _buildFooterMessage()),
       ],
     );
   }
@@ -318,147 +286,33 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.15),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.1),
-          width: 1,
-        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withOpacity(0.1)),
       ),
       child: TextField(
         controller: _searchController,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 15,
-        ),
+        style: const TextStyle(color: Colors.white, fontSize: 14),
         decoration: InputDecoration(
           hintText: LocalizationHelper.getText('search_location'),
-          hintStyle: TextStyle(
-            color: Colors.white.withOpacity(0.5),
-            fontSize: 15,
-          ),
-          prefixIcon: Icon(
-            Icons.search,
-            color: Colors.white.withOpacity(0.7),
-            size: 22,
-          ),
+          hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
+          prefixIcon: Icon(Icons.search,
+              color: Colors.white.withOpacity(0.7), size: 20),
           suffixIcon: _searchController.text.isNotEmpty
               ? IconButton(
-                  icon: Icon(
-                    Icons.clear,
-                    color: Colors.white.withOpacity(0.7),
-                    size: 20,
-                  ),
+                  icon: Icon(Icons.clear,
+                      color: Colors.white.withOpacity(0.7), size: 18),
                   onPressed: () => _searchController.clear(),
                 )
               : null,
           border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         ),
       ),
     );
   }
 
-  Widget _buildNoResultsContent() {
-    return Center(
-      child: Container(
-        margin: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade200,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.search_off,
-                size: 48,
-                color: Colors.grey.shade400,
-              ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              LocalizationHelper.getText('no_locations_found'),
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey.shade800,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              LocalizationHelper.getText('try_different_search'),
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLocationStatus() {
-    if (_currentPosition == null) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: Colors.orange.withOpacity(0.2),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.orange.withOpacity(0.3)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.location_off_rounded,
-              color: Colors.orange.shade300,
-              size: 18,
-            ),
-            const SizedBox(width: 10),
-            Text(
-              LocalizationHelper.getText('location_not_available'),
-              style: TextStyle(
-                color: Colors.orange.shade300,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      );
-    } else {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: Colors.green.withOpacity(0.2),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.green.withOpacity(0.3)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.gps_fixed_rounded,
-              color: Colors.green.shade300,
-              size: 18,
-            ),
-            const SizedBox(width: 10),
-            Text(
-              LocalizationHelper.getText('location_detected'),
-              style: TextStyle(
-                color: Colors.green.shade300,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-  }
+ 
 
   Widget _buildDeviceCard(AttendanceDevice device) {
     final distance = _distances[device.id];
@@ -466,24 +320,25 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
     final isInRange = distance != null && distance <= device.radiusMeters;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 14),
+      margin: const EdgeInsets.only(bottom: 12),
       child: Material(
-        borderRadius: BorderRadius.circular(18),
-        elevation: isSelected ? 6 : 1.5,
-        shadowColor: isSelected ? primaryColor.withOpacity(0.25) : Colors.black.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(16),
+        elevation: isSelected ? 5 : 1.5,
+        shadowColor: Colors.black.withOpacity(0.06),
         child: InkWell(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(16),
           onTap: _isSelecting ? null : () => _selectDevice(device),
           child: Container(
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(18),
-              border: isSelected 
-                  ? Border.all(color: primaryColor, width: 2) 
-                  : Border.all(color: Colors.grey.shade200, width: 1),
-              color: isSelected 
-                  ? primaryColor.withOpacity(0.04) 
+              color: isSelected
+                  ? primaryColor.withOpacity(0.05)
                   : Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isSelected ? primaryColor : Colors.grey.shade200,
+                width: isSelected ? 2 : 1,
+              ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -491,49 +346,40 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
                 Row(
                   children: [
                     _buildDeviceIcon(isSelected, isInRange),
-                    const SizedBox(width: 14),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: Text(
                         device.deviceName,
                         style: TextStyle(
-                          fontSize: 17,
+                          fontSize: 16,
                           fontWeight: FontWeight.w600,
                           color: isSelected ? primaryColor : Colors.black87,
-                          letterSpacing: -0.3,
                         ),
                       ),
                     ),
                     _buildSelectionIndicator(isSelected),
                   ],
                 ),
-                if (device.location != null && device.location!.isNotEmpty) ...[
-                  const SizedBox(height: 14),
+                if (device.location?.isNotEmpty ?? false) ...[
+                  const SizedBox(height: 10),
                   Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Icon(
-                          Icons.location_on_outlined,
-                          size: 16,
-                          color: Colors.grey.shade400,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
+                      Icon(Icons.location_on_outlined,
+                          size: 14, color: Colors.grey.shade400),
+                      const SizedBox(width: 6),
                       Expanded(
                         child: Text(
                           device.location!,
                           style: TextStyle(
                             fontSize: 13,
                             color: Colors.grey.shade600,
-                            height: 1.4,
                           ),
                         ),
                       ),
                     ],
                   ),
                 ],
-                const SizedBox(height: 14),
+                const SizedBox(height: 10),
                 _buildDeviceStatusRow(device, distance),
               ],
             ),
@@ -545,30 +391,17 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
 
   Widget _buildDeviceIcon(bool isSelected, bool isInRange) {
     return Container(
-      width: 50,
-      height: 50,
+      width: 44,
+      height: 44,
       decoration: BoxDecoration(
-        gradient: isSelected 
-            ? LinearGradient(
-                colors: [primaryColor, primaryColor.withOpacity(0.85)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              )
-            : LinearGradient(
-                colors: [Colors.grey.shade50, Colors.grey.shade100],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-        borderRadius: BorderRadius.circular(13),
-        boxShadow: isSelected
-            ? [
-                BoxShadow(
-                  color: primaryColor.withOpacity(0.25),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ]
-            : null,
+        gradient: LinearGradient(
+          colors: isSelected
+              ? [primaryColor, primaryColor.withOpacity(0.85)]
+              : [Colors.grey.shade50, Colors.grey.shade100],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(12),
       ),
       child: Stack(
         alignment: Alignment.center,
@@ -576,26 +409,19 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
           Icon(
             Icons.location_on_rounded,
             color: isSelected ? Colors.white : Colors.grey.shade600,
-            size: 26,
+            size: 24,
           ),
           if (isInRange && !isSelected)
             Positioned(
-              right: 6,
-              top: 6,
+              right: 5,
+              top: 5,
               child: Container(
-                width: 9,
-                height: 9,
+                width: 8,
+                height: 8,
                 decoration: BoxDecoration(
                   color: Colors.green.shade500,
                   shape: BoxShape.circle,
                   border: Border.all(color: Colors.white, width: 2),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.green.withOpacity(0.3),
-                      blurRadius: 4,
-                      spreadRadius: 1,
-                    ),
-                  ],
                 ),
               ),
             ),
@@ -606,34 +432,20 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
 
   Widget _buildSelectionIndicator(bool isSelected) {
     if (_isSelecting && isSelected) {
-      return SizedBox(
-        width: 22,
-        height: 22,
-        child: CircularProgressIndicator(
-          strokeWidth: 2.5,
-          valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-        ),
+      return const SizedBox(
+        width: 20,
+        height: 20,
+        child: CircularProgressIndicator(strokeWidth: 2),
       );
     } else if (isSelected) {
       return Container(
-        width: 28,
-        height: 28,
+        width: 24,
+        height: 24,
         decoration: BoxDecoration(
           color: primaryColor,
           shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: primaryColor.withOpacity(0.3),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
         ),
-        child: const Icon(
-          Icons.check_rounded,
-          color: Colors.white,
-          size: 18,
-        ),
+        child: const Icon(Icons.check, color: Colors.white, size: 16),
       );
     }
     return const SizedBox.shrink();
@@ -642,164 +454,65 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
   Widget _buildDeviceStatusRow(AttendanceDevice device, double? distance) {
     return Wrap(
       spacing: 8,
-      runSpacing: 8,
+      runSpacing: 6,
       children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
-          decoration: BoxDecoration(
-            color: Colors.green.shade50,
-            borderRadius: BorderRadius.circular(9),
-            border: Border.all(color: Colors.green.shade200, width: 1),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.radio_button_checked_rounded,
-                size: 14,
-                color: Colors.green.shade600,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                '${device.radiusMeters}m ${LocalizationHelper.getText('radius')}',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.green.shade700,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
+        _statusChip(
+          text:
+              '${device.radiusMeters}m ${LocalizationHelper.getText('radius')}',
+          color: Colors.green,
         ),
         if (distance != null)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
-            decoration: BoxDecoration(
-              color: (distance <= device.radiusMeters)
-                  ? Colors.blue.shade50
-                  : Colors.orange.shade50,
-              borderRadius: BorderRadius.circular(9),
-              border: Border.all(
-                color: (distance <= device.radiusMeters)
-                    ? Colors.blue.shade200
-                    : Colors.orange.shade200,
-                width: 1,
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  (distance <= device.radiusMeters)
-                      ? Icons.near_me_rounded
-                      : Icons.location_searching_rounded,
-                  size: 14,
-                  color: (distance <= device.radiusMeters)
-                      ? Colors.blue.shade600
-                      : Colors.orange.shade600,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  _formatDistance(distance),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: (distance <= device.radiusMeters)
-                        ? Colors.blue.shade700
-                        : Colors.orange.shade700,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
+          _statusChip(
+            text: _formatDistance(distance),
+            color: distance <= device.radiusMeters
+                ? Colors.blue
+                : Colors.orange,
           ),
       ],
     );
   }
 
-  Widget _buildEmptyState() {
-    return Center(
-      child: Container(
-        margin: const EdgeInsets.all(32),
-        padding: const EdgeInsets.all(36),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 20,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 85,
-              height: 85,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.location_off_rounded,
-                size: 42,
-                color: Colors.grey.shade400,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              LocalizationHelper.getText('no_locations_available'),
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Colors.black87,
-                letterSpacing: -0.5,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              LocalizationHelper.getText('no_locations_configured'),
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.grey.shade600,
-                fontSize: 15,
-                height: 1.5,
-              ),
-            ),
-            const SizedBox(height: 26),
-            ElevatedButton.icon(
-              onPressed: _loadDevices,
-              icon: const Icon(Icons.refresh_rounded, size: 20),
-              label: Text(LocalizationHelper.getText('refresh')),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: primaryColor,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                elevation: 0,
-              ),
-            ),
-          ],
-        ),
+  Widget _statusChip({required String text, required MaterialColor color}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.shade50,
+        border: Border.all(color: color.shade200),
+        borderRadius: BorderRadius.circular(8),
       ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.circle, color: color.shade400, size: 10),
+        const SizedBox(width: 6),
+        Text(text,
+            style: TextStyle(
+                color: color.shade700,
+                fontSize: 12,
+                fontWeight: FontWeight.w600)),
+      ]),
     );
   }
 
+  Widget _buildEmptyState() => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(40),
+          child: Text(LocalizationHelper.getText('no_locations_available')),
+        ),
+      );
+
+  Widget _buildNoResultsContent() => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(40),
+          child: Text(LocalizationHelper.getText('no_locations_found')),
+        ),
+      );
+
   Widget _buildFooterMessage() {
-    return Container(
-      padding: const EdgeInsets.all(20),
+    return Padding(
+      padding: const EdgeInsets.all(16),
       child: Text(
         LocalizationHelper.getText('change_location_anytime'),
         textAlign: TextAlign.center,
-        style: TextStyle(
-          fontSize: 12,
-          color: Colors.grey.shade500,
-          height: 1.4,
-        ),
+        style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
       ),
     );
   }
