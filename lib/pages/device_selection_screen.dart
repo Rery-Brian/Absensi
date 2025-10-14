@@ -248,14 +248,6 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
                       letterSpacing: -0.3,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    LocalizationHelper.getText('choose_attendance_location'),
-                    style: TextStyle(
-                      color: Colors.white.withOpacity(0.75),
-                      fontSize: 12,
-                    ),
-                  ),
                   const SizedBox(height: 8),
                   _buildSearchBar(),
                 ],
