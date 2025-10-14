@@ -1,3 +1,4 @@
+import 'package:absensiwajah/pages/join_organization_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -26,46 +27,136 @@ class _LoginState extends State<Login> {
   static const Color primaryColor = Color(0xFF6366F1);
   static const Color backgroundColor = Color(0xFF1F2937);
 
-  // Function untuk auto-register user ke organisasi
-  Future<bool> _autoRegisterUserToOrganization(String userId) async {
+  // Function untuk extract nama dari email
+  String _extractNameFromEmail(String email) {
     try {
-      print('Checking if user is already registered to organization...');
+      // Ambil bagian sebelum @ dari email
+      String namePart = email.split('@')[0];
+      
+      // Hapus angka dan karakter khusus, ganti dengan space
+      namePart = namePart.replaceAll(RegExp(r'[_.\-0-9]'), ' ').trim();
+      
+      // Capitalize setiap kata
+      List<String> words = namePart.split(' ');
+      String capitalizedName = words
+          .map((word) => word.isEmpty 
+              ? word 
+              : word[0].toUpperCase() + word.substring(1).toLowerCase())
+          .join(' ')
+          .trim();
+      
+      // Jika hasil kosong, gunakan email sebagai fallback
+      return capitalizedName.isEmpty ? email.split('@')[0] : capitalizedName;
+    } catch (e) {
+      print('Error extracting name from email: $e');
+      return email.split('@')[0];
+    }
+  }
 
-      final existingMember = await supabase
+  // Function untuk check apakah user sudah punya first_name
+  Future<bool> _userHasFirstName(String userId) async {
+    try {
+      print('Checking if user has first_name...');
+
+      final response = await supabase
+          .from('user_profiles')
+          .select('first_name')
+          .eq('id', userId)
+          .maybeSingle();
+
+      if (response != null && response['first_name'] != null && response['first_name'].toString().isNotEmpty) {
+        print('User already has first_name: ${response['first_name']}');
+        return true;
+      } else {
+        print('User does not have first_name');
+        return false;
+      }
+    } catch (e) {
+      print('Error checking user first_name: $e');
+      return false;
+    }
+  }
+
+  // Function untuk update user profile dengan first_name dari email (hanya untuk user baru)
+  Future<bool> _updateUserProfileWithName(String userId, String email) async {
+    try {
+      // Check dulu apakah user sudah punya first_name
+      final hasFirstName = await _userHasFirstName(userId);
+      
+      if (hasFirstName) {
+        print('User already has first_name, skipping update');
+        return true; // Return true karena tidak perlu update
+      }
+
+      String firstName = _extractNameFromEmail(email);
+      
+      print('Updating user profile with first_name: $firstName');
+
+      final response = await supabase
+          .from('user_profiles')
+          .update({
+            'first_name': firstName,
+            'display_name': firstName,
+          })
+          .eq('id', userId)
+          .select();
+
+      if (response.isNotEmpty) {
+        print('User profile updated successfully');
+        return true;
+      } else {
+        print('Failed to update user profile');
+        return false;
+      }
+    } catch (e) {
+      print('Error updating user profile: $e');
+      return false;
+    }
+  }
+
+  // Function untuk check apakah user sudah punya organisasi
+  Future<bool> _userHasOrganization(String userId) async {
+    try {
+      print('Checking if user has organization...');
+
+      final response = await supabase
           .from('organization_members')
           .select('id')
           .eq('user_id', userId)
           .eq('is_active', true)
           .maybeSingle();
 
-      if (existingMember != null) {
-        print('User already registered to organization');
-        return true;
-      }
-
-      print('Auto-registering user to organization...');
-
-      final result = await supabase.rpc(
-        'add_user_to_organization',
-        params: {
-          'p_user_id': userId,
-          'p_employee_id': null,
-          'p_organization_code': 'COMPANY001',
-          'p_department_code': 'IT',
-          'p_position_code': 'STAFF',
-        },
-      );
-
-      if (result != null) {
-        print('User auto-registered successfully with member ID: $result');
+      if (response != null) {
+        print('User already has organization');
         return true;
       } else {
-        print('Auto-registration returned null');
+        print('User does not have organization');
         return false;
       }
     } catch (e) {
-      print('Auto-registration failed: $e');
+      print('Error checking user organization: $e');
       return false;
+    }
+  }
+
+  // Function untuk navigate ke halaman yang sesuai
+  Future<void> _navigateAfterLogin(BuildContext context, String userId) async {
+    final hasOrganization = await _userHasOrganization(userId);
+
+    if (!mounted) return;
+
+    if (hasOrganization) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const MainDashboard()),
+      );
+    } else {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const JoinOrganizationScreen(),
+        ),
+      );
     }
   }
 
@@ -117,20 +208,14 @@ class _LoginState extends State<Login> {
       if (response.user != null) {
         print('Google login successful, user ID: ${response.user!.id}');
 
-        final registrationSuccess = await _autoRegisterUserToOrganization(
+        // Update user profile dengan first_name dari email (hanya jika belum ada)
+        final profileUpdateSuccess = await _updateUserProfileWithName(
           response.user!.id,
+          response.user!.email!,
         );
 
-        if (!registrationSuccess) {
-          print(
-            'Warning: Auto-registration failed, but continuing to dashboard',
-          );
-          _showDialog(
-            title: "Info",
-            message:
-                "Login berhasil, tetapi pendaftaran organisasi gagal. Hubungi admin jika diperlukan.",
-            isSuccess: true,
-          );
+        if (!profileUpdateSuccess) {
+          print('Warning: User profile update failed, but continuing');
         }
 
         SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -138,10 +223,7 @@ class _LoginState extends State<Login> {
 
         if (!mounted) return;
 
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const MainDashboard()),
-        );
+        _navigateAfterLogin(context, response.user!.id);
       } else {
         throw Exception('Login gagal: User null dari Supabase');
       }
@@ -179,30 +261,12 @@ class _LoginState extends State<Login> {
       if (user != null) {
         print('Email login successful, user ID: ${user.id}');
 
-        final registrationSuccess = await _autoRegisterUserToOrganization(
-          user.id,
-        );
-
-        if (!registrationSuccess) {
-          print(
-            'Warning: Auto-registration failed, but continuing to dashboard',
-          );
-          _showDialog(
-            title: "Info",
-            message:
-                "Login berhasil, tetapi pendaftaran organisasi gagal. Hubungi admin jika diperlukan.",
-            isSuccess: true,
-          );
-        }
-
         SharedPreferences prefs = await SharedPreferences.getInstance();
         await prefs.setString('user_email', user.email!);
 
         if (!mounted) return;
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const MainDashboard()),
-        );
+
+        _navigateAfterLogin(context, user.id);
       } else {
         if (!mounted) return;
         _showDialog(

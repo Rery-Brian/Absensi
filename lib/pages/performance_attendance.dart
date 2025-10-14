@@ -36,9 +36,9 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
   @override
   void initState() {
     super.initState();
-    final today = TimezoneHelper.nowInOrgTime();
-    _selectedMonth = today.month;
-    _selectedYear = today.year;
+    final now = TimezoneHelper.nowInOrgTime();
+    _selectedMonth = now.month;
+    _selectedYear = now.year;
     _loadData();
   }
 
@@ -68,8 +68,9 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
     if (_organizationMember == null) return;
 
     try {
+      // ✅ Use organization timezone for date range
       final startDate = DateTime(_selectedYear, 1, 1);
-      final endDate = DateTime(_selectedYear, 12, 31);
+      final endDate = DateTime(_selectedYear, 12, 31, 23, 59, 59);
 
       final response = await Supabase.instance.client
           .from('attendance_records')
@@ -91,8 +92,10 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
 
   void _calculateMetrics() {
     final monthRecords = _attendanceRecords.where((r) {
-      final date = DateTime.parse(r.attendanceDate);
-      return date.month == _selectedMonth && date.year == _selectedYear;
+      // ✅ Parse UTC date from database and convert to org timezone
+      final utcDate = DateTime.parse(r.attendanceDate);
+      final orgDate = TimezoneHelper.toOrgTime(utcDate);
+      return orgDate.month == _selectedMonth && orgDate.year == _selectedYear;
     }).toList();
 
     final present =
@@ -135,21 +138,26 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
   }
 
   String _getMonthName(int month) {
-    final locale = WidgetsBinding.instance.platformDispatcher.locale.languageCode;
+    // ✅ Use organization timezone for current year
+    final now = TimezoneHelper.nowInOrgTime();
+    final locale = LocalizationHelper.currentLanguage;
     final format = DateFormat.MMMM(locale);
-    return format.format(DateTime(2025, month));
+    return format.format(DateTime(now.year, month));
   }
 
   List<AttendanceRecord> _getMonthRecords() {
     return _attendanceRecords.where((r) {
-      final date = DateTime.parse(r.attendanceDate);
-      return date.month == _selectedMonth && date.year == _selectedYear;
+      // ✅ Convert to org timezone before comparing
+      final utcDate = DateTime.parse(r.attendanceDate);
+      final orgDate = TimezoneHelper.toOrgTime(utcDate);
+      return orgDate.month == _selectedMonth && orgDate.year == _selectedYear;
     }).toList();
   }
 
   @override
   Widget build(BuildContext context) {
-    final today = TimezoneHelper.nowInOrgTime();
+    // ✅ Use organization timezone for current date
+    final now = TimezoneHelper.nowInOrgTime();
 
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
@@ -162,7 +170,7 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
                 SingleChildScrollView(
                   child: Column(
                     children: [
-                      _buildHeader(today),
+                      _buildHeader(now),
                       _buildMonthSelector(),
                       _buildMetricsCards(),
                       _buildAttendanceChart(),
@@ -176,7 +184,11 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
     );
   }
 
-  Widget _buildHeader(DateTime today) {
+  Widget _buildHeader(DateTime now) {
+    final locale = LocalizationHelper.currentLanguage;
+    // ✅ Format using org timezone
+    final dateFormat = DateFormat('EEEE, dd MMM yyyy', locale);
+    
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(20, 50, 20, 30),
@@ -212,7 +224,7 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
           ),
           const SizedBox(height: 12),
           Text(
-            DateFormat('EEEE, dd MMM yyyy').format(today),
+            dateFormat.format(now),
             style: TextStyle(
               color: Colors.white.withOpacity(0.9),
               fontSize: 13,
@@ -239,50 +251,235 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
           ),
         ],
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          IconButton(
-            onPressed: () {
-              setState(() {
-                if (_selectedMonth == 1) {
-                  _selectedMonth = 12;
-                  _selectedYear--;
-                } else {
-                  _selectedMonth--;
-                }
-                _calculateMetrics();
-              });
-            },
-            icon: const Icon(Icons.chevron_left, color: primaryColor),
-          ),
-          Expanded(
-            child: Text(
-              '${_getMonthName(_selectedMonth)} $_selectedYear',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                color: Colors.black87,
+      child: InkWell(
+        onTap: () => _showMonthYearPicker(),
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.calendar_month,
+                  color: primaryColor,
+                  size: 20,
+                ),
               ),
-            ),
+              const SizedBox(width: 12),
+              Text(
+                '${_getMonthName(_selectedMonth)} $_selectedYear',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.arrow_drop_down,
+                color: Colors.grey.shade600,
+                size: 24,
+              ),
+            ],
           ),
-          IconButton(
-            onPressed: () {
-              setState(() {
-                if (_selectedMonth == 12) {
-                  _selectedMonth = 1;
-                  _selectedYear++;
-                } else {
-                  _selectedMonth++;
-                }
-                _calculateMetrics();
-              });
-            },
-            icon: const Icon(Icons.chevron_right, color: primaryColor),
-          ),
-        ],
+        ),
       ),
+    );
+  }
+
+  Future<void> _showMonthYearPicker() async {
+    final now = TimezoneHelper.nowInOrgTime();
+    final currentYear = now.year;
+    
+    await showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        int tempYear = _selectedYear;
+        int tempMonth = _selectedMonth;
+        
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return Dialog(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      LocalizationHelper.getText('select_month_year'),
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    // Year Selector
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.grey.shade200),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          IconButton(
+                            onPressed: () {
+                              setStateDialog(() => tempYear--);
+                            },
+                            icon: const Icon(Icons.chevron_left, color: primaryColor),
+                          ),
+                          Text(
+                            tempYear.toString(),
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () {
+                              setStateDialog(() => tempYear++);
+                            },
+                            icon: const Icon(Icons.chevron_right, color: primaryColor),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    // Month Grid
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        childAspectRatio: 2.2,
+                        crossAxisSpacing: 8,
+                        mainAxisSpacing: 8,
+                      ),
+                      itemCount: 12,
+                      itemBuilder: (context, index) {
+                        final month = index + 1;
+                        final isSelected = month == tempMonth && tempYear == _selectedYear;
+                        final monthName = _getMonthName(month);
+                        
+                        return InkWell(
+                          onTap: () {
+                            setStateDialog(() => tempMonth = month);
+                          },
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? primaryColor
+                                  : month == tempMonth
+                                      ? primaryColor.withOpacity(0.1)
+                                      : Colors.transparent,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: month == tempMonth
+                                    ? primaryColor
+                                    : Colors.grey.shade300,
+                                width: isSelected ? 2 : 1,
+                              ),
+                            ),
+                            child: Center(
+                              child: Text(
+                                monthName.substring(0, 3),
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: month == tempMonth
+                                      ? FontWeight.w600
+                                      : FontWeight.w500,
+                                  color: isSelected
+                                      ? Colors.white
+                                      : month == tempMonth
+                                          ? primaryColor
+                                          : Colors.black87,
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 24),
+                    // Action Buttons
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(context),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              side: BorderSide(color: Colors.grey.shade300),
+                            ),
+                            child: Text(
+                              LocalizationHelper.getText('cancel'),
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () {
+                              setState(() {
+                                _selectedMonth = tempMonth;
+                                _selectedYear = tempYear;
+                                _calculateMetrics();
+                              });
+                              Navigator.pop(context);
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: primaryColor,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              elevation: 0,
+                            ),
+                            child: Text(
+                              LocalizationHelper.getText('apply'),
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -340,7 +537,7 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
               Expanded(
                 child: _buildMetricCard(
                   label: LocalizationHelper.getText('avg_work_hours'),
-                  value: '${(_metrics.avgWorkMinutes / 60).toStringAsFixed(1)}h',
+                  value: '${(_metrics.avgWorkMinutes / 60).toStringAsFixed(1)}${LocalizationHelper.getText('hours').substring(0, 1)}',
                   color: primaryColor,
                   icon: Icons.work_outline,
                 ),
@@ -609,9 +806,13 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
   }
 
   Widget _buildAttendanceDetailItem(AttendanceRecord record) {
-    final date = DateTime.parse(record.attendanceDate);
+    // ✅ Convert UTC date to org timezone
+    final utcDate = DateTime.parse(record.attendanceDate);
+    final orgDate = TimezoneHelper.toOrgTime(utcDate);
+    
     final isPresent = record.status?.toLowerCase() == 'present';
     final isLate = record.lateMinutes != null && record.lateMinutes! > 0;
+    final locale = LocalizationHelper.currentLanguage;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
@@ -637,7 +838,7 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  DateFormat('EEEE, dd MMMM').format(date),
+                  DateFormat('EEEE, dd MMMM', locale).format(orgDate),
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -649,7 +850,7 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
                   children: [
                     if (record.actualCheckIn != null)
                       Text(
-                        'In: ${_formatTime(record.actualCheckIn)}',
+                        '${LocalizationHelper.getText('check_in')}: ${_formatTime(record.actualCheckIn)}',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade600,
@@ -658,7 +859,7 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
                     if (record.actualCheckOut != null) ...[
                       const SizedBox(width: 12),
                       Text(
-                        'Out: ${_formatTime(record.actualCheckOut)}',
+                        '${LocalizationHelper.getText('check_out')}: ${_formatTime(record.actualCheckOut)}',
                         style: TextStyle(
                           fontSize: 12,
                           color: Colors.grey.shade600,
@@ -678,7 +879,7 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                '${record.lateMinutes}m late',
+                '${record.lateMinutes}${LocalizationHelper.getText('minutes').substring(0, 1)} ${LocalizationHelper.getText('late')}',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -693,15 +894,19 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
 
   String _formatTime(DateTime? dateTime) {
     if (dateTime == null) return '--:--';
-    return DateFormat('HH:mm').format(dateTime);
+    // ✅ Convert UTC to org timezone before formatting
+    final orgTime = TimezoneHelper.toOrgTime(dateTime);
+    return DateFormat('HH:mm').format(orgTime);
   }
 
   String _formatMinutesToHours(int minutes) {
-    if (minutes == 0) return '0h';
+    if (minutes == 0) return '0${LocalizationHelper.getText('hours').substring(0, 1)}';
     final hours = minutes ~/ 60;
     final mins = minutes % 60;
-    if (mins == 0) return '${hours}h';
-    return '${hours}h ${mins}m';
+    final hourText = LocalizationHelper.getText('hours').substring(0, 1);
+    final minText = LocalizationHelper.getText('minutes').substring(0, 1);
+    if (mins == 0) return '$hours$hourText';
+    return '$hours$hourText $mins$minText';
   }
 }
 

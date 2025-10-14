@@ -1,5 +1,6 @@
 import 'package:absensiwajah/pages/login.dart';
 import 'package:absensiwajah/pages/main_dashboard.dart';
+import 'package:absensiwajah/pages/join_organization_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -31,13 +32,11 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
         useMaterial3: true,
       ),
-      // Selalu mulai dari SplashScreen
       home: const SplashScreen(),
     );
   }
 }
 
-// Halaman Splash Screen
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -54,7 +53,6 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   void initState() {
     super.initState();
     
-    // Setup animasi
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
@@ -69,28 +67,76 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     );
 
     _animationController.forward();
-
-    // Navigasi setelah 3 detik
     _navigateToNextScreen();
   }
 
-  Future<void> _navigateToNextScreen() async {
-    // Tunggu animasi selesai + delay
-    await Future.delayed(const Duration(seconds: 3));
-
+  Future<void> _checkMembershipAndNavigate() async {
     if (!mounted) return;
 
-    // Cek status login
     final session = Supabase.instance.client.auth.currentSession;
 
-    // Navigate dengan replace agar tidak bisa back ke splash
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (context) => session != null 
-            ? const MainDashboard() 
-            : const Login(),
-      ),
-    );
+    // Jika belum login, langsung ke Login
+    if (session == null) {
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const Login()),
+      );
+      return;
+    }
+
+    // Jika sudah login, cek apakah sudah join organization
+    try {
+      final userId = session.user.id;
+      
+      // Cek apakah user sudah menjadi member di organization manapun
+      final memberResponse = await Supabase.instance.client
+          .from('organization_members')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('is_active', true)
+          .maybeSingle();
+
+      if (!mounted) return;
+
+      // Jika sudah ada organization, langsung ke Dashboard
+      if (memberResponse != null) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const MainDashboard()),
+        );
+      } else {
+        // Jika belum join organization, ke halaman Join Organization
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => const JoinOrganizationScreen()),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error checking organization membership: $e');
+      if (!mounted) return;
+      
+      // Jika error, asumsikan belum join organization
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => const JoinOrganizationScreen()),
+      );
+    }
+  }
+
+  Future<void> _navigateToNextScreen() async {
+    await Future.delayed(const Duration(seconds: 3));
+    await _checkMembershipAndNavigate();
+    
+    // Setup auth state listener untuk detect logout atau session change
+    if (mounted) {
+      Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+        if (!mounted) return;
+        
+        final AuthChangeEvent event = data.event;
+        
+        // Jika user logout atau token invalid
+        if (event == AuthChangeEvent.signedOut || event == AuthChangeEvent.tokenRefreshed) {
+          _checkMembershipAndNavigate();
+        }
+      });
+    }
   }
 
   @override
@@ -121,7 +167,6 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Icon/Logo aplikasi
                   Container(
                     width: 120,
                     height: 120,
@@ -143,7 +188,6 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                     ),
                   ),
                   const SizedBox(height: 30),
-                  // Nama aplikasi
                   const Text(
                     'Absensi Wajah',
                     style: TextStyle(
@@ -154,7 +198,6 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                     ),
                   ),
                   const SizedBox(height: 10),
-                  // Tagline
                   Text(
                     'Sistem Absensi Modern',
                     style: TextStyle(
@@ -164,7 +207,6 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                     ),
                   ),
                   const SizedBox(height: 50),
-                  // Loading indicator
                   SizedBox(
                     width: 40,
                     height: 40,
