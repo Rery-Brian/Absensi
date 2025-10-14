@@ -1731,138 +1731,122 @@ Future<void> _buildDynamicTimeline() async {
   }
 
 
- Future<void> _showSuccessAttendancePopup(String type) async {
-    if (!mounted) return;
+Future<void> _showSuccessAttendancePopup(String type) async {
+  if (!mounted) return;
 
-    final orgTime = TimezoneHelper.nowInOrgTime();
+  final orgTime = TimezoneHelper.nowInOrgTime();
 
-    return showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+  // tampilkan dialog
+  showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (BuildContext context) {
+      return Dialog(
+        backgroundColor: Colors.transparent,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
 
-              return SingleChildScrollView(
-                child: Container(
-                  width: MediaQuery.of(context).size.width * (isLandscape ? 0.6 : 0.85),
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.of(context).size.height * 0.9,
+            return SingleChildScrollView(
+              child: Container(
+                width: MediaQuery.of(context).size.width * (isLandscape ? 0.6 : 0.85),
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.9,
+                ),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [primaryColor, primaryColor.withOpacity(0.8)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [primaryColor, primaryColor.withOpacity(0.8)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.3),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10),
                     ),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
-                        blurRadius: 20,
-                        offset: const Offset(0, 10),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: EdgeInsets.symmetric(
+                        vertical: isLandscape ? 15 : 30,
+                        horizontal: 20,
                       ),
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        padding: EdgeInsets.symmetric(
-                          vertical: isLandscape ? 15 : 30,
-                          horizontal: 20,
-                        ),
-                        child: Column(
-                          children: [
-                            Container(
-                              width: isLandscape ? 60 : 80,
-                              height: isLandscape ? 60 : 80,
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.2),
-                                    blurRadius: 15,
-                                    offset: const Offset(0, 5),
-                                  ),
-                                ],
-                              ),
-                              child: Icon(
-                                Icons.check_circle,
-                                size: isLandscape ? 30 : 40,
-                                color: primaryColor,
-                              ),
+                      child: Column(
+                        children: [
+                          Container(
+                            width: isLandscape ? 60 : 80,
+                            height: isLandscape ? 60 : 80,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.2),
+                                  blurRadius: 15,
+                                  offset: const Offset(0, 5),
+                                ),
+                              ],
                             ),
-                            SizedBox(height: isLandscape ? 12 : 20),
-                            Text(
-                              LocalizationHelper.getText('attendance_successful'),
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: isLandscape ? 20 : 24,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                            SizedBox(height: isLandscape ? 4 : 8),
-                            Text(
-                              _getAttendanceTypeLabel(type),
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: isLandscape ? 14 : 16,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                            SizedBox(height: isLandscape ? 4 : 8),
-                            Text(
-                              TimezoneHelper.formatAttendanceDateTime(orgTime),
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: isLandscape ? 12 : 14,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        margin: const EdgeInsets.symmetric(horizontal: 20),
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: primaryColor,
-                            padding: EdgeInsets.symmetric(
-                              vertical: isLandscape ? 12 : 16,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                            child: Icon(
+                              Icons.check_circle,
+                              size: isLandscape ? 30 : 40,
+                              color: primaryColor,
                             ),
                           ),
-                          child: Text(
-                            LocalizationHelper.getText('ok'),
+                          SizedBox(height: isLandscape ? 12 : 20),
+                          Text(
+                            LocalizationHelper.getText('attendance_successful'),
                             style: TextStyle(
-                              fontSize: isLandscape ? 14 : 16,
+                              color: Colors.white,
+                              fontSize: isLandscape ? 20 : 24,
                               fontWeight: FontWeight.bold,
                             ),
+                            textAlign: TextAlign.center,
                           ),
-                        ),
+                          SizedBox(height: isLandscape ? 4 : 8),
+                          Text(
+                            _getAttendanceTypeLabel(type),
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: isLandscape ? 14 : 16,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          SizedBox(height: isLandscape ? 4 : 8),
+                          Text(
+                            TimezoneHelper.formatAttendanceDateTime(orgTime),
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: isLandscape ? 12 : 14,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
                       ),
-                      SizedBox(height: isLandscape ? 15 : 20),
-                    ],
-                  ),
+                    ),
+                    SizedBox(height: isLandscape ? 15 : 20),
+                  ],
                 ),
-              );
-            },
-          ),
-        );
-      },
-    );
+              ),
+            );
+          },
+        ),
+      );
+    },
+  );
+
+  // ⏳ Tutup otomatis setelah 2 detik
+  await Future.delayed(const Duration(seconds: 2));
+  if (mounted && Navigator.of(context).canPop()) {
+    Navigator.of(context).pop();
   }
+}
+
 
   String _getAttendanceTypeLabel(String type) {
     switch (type) {
@@ -2621,7 +2605,6 @@ String _formatDistance(double? distanceInMeters) {
         children: [
           _buildHeader(displayName),
           _buildStatusCard(),
-          _buildOverviewCard(),
           _buildTimelineCard(),
           const SizedBox(height: 100),
         ],
@@ -3086,144 +3069,7 @@ Widget _buildStatusCard() {
 }
 
 
-  Widget _buildOverviewCard() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Colors.white, Colors.grey.shade50],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 15,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                LocalizationHelper.getText('overview'),
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.5,
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: primaryColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  DateFormat('MMM yyyy').format(DateTime.now()),
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: primaryColor,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
-          Row(
-            children: [
-              _buildStatItem(
-                LocalizationHelper.getText('presence'),
-                '${_getPresenceDays()}',
-                successColor,
-                Icons.check_circle_outline,
-              ),
-              Container(
-                width: 1,
-                height: 50,
-                color: Colors.grey.shade300,
-                margin: const EdgeInsets.symmetric(horizontal: 12),
-              ),
-              _buildStatItem(
-                LocalizationHelper.getText('absence'),
-                '${_getAbsenceDays()}',
-                errorColor,
-                Icons.cancel_outlined,
-              ),
-              Container(
-                width: 1,
-                height: 50,
-                color: Colors.grey.shade300,
-                margin: const EdgeInsets.symmetric(horizontal: 12),
-              ),
-              _buildStatItem(
-                LocalizationHelper.getText('lateness'),
-                _getLateness(),
-                warningColor,
-                Icons.access_time,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatItem(
-    String label,
-    String value,
-    Color color,
-    IconData icon,
-  ) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Column(
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(icon, color: color, size: 24),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: color,
-                letterSpacing: -0.5,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                color: Colors.grey.shade600,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
+ 
   Widget _buildTimelineCard() {
     return Container(
       margin: const EdgeInsets.all(16),

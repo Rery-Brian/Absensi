@@ -323,6 +323,23 @@ class LocalizationHelper {
         'Gagal menginisialisasi layanan. Silakan restart aplikasi.',
     'failed_to_open_break_page': 'Gagal membuka halaman istirahat.',
     'user': 'Pengguna',
+
+    // Performance Page (NEW)
+'attendance_performance': 'Kinerja Kehadiran',
+      'monitor_attendance_stats': 'Pantau statistik dan kinerja kehadiran kamu',
+      'present': 'Hadir',
+      'absent': 'Tidak Hadir',
+      'late': 'Terlambat',
+      'early_leave': 'Pulang Awal',
+      'avg_work_hours': 'Rata-rata Jam Kerja',
+      'total_minutes_late': 'Total Menit Terlambat',
+      'attendance_rate': 'Tingkat Kehadiran',
+      'present_label': 'Hadir',
+      'absent_label': 'Tidak Hadir',
+      'total_days': 'Total Hari',
+      'attendance_details': 'Rincian Kehadiran',
+      'no_records_found': 'Tidak ada catatan',
+      'no_records_month': 'Tidak ada catatan kehadiran bulan ini',
   };
 
   // English translations
@@ -600,6 +617,22 @@ class LocalizationHelper {
         'Failed to initialize services. Please restart the app.',
     'failed_to_open_break_page': 'Failed to open break page.',
     'user': 'User',
+
+    'attendance_performance': 'Attendance Performance',
+      'monitor_attendance_stats': 'Monitor your attendance statistics and performance',
+      'present': 'Present',
+      'absent': 'Absent',
+      'late': 'Late',
+      'early_leave': 'Early Leave',
+      'avg_work_hours': 'Avg Work Hours',
+      'total_minutes_late': 'Total Minutes Late',
+      'attendance_rate': 'Attendance Rate',
+      'present_label': 'Present',
+      'absent_label': 'Absent',
+      'total_days': 'Total Days',
+      'attendance_details': 'Attendance Details',
+      'no_records_found': 'No records found',
+      'no_records_month': 'No attendance records for this month',
   };
 
   // Helper method untuk get text dengan fallback
