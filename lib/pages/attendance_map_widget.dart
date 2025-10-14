@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import '../helpers/localization_helper.dart';
 
 class AttendanceMapWidget extends StatefulWidget {
   final Position? userPosition;
@@ -333,7 +334,9 @@ class _AttendanceMapWidgetState extends State<AttendanceMapWidget>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    isWithinRadius ? 'Within Range' : 'Outside Range',
+                    isWithinRadius 
+                        ? LocalizationHelper.getText('within_range')
+                        : LocalizationHelper.getText('outside_range'),
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
@@ -343,8 +346,8 @@ class _AttendanceMapWidgetState extends State<AttendanceMapWidget>
                   const SizedBox(height: 2),
                   Text(
                     distance < 1000
-                        ? '${distance.toInt()} m from office'
-                        : '${(distance / 1000).toStringAsFixed(1)} km from office',
+                        ? '${distance.toInt()} ${LocalizationHelper.getText('meters')} ${LocalizationHelper.getText('from_office')}'
+                        : '${(distance / 1000).toStringAsFixed(1)} ${LocalizationHelper.getText('kilometers')} ${LocalizationHelper.getText('from_office')}',
                     style: TextStyle(
                       fontSize: 11,
                       color: Colors.grey.shade600,
@@ -365,15 +368,27 @@ class _AttendanceMapWidgetState extends State<AttendanceMapWidget>
       bottom: 12,
       child: Column(
         children: [
-          _buildControlButton(Icons.my_location, _fitBounds, 'My Location'),
+          _buildControlButton(
+            Icons.my_location, 
+            _fitBounds, 
+            LocalizationHelper.getText('my_location')
+          ),
           const SizedBox(height: 6),
-          _buildControlButton(Icons.add, () {
-            _mapController.move(_mapController.camera.center, _mapController.camera.zoom + 1);
-          }, 'Zoom In'),
+          _buildControlButton(
+            Icons.add, 
+            () {
+              _mapController.move(_mapController.camera.center, _mapController.camera.zoom + 1);
+            }, 
+            LocalizationHelper.getText('zoom_in')
+          ),
           const SizedBox(height: 6),
-          _buildControlButton(Icons.remove, () {
-            _mapController.move(_mapController.camera.center, _mapController.camera.zoom - 1);
-          }, 'Zoom Out'),
+          _buildControlButton(
+            Icons.remove, 
+            () {
+              _mapController.move(_mapController.camera.center, _mapController.camera.zoom - 1);
+            }, 
+            LocalizationHelper.getText('zoom_out')
+          ),
         ],
       ),
     );
@@ -413,7 +428,7 @@ class _AttendanceMapWidgetState extends State<AttendanceMapWidget>
               Icon(Icons.location_off, size: 48, color: Colors.grey.shade400),
               const SizedBox(height: 12),
               Text(
-                'Location not available',
+                LocalizationHelper.getText('location_not_available'),
                 style: TextStyle(
                   fontSize: 14,
                   color: Colors.grey.shade600,

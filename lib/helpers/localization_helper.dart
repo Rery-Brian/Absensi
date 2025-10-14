@@ -49,6 +49,62 @@ class LocalizationHelper {
 
   // Indonesian translations
   static final Map<String, String> _indonesianTranslations = {
+    // Months
+    'january': 'Januari',
+    'february': 'Februari',
+    'march': 'Maret',
+    'april': 'April',
+    'may': 'Mei',
+    'june': 'Juni',
+    'july': 'Juli',
+    'august': 'Agustus',
+    'september': 'September',
+    'october': 'Oktober',
+    'november': 'November',
+    'december': 'Desember',
+    
+    // Month abbreviations
+    'jan': 'Jan',
+    'feb': 'Feb',
+    'mar': 'Mar',
+    'apr': 'Apr',
+    'may_short': 'Mei',
+    'jun': 'Jun',
+    'jul': 'Jul',
+    'aug': 'Agu',
+    'sep': 'Sep',
+    'oct': 'Okt',
+    'nov': 'Nov',
+    'dec': 'Des',
+
+    // Days of week
+    'monday': 'Senin',
+    'tuesday': 'Selasa',
+    'wednesday': 'Rabu',
+    'thursday': 'Kamis',
+    'friday': 'Jumat',
+    'saturday': 'Sabtu',
+    'sunday': 'Minggu',
+
+    // Day abbreviations
+    'mon': 'Sen',
+    'tue': 'Sel',
+    'wed': 'Rab',
+    'thu': 'Kam',
+    'fri': 'Jum',
+    'sat': 'Sab',
+    'sun': 'Min',
+
+    // Date/Time related
+    'select_month_year': 'Pilih Bulan & Tahun',
+    'apply': 'Terapkan',
+    'year': 'Tahun',
+    'month': 'Bulan',
+    'day': 'Hari',
+    'today': 'Hari Ini',
+    'yesterday': 'Kemarin',
+    'tomorrow': 'Besok',
+
     'work_time': 'Waktu Kerja',
     'work_period': 'Waktu Kerja',
     'break_time': 'Waktu Istirahat',
@@ -353,10 +409,83 @@ class LocalizationHelper {
     'successfully_joined': 'Berhasil bergabung dengan',
     'failed_to_join_organization': 'Gagal bergabung dengan organisasi',
     'user_not_authenticated': 'Pengguna tidak terautentikasi',
+
+    // Map Preview Dialog
+    'verify_your_location': 'Verifikasi Lokasi Anda',
+    'make_sure_within_office_area': 'Pastikan Anda berada di dalam area kantor',
+    'cancel': 'Batal',
+    'confirm_location': 'Konfirmasi Lokasi',
+    
+
+    // Map Widget
+    'within_range': 'Dalam Jangkauan',
+    'outside_range': 'Di Luar Jangkauan',
+    'meters': 'm',
+    'kilometers': 'km',
+    'from_office': 'dari kantor',
+    'my_location': 'Lokasi Saya',
+    'zoom_in': 'Perbesar',
+    'zoom_out': 'Perkecil',
   };
 
   // English translations
   static final Map<String, String> _englishTranslations = {
+    // Months
+    'january': 'January',
+    'february': 'February',
+    'march': 'March',
+    'april': 'April',
+    'may': 'May',
+    'june': 'June',
+    'july': 'July',
+    'august': 'August',
+    'september': 'September',
+    'october': 'October',
+    'november': 'November',
+    'december': 'December',
+    
+    // Month abbreviations
+    'jan': 'Jan',
+    'feb': 'Feb',
+    'mar': 'Mar',
+    'apr': 'Apr',
+    'may_short': 'May',
+    'jun': 'Jun',
+    'jul': 'Jul',
+    'aug': 'Aug',
+    'sep': 'Sep',
+    'oct': 'Oct',
+    'nov': 'Nov',
+    'dec': 'Dec',
+
+    // Days of week
+    'monday': 'Monday',
+    'tuesday': 'Tuesday',
+    'wednesday': 'Wednesday',
+    'thursday': 'Thursday',
+    'friday': 'Friday',
+    'saturday': 'Saturday',
+    'sunday': 'Sunday',
+
+    // Day abbreviations
+    'mon': 'Mon',
+    'tue': 'Tue',
+    'wed': 'Wed',
+    'thu': 'Thu',
+    'fri': 'Fri',
+    'sat': 'Sat',
+    'sun': 'Sun',
+
+    // Date/Time related
+    'select_month_year': 'Select Month & Year',
+    'apply': 'Apply',
+    'year': 'Year',
+    'month': 'Month',
+    'day': 'Day',
+    'today': 'Today',
+    'yesterday': 'Yesterday',
+    'tomorrow': 'Tomorrow',
+
     'join_organization_to_continue': 'Join your organization to continue',
     'invitation_code': 'Invitation Code',
     'ask_hr_for_invitation_code': 'Ask your HR for the invitation code',
@@ -659,10 +788,71 @@ class LocalizationHelper {
     'attendance_details': 'Attendance Details',
     'no_records_found': 'No records found',
     'no_records_month': 'No attendance records for this month',
+
+     // Map Preview Dialog
+    'verify_your_location': 'Verify Your Location',
+    'make_sure_within_office_area': 'Make sure you are within the office area',
+    'confirm_location': 'Confirm Location',
+    'cancel': 'Cancel',
+
+    // Map Widget
+    'within_range': 'Within range',
+    'outside_range': 'Outside range',
+    'meters': 'm',
+    'kilometers': 'km',
+    'from_office': 'From office',
+    'my_location': 'My location',
+    'zoom_in': 'Zoom in',
+    'zoom_out': 'Zoom out',
   };
 
   // Helper method untuk get text dengan fallback
   static String tr(String key, {String? fallback}) {
     return getText(key);
+  }
+
+  // Get month name
+  static String getMonthName(int month) {
+    const months = [
+      'january', 'february', 'march', 'april', 'may', 'june',
+      'july', 'august', 'september', 'october', 'november', 'december'
+    ];
+    if (month >= 1 && month <= 12) {
+      return getText(months[month - 1]);
+    }
+    return month.toString();
+  }
+
+  // Get month abbreviation
+  static String getMonthAbbr(int month) {
+    const months = [
+      'jan', 'feb', 'mar', 'apr', 'may_short', 'jun',
+      'jul', 'aug', 'sep', 'oct', 'nov', 'dec'
+    ];
+    if (month >= 1 && month <= 12) {
+      return getText(months[month - 1]);
+    }
+    return month.toString();
+  }
+
+  // Get day name
+  static String getDayName(int weekday) {
+    const days = [
+      'monday', 'tuesday', 'wednesday', 'thursday', 
+      'friday', 'saturday', 'sunday'
+    ];
+    if (weekday >= 1 && weekday <= 7) {
+      return getText(days[weekday - 1]);
+    }
+    return weekday.toString();
+  }
+
+  // Get day abbreviation
+  static String getDayAbbr(int weekday) {
+    const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+    if (weekday >= 1 && weekday <= 7) {
+      return getText(days[weekday - 1]);
+    }
+    return weekday.toString();
   }
 }

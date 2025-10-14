@@ -5,7 +5,6 @@ import '../models/attendance_model.dart';
 import '../services/attendance_service.dart';
 import '../helpers/localization_helper.dart';
 import '../helpers/timezone_helper.dart';
-import '../helpers/time_helper.dart';
 
 class AttendancePerformancePage extends StatefulWidget {
   const AttendancePerformancePage({super.key});
@@ -17,11 +16,9 @@ class AttendancePerformancePage extends StatefulWidget {
 
 class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
   static const Color primaryColor = Color(0xFF6366F1);
-  static const Color accentColor = Color(0xFF22D3EE);
   static const Color successColor = Color(0xFF10B981);
   static const Color warningColor = Color(0xFFF59E0B);
   static const Color errorColor = Color(0xFFEF4444);
-  static const Color backgroundColor = Color(0xFF1F2937);
 
   final AttendanceService _attendanceService = AttendanceService();
 
@@ -68,7 +65,6 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
     if (_organizationMember == null) return;
 
     try {
-      // ✅ Use organization timezone for date range
       final startDate = DateTime(_selectedYear, 1, 1);
       final endDate = DateTime(_selectedYear, 12, 31, 23, 59, 59);
 
@@ -92,7 +88,6 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
 
   void _calculateMetrics() {
     final monthRecords = _attendanceRecords.where((r) {
-      // ✅ Parse UTC date from database and convert to org timezone
       final utcDate = DateTime.parse(r.attendanceDate);
       final orgDate = TimezoneHelper.toOrgTime(utcDate);
       return orgDate.month == _selectedMonth && orgDate.year == _selectedYear;
@@ -105,40 +100,29 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
     final late = monthRecords
         .where((r) => r.lateMinutes != null && r.lateMinutes! > 0)
         .length;
-    final early = monthRecords
-        .where((r) => r.earlyLeaveMinutes != null && r.earlyLeaveMinutes! > 0)
-        .length;
 
     final totalLateMinutes = monthRecords
         .where((r) => r.lateMinutes != null)
         .fold<int>(0, (sum, r) => sum + (r.lateMinutes ?? 0));
-
-    final totalEarlyMinutes = monthRecords
-        .where((r) => r.earlyLeaveMinutes != null)
-        .fold<int>(0, (sum, r) => sum + (r.earlyLeaveMinutes ?? 0));
 
     final avgWorkMinutes = monthRecords.isEmpty
         ? 0
         : monthRecords
                 .where((r) => r.workDurationMinutes != null)
                 .fold<int>(0, (sum, r) => sum + (r.workDurationMinutes ?? 0)) ~/
-            (monthRecords.length);
+            monthRecords.length;
 
     _metrics = PerformanceMetrics(
       present: present,
       absent: absent,
       late: late,
-      early: early,
       totalLateMinutes: totalLateMinutes,
-      totalEarlyMinutes: totalEarlyMinutes,
       avgWorkMinutes: avgWorkMinutes,
       totalRecords: monthRecords.length,
-      workDays: monthRecords.length,
     );
   }
 
   String _getMonthName(int month) {
-    // ✅ Use organization timezone for current year
     final now = TimezoneHelper.nowInOrgTime();
     final locale = LocalizationHelper.currentLanguage;
     final format = DateFormat.MMMM(locale);
@@ -147,7 +131,6 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
 
   List<AttendanceRecord> _getMonthRecords() {
     return _attendanceRecords.where((r) {
-      // ✅ Convert to org timezone before comparing
       final utcDate = DateTime.parse(r.attendanceDate);
       final orgDate = TimezoneHelper.toOrgTime(utcDate);
       return orgDate.month == _selectedMonth && orgDate.year == _selectedYear;
@@ -156,49 +139,48 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
 
   @override
   Widget build(BuildContext context) {
-    // ✅ Use organization timezone for current date
     final now = TimezoneHelper.nowInOrgTime();
-
+    
     return Scaffold(
-      backgroundColor: Colors.grey.shade100,
+      backgroundColor: const Color(0xFFF8F9FA),
       body: _isLoading
           ? const Center(
               child: CircularProgressIndicator(color: primaryColor),
             )
-          : Stack(
-              children: [
-                SingleChildScrollView(
-                  child: Column(
-                    children: [
-                      _buildHeader(now),
-                      _buildMonthSelector(),
-                      _buildMetricsCards(),
-                      _buildAttendanceChart(),
-                      _buildDetailedList(),
-                      const SizedBox(height: 80),
-                    ],
-                  ),
+          : RefreshIndicator(
+              onRefresh: _loadData,
+              color: primaryColor,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: Column(
+                  children: [
+                    _buildHeader(now),
+                    _buildMonthSelector(),
+                    _buildSummaryCard(),
+                    _buildMetricsGrid(),
+                    _buildRecentRecords(),
+                    const SizedBox(height: 24),
+                  ],
                 ),
-              ],
+              ),
             ),
     );
   }
 
   Widget _buildHeader(DateTime now) {
     final locale = LocalizationHelper.currentLanguage;
-    // ✅ Format using org timezone
     final dateFormat = DateFormat('EEEE, dd MMM yyyy', locale);
     
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(20, 50, 20, 30),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         gradient: LinearGradient(
-          colors: [backgroundColor, backgroundColor.withOpacity(0.8)],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
+          colors: [Color(0xFF1F2937), Color(0xFF374151)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        borderRadius: const BorderRadius.only(
+        borderRadius: BorderRadius.only(
           bottomLeft: Radius.circular(30),
           bottomRight: Radius.circular(30),
         ),
@@ -216,18 +198,10 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
           ),
           const SizedBox(height: 8),
           Text(
-            LocalizationHelper.getText('monitor_attendance_stats'),
-            style: TextStyle(
-              color: Colors.white.withOpacity(0.8),
-              fontSize: 14,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
             dateFormat.format(now),
             style: TextStyle(
               color: Colors.white.withOpacity(0.9),
-              fontSize: 13,
+              fontSize: 14,
               fontWeight: FontWeight.w400,
             ),
           ),
@@ -238,55 +212,32 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
 
   Widget _buildMonthSelector() {
     return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Material(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: InkWell(
-        onTap: () => _showMonthYearPicker(),
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: primaryColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          onTap: _showMonthYearPicker,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.calendar_today, color: primaryColor, size: 18),
+                const SizedBox(width: 10),
+                Text(
+                  '${_getMonthName(_selectedMonth)} $_selectedYear',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
                 ),
-                child: const Icon(
-                  Icons.calendar_month,
-                  color: primaryColor,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Text(
-                '${_getMonthName(_selectedMonth)} $_selectedYear',
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Icon(
-                Icons.arrow_drop_down,
-                color: Colors.grey.shade600,
-                size: 24,
-              ),
-            ],
+                const SizedBox(width: 6),
+                Icon(Icons.keyboard_arrow_down, color: Colors.grey.shade600, size: 20),
+              ],
+            ),
           ),
         ),
       ),
@@ -295,186 +246,127 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
 
   Future<void> _showMonthYearPicker() async {
     final now = TimezoneHelper.nowInOrgTime();
-    final currentYear = now.year;
     
-    await showDialog(
+    await showModalBottomSheet(
       context: context,
+      backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
         int tempYear = _selectedYear;
         int tempMonth = _selectedMonth;
         
         return StatefulBuilder(
           builder: (context, setStateDialog) {
-            return Dialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
+            return Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
               ),
-              child: Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      LocalizationHelper.getText('select_month_year'),
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
-                      ),
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
                     ),
-                    const SizedBox(height: 24),
-                    // Year Selector
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade50,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      IconButton(
+                        onPressed: () => setStateDialog(() => tempYear--),
+                        icon: const Icon(Icons.chevron_left, color: primaryColor),
                       ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          IconButton(
-                            onPressed: () {
-                              setStateDialog(() => tempYear--);
-                            },
-                            icon: const Icon(Icons.chevron_left, color: primaryColor),
-                          ),
-                          Text(
-                            tempYear.toString(),
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () {
-                              setStateDialog(() => tempYear++);
-                            },
-                            icon: const Icon(Icons.chevron_right, color: primaryColor),
-                          ),
-                        ],
+                      Text(
+                        tempYear.toString(),
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
                       ),
+                      IconButton(
+                        onPressed: () => setStateDialog(() => tempYear++),
+                        icon: const Icon(Icons.chevron_right, color: primaryColor),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 4,
+                      childAspectRatio: 2,
+                      crossAxisSpacing: 8,
+                      mainAxisSpacing: 8,
                     ),
-                    const SizedBox(height: 20),
-                    // Month Grid
-                    GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        childAspectRatio: 2.2,
-                        crossAxisSpacing: 8,
-                        mainAxisSpacing: 8,
-                      ),
-                      itemCount: 12,
-                      itemBuilder: (context, index) {
-                        final month = index + 1;
-                        final isSelected = month == tempMonth && tempYear == _selectedYear;
-                        final monthName = _getMonthName(month);
-                        
-                        return InkWell(
-                          onTap: () {
-                            setStateDialog(() => tempMonth = month);
-                          },
-                          borderRadius: BorderRadius.circular(12),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? primaryColor
-                                  : month == tempMonth
-                                      ? primaryColor.withOpacity(0.1)
-                                      : Colors.transparent,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: month == tempMonth
-                                    ? primaryColor
-                                    : Colors.grey.shade300,
-                                width: isSelected ? 2 : 1,
-                              ),
-                            ),
-                            child: Center(
-                              child: Text(
-                                monthName.substring(0, 3),
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: month == tempMonth
-                                      ? FontWeight.w600
-                                      : FontWeight.w500,
-                                  color: isSelected
-                                      ? Colors.white
-                                      : month == tempMonth
-                                          ? primaryColor
-                                          : Colors.black87,
-                                ),
-                              ),
+                    itemCount: 12,
+                    itemBuilder: (context, index) {
+                      final month = index + 1;
+                      final isSelected = month == tempMonth;
+                      final monthName = _getMonthName(month);
+                      
+                      return InkWell(
+                        onTap: () => setStateDialog(() => tempMonth = month),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: isSelected ? primaryColor : Colors.transparent,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: isSelected ? primaryColor : Colors.grey.shade300,
                             ),
                           ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 24),
-                    // Action Buttons
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => Navigator.pop(context),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              side: BorderSide(color: Colors.grey.shade300),
-                            ),
+                          child: Center(
                             child: Text(
-                              LocalizationHelper.getText('cancel'),
+                              monthName.substring(0, 3),
                               style: TextStyle(
-                                fontSize: 16,
+                                fontSize: 13,
                                 fontWeight: FontWeight.w600,
-                                color: Colors.grey.shade700,
+                                color: isSelected ? Colors.white : Colors.black87,
                               ),
                             ),
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: ElevatedButton(
-                            onPressed: () {
-                              setState(() {
-                                _selectedMonth = tempMonth;
-                                _selectedYear = tempYear;
-                                _calculateMetrics();
-                              });
-                              Navigator.pop(context);
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: primaryColor,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              elevation: 0,
-                            ),
-                            child: Text(
-                              LocalizationHelper.getText('apply'),
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        setState(() {
+                          _selectedMonth = tempMonth;
+                          _selectedYear = tempYear;
+                          _calculateMetrics();
+                        });
+                        Navigator.pop(context);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primaryColor,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                      ],
+                        elevation: 0,
+                      ),
+                      child: Text(
+                        LocalizationHelper.getText('apply'),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             );
           },
@@ -483,7 +375,129 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
     );
   }
 
-  Widget _buildMetricsCards() {
+  Widget _buildSummaryCard() {
+    final monthRecords = _getMonthRecords();
+    final presentPercentage = monthRecords.isEmpty 
+        ? 0.0 
+        : (_metrics.present / monthRecords.length) * 100;
+
+    return Container(
+      margin: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [primaryColor, Color(0xFF8B5CF6)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: primaryColor.withOpacity(0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  LocalizationHelper.getText('attendance_rate'),
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.white.withOpacity(0.9),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '${presentPercentage.toStringAsFixed(1)}%',
+                  style: const TextStyle(
+                    fontSize: 40,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    _buildSummaryItem(
+                      LocalizationHelper.getText('present_label'),
+                      _metrics.present.toString(),
+                    ),
+                    const SizedBox(width: 16),
+                    _buildSummaryItem(
+                      LocalizationHelper.getText('absent_label'),
+                      _metrics.absent.toString(),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          SizedBox(
+            width: 100,
+            height: 100,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                SizedBox(
+                  width: 100,
+                  height: 100,
+                  child: CircularProgressIndicator(
+                    value: presentPercentage / 100,
+                    strokeWidth: 8,
+                    backgroundColor: Colors.white.withOpacity(0.3),
+                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+                Icon(
+                  Icons.trending_up,
+                  color: Colors.white,
+                  size: 36,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryItem(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+            color: Colors.white,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.white.withOpacity(0.8),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMetricsGrid() {
+    final monthRecords = _getMonthRecords();
+    final totalWorkHours = (_metrics.avgWorkMinutes * monthRecords.length) / 60;
+    final attendanceRate = monthRecords.isEmpty 
+        ? 0.0 
+        : (_metrics.present / monthRecords.length) * 100;
+    
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
@@ -492,30 +506,9 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
             children: [
               Expanded(
                 child: _buildMetricCard(
-                  label: LocalizationHelper.getText('present'),
-                  value: _metrics.present.toString(),
-                  color: successColor,
-                  icon: Icons.check_circle,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildMetricCard(
-                  label: LocalizationHelper.getText('absent'),
-                  value: _metrics.absent.toString(),
-                  color: errorColor,
-                  icon: Icons.cancel,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _buildMetricCard(
                   label: LocalizationHelper.getText('late'),
                   value: _metrics.late.toString(),
+                  subtitle: _formatMinutesToHours(_metrics.totalLateMinutes),
                   color: warningColor,
                   icon: Icons.schedule,
                 ),
@@ -523,10 +516,11 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
               const SizedBox(width: 12),
               Expanded(
                 child: _buildMetricCard(
-                  label: LocalizationHelper.getText('early_leave'),
-                  value: _metrics.early.toString(),
-                  color: accentColor,
-                  icon: Icons.logout,
+                  label: LocalizationHelper.getText('avg_work_hours'),
+                  value: (_metrics.avgWorkMinutes / 60).toStringAsFixed(1),
+                  subtitle: LocalizationHelper.getText('hours'),
+                  color: primaryColor,
+                  icon: Icons.work_outline,
                 ),
               ),
             ],
@@ -536,19 +530,21 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
             children: [
               Expanded(
                 child: _buildMetricCard(
-                  label: LocalizationHelper.getText('avg_work_hours'),
-                  value: '${(_metrics.avgWorkMinutes / 60).toStringAsFixed(1)}${LocalizationHelper.getText('hours').substring(0, 1)}',
-                  color: primaryColor,
-                  icon: Icons.work_outline,
+                  label: 'Total Work Hours',
+                  value: totalWorkHours.toStringAsFixed(1),
+                  subtitle: 'hours',
+                  color: const Color(0xFF06B6D4),
+                  icon: Icons.timer_outlined,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: _buildMetricCard(
-                  label: LocalizationHelper.getText('total_minutes_late'),
-                  value: _formatMinutesToHours(_metrics.totalLateMinutes),
-                  color: Colors.deepOrange,
-                  icon: Icons.timer,
+                  label: 'Working Days',
+                  value: monthRecords.length.toString(),
+                  subtitle: 'days',
+                  color: const Color(0xFF8B5CF6),
+                  icon: Icons.calendar_today,
                 ),
               ),
             ],
@@ -561,6 +557,7 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
   Widget _buildMetricCard({
     required String label,
     required String value,
+    required String subtitle,
     required Color color,
     required IconData icon,
   }) {
@@ -568,248 +565,142 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.2), width: 2),
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: color.withOpacity(0.1),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(icon, color: color, size: 20),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAttendanceChart() {
-    final monthRecords = _getMonthRecords();
-    if (monthRecords.isEmpty) {
-      return _emptyBox(LocalizationHelper.getText('no_records_month'));
-    }
-
-    final presentCount =
-        monthRecords.where((r) => r.status?.toLowerCase() == 'present').length;
-    final absentCount =
-        monthRecords.where((r) => r.status?.toLowerCase() == 'absent').length;
-
-    final presentPercentage =
-        monthRecords.isEmpty ? 0.0 : (presentCount / monthRecords.length) * 100;
-
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(20),
-      decoration: _boxDeco(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            LocalizationHelper.getText('attendance_rate'),
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 20),
-          Center(
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                SizedBox(
-                  width: 150,
-                  height: 150,
-                  child: CircularProgressIndicator(
-                    value: presentPercentage / 100,
-                    strokeWidth: 12,
-                    backgroundColor: Colors.grey.shade200,
-                    valueColor:
-                        const AlwaysStoppedAnimation<Color>(successColor),
-                  ),
-                ),
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      '${presentPercentage.toStringAsFixed(1)}%',
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    Text(
-                      LocalizationHelper.getText('present_label'),
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _buildChartLegend(LocalizationHelper.getText('present_label'),
-                  presentCount, successColor),
-              _buildChartLegend(LocalizationHelper.getText('absent_label'),
-                  absentCount, errorColor),
-              _buildChartLegend(LocalizationHelper.getText('total_days'),
-                  monthRecords.length, primaryColor),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildChartLegend(String label, int count, Color color) {
-    return Column(
-      children: [
-        Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          count.toString(),
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: Colors.grey.shade600,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDetailedList() {
-    final monthRecords = _getMonthRecords();
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      padding: const EdgeInsets.all(20),
-      decoration: _boxDeco(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            LocalizationHelper.getText('attendance_details'),
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: Colors.black87,
-            ),
-          ),
-          const SizedBox(height: 16),
-          if (monthRecords.isEmpty)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Text(
-                  LocalizationHelper.getText('no_records_found'),
-                  style: TextStyle(color: Colors.grey.shade600),
-                ),
-              ),
-            )
-          else
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: monthRecords.length,
-              separatorBuilder: (context, index) =>
-                  Divider(height: 1, color: Colors.grey.shade200),
-              itemBuilder: (context, index) {
-                final record = monthRecords[index];
-                return _buildAttendanceDetailItem(record);
-              },
-            ),
-        ],
-      ),
-    );
-  }
-
-  BoxDecoration _boxDeco() => BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
             offset: const Offset(0, 2),
           ),
         ],
-      );
-
-  Widget _emptyBox(String text) {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(24),
-      decoration: _boxDeco(),
-      child: Center(
-        child: Text(
-          text,
-          style: TextStyle(color: Colors.grey.shade600),
-        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: color, size: 20),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey.shade600,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 3),
+                child: Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildAttendanceDetailItem(AttendanceRecord record) {
-    // ✅ Convert UTC date to org timezone
+  Widget _buildRecentRecords() {
+    final monthRecords = _getMonthRecords();
+    final recentRecords = monthRecords.take(10).toList();
+
+    if (recentRecords.isEmpty) {
+      return Container(
+        margin: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(32),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Center(
+          child: Column(
+            children: [
+              Icon(Icons.inbox_outlined, size: 48, color: Colors.grey.shade300),
+              const SizedBox(height: 12),
+              Text(
+                LocalizationHelper.getText('no_records_found'),
+                style: TextStyle(color: Colors.grey.shade600),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              LocalizationHelper.getText('attendance_details'),
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Colors.black87,
+              ),
+            ),
+          ),
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: recentRecords.length,
+            separatorBuilder: (context, index) => Divider(
+              height: 1,
+              color: Colors.grey.shade100,
+            ),
+            itemBuilder: (context, index) {
+              final record = recentRecords[index];
+              return _buildRecordItem(record);
+            },
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRecordItem(AttendanceRecord record) {
     final utcDate = DateTime.parse(record.attendanceDate);
     final orgDate = TimezoneHelper.toOrgTime(utcDate);
-    
     final isPresent = record.status?.toLowerCase() == 'present';
     final isLate = record.lateMinutes != null && record.lateMinutes! > 0;
     final locale = LocalizationHelper.currentLanguage;
@@ -819,17 +710,18 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
       child: Row(
         children: [
           Container(
-            width: 44,
-            height: 44,
+            width: 40,
+            height: 40,
             decoration: BoxDecoration(
-              color:
-                  isPresent ? successColor.withOpacity(0.15) : errorColor.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(12),
+              color: isPresent 
+                  ? successColor.withOpacity(0.1) 
+                  : errorColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
               isPresent ? Icons.check_circle : Icons.cancel,
               color: isPresent ? successColor : errorColor,
-              size: 22,
+              size: 20,
             ),
           ),
           const SizedBox(width: 12),
@@ -838,50 +730,35 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  DateFormat('EEEE, dd MMMM', locale).format(orgDate),
+                  DateFormat('EEE, dd MMM', locale).format(orgDate),
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                     color: Colors.black87,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    if (record.actualCheckIn != null)
-                      Text(
-                        '${LocalizationHelper.getText('check_in')}: ${_formatTime(record.actualCheckIn)}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    if (record.actualCheckOut != null) ...[
-                      const SizedBox(width: 12),
-                      Text(
-                        '${LocalizationHelper.getText('check_out')}: ${_formatTime(record.actualCheckOut)}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  ],
+                const SizedBox(height: 2),
+                Text(
+                  '${_formatTime(record.actualCheckIn)} - ${_formatTime(record.actualCheckOut)}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade600,
+                  ),
                 ),
               ],
             ),
           ),
           if (isLate)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: warningColor.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(8),
+                color: warningColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
-                '${record.lateMinutes}${LocalizationHelper.getText('minutes').substring(0, 1)} ${LocalizationHelper.getText('late')}',
-                style: TextStyle(
-                  fontSize: 12,
+                '+${record.lateMinutes}m',
+                style: const TextStyle(
+                  fontSize: 11,
                   fontWeight: FontWeight.w600,
                   color: warningColor,
                 ),
@@ -894,19 +771,17 @@ class _AttendancePerformancePageState extends State<AttendancePerformancePage> {
 
   String _formatTime(DateTime? dateTime) {
     if (dateTime == null) return '--:--';
-    // ✅ Convert UTC to org timezone before formatting
     final orgTime = TimezoneHelper.toOrgTime(dateTime);
     return DateFormat('HH:mm').format(orgTime);
   }
 
   String _formatMinutesToHours(int minutes) {
-    if (minutes == 0) return '0${LocalizationHelper.getText('hours').substring(0, 1)}';
+    if (minutes == 0) return '0m';
     final hours = minutes ~/ 60;
     final mins = minutes % 60;
-    final hourText = LocalizationHelper.getText('hours').substring(0, 1);
-    final minText = LocalizationHelper.getText('minutes').substring(0, 1);
-    if (mins == 0) return '$hours$hourText';
-    return '$hours$hourText $mins$minText';
+    if (hours == 0) return '${mins}m';
+    if (mins == 0) return '${hours}h';
+    return '${hours}h ${mins}m';
   }
 }
 
@@ -914,23 +789,17 @@ class PerformanceMetrics {
   final int present;
   final int absent;
   final int late;
-  final int early;
   final int totalLateMinutes;
-  final int totalEarlyMinutes;
   final int avgWorkMinutes;
   final int totalRecords;
-  final int workDays;
 
   PerformanceMetrics({
     required this.present,
     required this.absent,
     required this.late,
-    required this.early,
     required this.totalLateMinutes,
-    required this.totalEarlyMinutes,
     required this.avgWorkMinutes,
     required this.totalRecords,
-    required this.workDays,
   });
 
   factory PerformanceMetrics.empty() {
@@ -938,12 +807,9 @@ class PerformanceMetrics {
       present: 0,
       absent: 0,
       late: 0,
-      early: 0,
       totalLateMinutes: 0,
-      totalEarlyMinutes: 0,
       avgWorkMinutes: 0,
       totalRecords: 0,
-      workDays: 0,
     );
   }
 }

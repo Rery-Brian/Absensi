@@ -155,7 +155,7 @@ class _DashboardContentState extends State<_DashboardContent> {
     });
   }
 
-  Future<bool?> _showMapPreviewDialog() async {
+Future<bool?> _showMapPreviewDialog() async {
     if (!mounted) return false;
 
     return showDialog<bool>(
@@ -188,7 +188,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                       userPhotoUrl: _userProfile?.profilePhotoUrl,
                       officePhotoUrl: _organization?.logoUrl,
                       userName: _getDisplayName(),
-                      officeName: _selectedDevice?.deviceName ?? 'Office',
+                      officeName: _selectedDevice?.deviceName ?? LocalizationHelper.getText('office'),
                       radiusMeters:
                           _selectedDevice?.radiusMeters.toDouble() ?? 100,
                       showRadius: true,
@@ -233,22 +233,22 @@ class _DashboardContentState extends State<_DashboardContent> {
                           ),
                         ),
                         const SizedBox(width: 10),
-                        const Expanded(
+                        Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Verify Your Location',
-                                style: TextStyle(
+                                LocalizationHelper.getText('verify_your_location'),
+                                style: const TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w600,
                                   color: Colors.black87,
                                 ),
                               ),
-                              SizedBox(height: 1),
+                              const SizedBox(height: 1),
                               Text(
-                                'Make sure you are within office area',
-                                style: TextStyle(
+                                LocalizationHelper.getText('make_sure_within_office_area'),
+                                style: const TextStyle(
                                   fontSize: 11,
                                   color: Colors.black54,
                                 ),
@@ -352,7 +352,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  _selectedDevice?.deviceName ?? 'Office',
+                                  _selectedDevice?.deviceName ?? LocalizationHelper.getText('office'),
                                   style: const TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,
@@ -387,9 +387,9 @@ class _DashboardContentState extends State<_DashboardContent> {
                             ),
                             backgroundColor: Colors.white,
                           ),
-                          child: const Text(
-                            'Cancel',
-                            style: TextStyle(
+                          child: Text(
+                            LocalizationHelper.getText('cancel'),
+                            style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
                               color: Colors.black87,
@@ -427,8 +427,8 @@ class _DashboardContentState extends State<_DashboardContent> {
                               const SizedBox(width: 6),
                               Text(
                                 (_isWithinRadius ?? false)
-                                    ? 'Confirm Location'
-                                    : 'Out of Range',
+                                    ? LocalizationHelper.getText('confirm_location')
+                                    : LocalizationHelper.getText('out_of_range'),
                                 style: const TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w600,
