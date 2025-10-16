@@ -141,24 +141,68 @@ class _LoginState extends State<Login> {
 
   // Function untuk navigate ke halaman yang sesuai
   Future<void> _navigateAfterLogin(BuildContext context, String userId) async {
-    final hasOrganization = await _userHasOrganization(userId);
+  if (!mounted) return;
 
+  // Show loading
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => WillPopScope(
+      onWillPop: () async => false,
+      child: const Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+        ),
+      ),
+    ),
+  );
+
+  try {
+    // ✅ Check organization membership
+    final hasOrganization = await _userHasOrganization(userId);
+    
+    if (!mounted) return;
+    
+    // Close loading dialog
+    Navigator.of(context).pop();
+    
     if (!mounted) return;
 
     if (hasOrganization) {
-      Navigator.pushReplacement(
+      // ✅ User sudah punya organization - langsung ke dashboard
+      Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (context) => const MainDashboard()),
+        (route) => false, // Remove all previous routes
       );
     } else {
-      Navigator.pushReplacement(
+      // ✅ User belum punya organization - ke join screen
+      Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(
           builder: (context) => const JoinOrganizationScreen(),
         ),
+        (route) => false, // Remove all previous routes
       );
     }
+  } catch (e) {
+    debugPrint('Error checking organization: $e');
+    
+    if (!mounted) return;
+    
+    // Close loading dialog if still open
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
+    
+    // Show error
+    _showDialog(
+      title: "Error",
+      message: "Failed to check organization status: ${e.toString()}",
+      isSuccess: false,
+    );
   }
+}
 
   Future<void> _nativeGoogleSignIn() async {
     if (_isLoading) return;

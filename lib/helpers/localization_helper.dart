@@ -49,6 +49,15 @@ class LocalizationHelper {
 
   // Indonesian translations
   static final Map<String, String> _indonesianTranslations = {
+
+
+    // Main Dashboard
+      'verifying_organization': 'Memverifikasi organisasi...',
+      'home': 'Beranda',
+      'attendance': 'Kehadiran',
+      'profile': 'Profil',
+
+      
     // Months
     'january': 'Januari',
     'february': 'Februari',
@@ -426,10 +435,52 @@ class LocalizationHelper {
     'my_location': 'Lokasi Saya',
     'zoom_in': 'Perbesar',
     'zoom_out': 'Perkecil',
+
+    // General
+      'loading': 'Memuat...',
+      'apply': 'Terapkan',
+      'date': 'Tanggal',
+      'time': 'Waktu',
+      'location': 'Lokasi',
+      'hours': 'jam',
+      'minutes': 'menit',
+      
+      // Attendance Page
+      'attendance': 'Kehadiran',
+      'unknown_organization': 'Organisasi Tidak Diketahui',
+      'attendance_rate': 'Tingkat Kehadiran',
+      'present_label': 'Hadir',
+      'absent_label': 'Tidak Hadir',
+      'late': 'Terlambat',
+      'early_leave': 'Pulang Cepat',
+      'work_duration': 'Durasi Kerja',
+      
+      // Calendar & Tabs
+      'calendar_view': 'Kalender',
+      'attendance_details': 'Detail',
+      'daily_events': 'Kegiatan Harian',
+      
+      // Status
+      'check_in': 'Masuk',
+      'check_out': 'Keluar',
+      
+      // Messages
+      'no_attendance_data': 'Tidak ada data kehadiran untuk tanggal ini',
+      'no_records_found': 'Tidak ada catatan untuk bulan ini',
+      
+      // Error Messages
+      'error_loading_data': 'Gagal memuat data',
   };
 
   // English translations
   static final Map<String, String> _englishTranslations = {
+    // Main Dashboard
+      'verifying_organization': 'Verifying organization...',
+      'home': 'Home',
+      'attendance': 'Attendance',
+      'profile': 'Profile',
+
+
     // Months
     'january': 'January',
     'february': 'February',
@@ -804,6 +855,41 @@ class LocalizationHelper {
     'my_location': 'My location',
     'zoom_in': 'Zoom in',
     'zoom_out': 'Zoom out',
+
+    // General
+      'loading': 'Loading...',
+      'apply': 'Apply',
+      'date': 'Date',
+      'time': 'Time',
+      'location': 'Location',
+      'hours': 'hours',
+      'minutes': 'minutes',
+      
+      // Attendance Page
+      'attendance': 'Attendance',
+      'unknown_organization': 'Unknown Organization',
+      'attendance_rate': 'Attendance Rate',
+      'present_label': 'Present',
+      'absent_label': 'Absent',
+      'late': 'Late',
+      'early_leave': 'Early Leave',
+      'work_duration': 'Work Duration',
+      
+      // Calendar & Tabs
+      'calendar_view': 'Calendar',
+      'attendance_details': 'Details',
+      'daily_events': 'Daily Events',
+      
+      // Status
+      'check_in': 'Check In',
+      'check_out': 'Check Out',
+      
+      // Messages
+      'no_attendance_data': 'No attendance data for this date',
+      'no_records_found': 'No records found for this month',
+      
+      // Error Messages
+      'error_loading_data': 'Error loading data',
   };
 
   // Helper method untuk get text dengan fallback

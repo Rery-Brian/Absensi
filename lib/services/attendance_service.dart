@@ -752,7 +752,7 @@ Future<Map<String, dynamic>> getTodayCycleSummary(String organizationMemberId) a
   }
 }
 
- Future<bool> _performCheckIn(
+Future<bool> _performCheckIn(
   String organizationMemberId, 
   String today, 
   DateTime now, 
@@ -763,17 +763,42 @@ Future<Map<String, dynamic>> getTodayCycleSummary(String organizationMemberId) a
   AttendanceRecord? existingRecord,
   WorkScheduleDetails? scheduleDetails
 ) async {
-  // ✅ STRATEGI: 
-  // - Check-in pertama → buat record + log
-  // - Check-in kedua dst → hanya buat log baru (tidak update record)
+  // Auto-end break if currently on break
+  final breakInfo = await getTodayBreakInfo(organizationMemberId);
+  if (breakInfo['is_currently_on_break'] == true) {
+    debugPrint('⚠️ User is on break during check-in. Auto-ending break...');
+    
+    final breakStartTime = TimezoneHelper.toOrgTime(
+      DateTime.parse(breakInfo['break_start_time'])
+    );
+    final actualBreakDuration = now.difference(breakStartTime);
+    
+    // Insert break_in log (tanpa photo)
+    await _supabase.from('attendance_logs').insert({
+      'organization_member_id': organizationMemberId,
+      'event_type': 'break_in',
+      'event_time': now.toIso8601String(),
+      'device_id': device?.id,
+      'method': 'mobile_app_auto',
+      'is_verified': true,
+      'verification_method': 'auto_checkin',
+    });
+    
+    await updateBreakDuration(
+      int.parse(organizationMemberId),
+      actualBreakDuration.inMinutes
+    );
+    
+    debugPrint('✓ Auto-ended break before check-in. Duration: ${actualBreakDuration.inMinutes}m');
+  }
   
+  // First check-in: Create attendance_records
   if (existingRecord == null) {
-    // ========== CHECK-IN PERTAMA: Buat attendance_records ==========
     Map<String, dynamic> newRecordData = {
       'organization_member_id': organizationMemberId,
       'attendance_date': today,
       'actual_check_in': now.toIso8601String(),
-      'check_in_photo_url': photoUrl,
+      'check_in_photo_url': photoUrl, // ✅ Foto check-in pertama
       'check_in_location': {
         'latitude': currentPosition.latitude,
         'longitude': currentPosition.longitude,
@@ -803,14 +828,18 @@ Future<Map<String, dynamic>> getTodayCycleSummary(String organizationMemberId) a
     await _supabase.from('attendance_records').insert(newRecordData);
     debugPrint('✓ First check-in: Created attendance_records entry');
   } else {
-    // ========== CHECK-IN KEDUA/KETIGA/DST: Skip update attendance_records ==========
     final checkInCount = await getTodayCheckInCount(organizationMemberId);
     debugPrint('✓ Subsequent check-in (#${checkInCount + 1}): Adding new log only');
   }
 
-  // ========== SELALU BUAT LOG BARU ==========
+  // ✅ PERBAIKAN: Pass photoUrl ke _logAttendanceEvent
   await _logAttendanceEvent(
-    organizationMemberId, 'check_in', now, currentPosition, device
+    organizationMemberId, 
+    'check_in', 
+    now, 
+    currentPosition, 
+    device,
+    photoUrl: photoUrl, // ✅ Pass photo URL
   );
 
   final totalCheckIns = await getTodayCheckInCount(organizationMemberId) + 1;
@@ -818,6 +847,7 @@ Future<Map<String, dynamic>> getTodayCycleSummary(String organizationMemberId) a
   
   return true;
 }
+
 
 Future<bool> requiresGpsValidation(String organizationMemberId) async {
   try {
@@ -835,16 +865,21 @@ Future<bool> requiresGpsValidation(String organizationMemberId) async {
       return true;
     }
     
-    // Office_ harus pakai GPS
-    if (workLocation.toUpperCase().startsWith('OFFICE_')) {
-      debugPrint('Office worker detected: $workLocation - GPS required');
-      return true;
-    }
+    // ✅ NORMALISASI: Hapus spasi, lowercase, untuk pengecekan
+    final normalizedLocation = workLocation.toLowerCase().replaceAll(' ', '');
     
-    // Field_ tidak perlu GPS
-    if (workLocation.toUpperCase().startsWith('FIELD_')) {
+    // ✅ FIELD WORKER: Cek apakah dimulai dengan "field"
+    // Contoh valid: field, Field, FIELD, field_, Field_Jakarta, fieldworker, field jakarta
+    if (normalizedLocation.startsWith('field')) {
       debugPrint('Field worker detected: $workLocation - GPS not required');
       return false;
+    }
+    
+    // ✅ OFFICE WORKER: Cek apakah dimulai dengan "office" 
+    // Contoh valid: office, Office, OFFICE, office_, Office_Jakarta, officeworker
+    if (normalizedLocation.startsWith('office')) {
+      debugPrint('Office worker detected: $workLocation - GPS required');
+      return true;
     }
     
     // Default butuh GPS untuk tipe lokasi tidak dikenal
@@ -871,12 +906,17 @@ Future<String> getWorkLocationType(String organizationMemberId) async {
       return 'unknown';
     }
     
-    if (workLocation.toUpperCase().startsWith('OFFICE_')) {
-      return 'office';
+    // ✅ NORMALISASI
+    final normalizedLocation = workLocation.toLowerCase().replaceAll(' ', '');
+    
+    // ✅ Field check
+    if (normalizedLocation.startsWith('field')) {
+      return 'field';
     }
     
-    if (workLocation.toUpperCase().startsWith('FIELD_')) {
-      return 'field';
+    // ✅ Office check
+    if (normalizedLocation.startsWith('office')) {
+      return 'office';
     }
     
     return 'unknown';
@@ -903,25 +943,54 @@ Future<Map<String, String>> getWorkLocationDetails(String organizationMemberId) 
     String type = 'unknown';
     String city = '';
     
+    // ✅ NORMALISASI untuk pengecekan
+    final normalizedLocation = workLocation.toLowerCase().replaceAll(' ', '');
+    
+    // ✅ Deteksi type
+    if (normalizedLocation.startsWith('field')) {
+      type = 'field';
+    } else if (normalizedLocation.startsWith('office')) {
+      type = 'office';
+    }
+    
+    // ✅ Extract city dari berbagai format:
+    // Format 1: "office_jakarta" atau "Office_Jakarta"
+    // Format 2: "office jakarta" atau "Office Jakarta"  
+    // Format 3: "officeworker jakarta"
+    // Format 4: "field_bandung", "field bandung", etc.
+    
+    // Coba extract dengan underscore dulu
     if (workLocation.contains('_')) {
       final parts = workLocation.split('_');
-      final prefix = parts[0].toUpperCase();
-      
-      if (prefix == 'OFFICE') {
-        type = 'office';
-      } else if (prefix == 'FIELD') {
-        type = 'field';
-      }
-      
       if (parts.length > 1) {
-        city = parts[1];
+        city = parts.sublist(1).join('_'); // Join sisanya jika ada multiple underscore
+      }
+    } 
+    // Jika tidak ada underscore, coba dengan spasi
+    else if (workLocation.contains(' ')) {
+      final parts = workLocation.split(' ');
+      if (parts.length > 1) {
+        city = parts.sublist(1).join(' '); // Join sisanya jika ada multiple spasi
+      }
+    }
+    // Jika tidak ada pemisah, coba detect dari karakter kapital (camelCase)
+    else {
+      // Contoh: "officeJakarta" atau "fieldBandung"
+      final match = RegExp(r'^(office|field)(.+)$', caseSensitive: false)
+          .firstMatch(workLocation);
+      if (match != null && match.group(2) != null) {
+        city = match.group(2)!;
+        // Capitalize first letter
+        if (city.isNotEmpty) {
+          city = city[0].toUpperCase() + city.substring(1);
+        }
       }
     }
     
     return {
       'type': type,
       'location': workLocation,
-      'city': city,
+      'city': city.trim(),
     };
   } catch (e) {
     debugPrint('Error getting work location details: $e');
@@ -933,14 +1002,11 @@ Future<Map<String, String>> getWorkLocationDetails(String organizationMemberId) 
   String organizationMemberId,
   DateTime now,
   Position currentPosition,
-  String photoUrl,
+  String photoUrl, // Parameter ini tidak digunakan untuk checkout
   AttendanceDevice? device,
   AttendanceRecord existingRecord,
   WorkScheduleDetails? scheduleDetails
 ) async {
-  // ✅ PERUBAHAN: Check-out sekarang hanya update log, tidak update record
-  // Record akan di-update hanya pada checkout terakhir (jika diperlukan)
-  
   final todayLogs = await getTodayAttendanceLogs(organizationMemberId);
   final checkInCount = todayLogs.where((log) => log.eventType == 'check_in').length;
   final checkOutCount = todayLogs.where((log) => log.eventType == 'check_out').length;
@@ -958,7 +1024,6 @@ Future<Map<String, String>> getWorkLocationDetails(String organizationMemberId) 
     }
   }
   
-  // Tambahkan cycle saat ini (yang akan di-checkout)
   if (currentCycleStart == null && existingRecord.actualCheckIn != null) {
     currentCycleStart = existingRecord.actualCheckIn!;
   }
@@ -967,10 +1032,10 @@ Future<Map<String, String>> getWorkLocationDetails(String organizationMemberId) 
     totalWorkMinutes += now.difference(currentCycleStart).inMinutes;
   }
   
-  // Update attendance record
+  // Update attendance record - TANPA photo
   Map<String, dynamic> updateData = {
     'actual_check_out': now.toIso8601String(),
-    'check_out_photo_url': photoUrl,
+    // ✅ HAPUS check_out_photo_url
     'check_out_location': {
       'latitude': currentPosition.latitude,
       'longitude': currentPosition.longitude,
@@ -981,7 +1046,6 @@ Future<Map<String, String>> getWorkLocationDetails(String organizationMemberId) 
     'updated_at': now.toIso8601String(),
   };
 
-  // Hitung overtime jika ada
   if (scheduleDetails?.minimumHours != null) {
     final expectedMinutes = (scheduleDetails!.minimumHours! * 60).toInt();
     final overtimeMinutes = totalWorkMinutes - expectedMinutes;
@@ -990,7 +1054,6 @@ Future<Map<String, String>> getWorkLocationDetails(String organizationMemberId) 
     }
   }
 
-  // Hitung early leave jika checkout lebih awal dari jadwal
   if (scheduleDetails?.endTime != null) {
     final scheduledEnd = TimeHelper.parseTimeString(scheduleDetails!.endTime!);
     final actualEnd = TimeOfDay.fromDateTime(now);
@@ -1005,12 +1068,16 @@ Future<Map<String, String>> getWorkLocationDetails(String organizationMemberId) 
       .update(updateData)
       .eq('id', existingRecord.id);
 
-  // Buat log check-out
+  // ✅ PERBAIKAN: Log tanpa photo untuk checkout
   await _logAttendanceEvent(
-    organizationMemberId, 'check_out', now, currentPosition, device
+    organizationMemberId, 
+    'check_out', 
+    now, 
+    currentPosition, 
+    device,
+    // ✅ TIDAK pass photoUrl untuk checkout
   );
 
-  // ✅ TAMBAHKAN BARIS INI
   // Auto-end break if currently on break
   await autoEndBreakOnCheckout(organizationMemberId, device?.id != null ? int.tryParse(device!.id) : null);
 
@@ -1101,26 +1168,28 @@ Future<void> autoEndBreakOnCheckout(String organizationMemberId, int? deviceId) 
     return true;
   }
 
-  Future<void> _logAttendanceEvent(
-    String organizationMemberId,
-    String eventType,
-    DateTime eventTime,
-    Position currentPosition,
-    AttendanceDevice? device
-  ) async {
-    await _supabase.from('attendance_logs').insert({
-      'organization_member_id': organizationMemberId,
-      'event_type': eventType,
-      'event_time': eventTime.toIso8601String(),
-      'device_id': device?.id,
-      'method': 'mobile_app',
-      'location': {
-        'latitude': currentPosition.latitude,
-        'longitude': currentPosition.longitude,
-      },
-      'is_verified': device != null ? isWithinRadius(currentPosition, device) : false,
-    });
-  }
+ Future<void> _logAttendanceEvent(
+  String organizationMemberId,
+  String eventType,
+  DateTime eventTime,
+  Position currentPosition,
+  AttendanceDevice? device,
+  {String? photoUrl} // ✅ TAMBAHKAN parameter photoUrl
+) async {
+  await _supabase.from('attendance_logs').insert({
+    'organization_member_id': organizationMemberId,
+    'event_type': eventType,
+    'event_time': eventTime.toIso8601String(),
+    'device_id': device?.id,
+    'method': 'mobile_app',
+    'location': {
+      'latitude': currentPosition.latitude,
+      'longitude': currentPosition.longitude,
+      if (photoUrl != null) 'photo_url': photoUrl, // ✅ Simpan photo_url di sini
+    },
+    'is_verified': device != null ? isWithinRadius(currentPosition, device) : false,
+  });
+}
 
 Future<void> _validateAttendanceSequence(
   String type, 
@@ -1132,14 +1201,12 @@ Future<void> _validateAttendanceSequence(
   
   // ✅ NEW: Check if schedule exists for check-in
   if (type == 'check_in') {
-    // Validate schedule exists
     if (scheduleDetails == null) {
       throw _ValidationException(
         'No work schedule assigned. Please contact your administrator to set up your schedule.'
       );
     }
     
-    // Validate if today is a working day
     if (!scheduleDetails.isWorkingDay) {
       throw _ValidationException(
         'Today is not a working day according to your schedule.'
@@ -1147,12 +1214,7 @@ Future<void> _validateAttendanceSequence(
     }
   }
   
-  // Existing validation for non-working day
-  if (scheduleDetails != null && !scheduleDetails.isWorkingDay) {
-    throw _ValidationException('Today is not a working day according to your schedule.');
-  }
-
-  // Rest of existing validation code...
+  // Schedule time validation
   if (scheduleDetails?.startTime != null && scheduleDetails?.endTime != null) {
     final isBeforeWork = TimeHelper.isBeforeWorkHours(
       scheduleDetails!.startTime!,
@@ -1189,19 +1251,36 @@ Future<void> _validateAttendanceSequence(
 
   switch (type) {
     case 'check_in':
-      if (lastLog?.eventType == 'break_out') {
-        throw _ValidationException('You are currently on break. Please resume work before checking in again.');
+      // ✅ FIX: Count check-ins and check-outs
+      final checkInLogs = todayLogs.where((log) => log.eventType == 'check_in').toList();
+      final checkOutLogs = todayLogs.where((log) => log.eventType == 'check_out').toList();
+      
+      // ✅ FIX: Hanya boleh check-in jika semua check-in sebelumnya sudah di-checkout
+      if (checkInLogs.length > checkOutLogs.length) {
+        throw _ValidationException(
+          'You are currently checked in. Please check out first before checking in again.'
+        );
       }
       
+      // ✅ FIX: Tidak boleh check-in jika sedang break
+      if (lastLog?.eventType == 'break_out') {
+        throw _ValidationException(
+          'You are currently on break. Please resume work first before checking in again.'
+        );
+      }
+      
+      // Time validation
       if (scheduleDetails?.startTime != null) {
         final scheduledStart = TimeHelper.parseTimeString(scheduleDetails!.startTime!);
         final maxEarlyMinutes = 30;
         if (_isTimeBeforeScheduled(now, scheduledStart, maxEarlyMinutes)) {
-          throw _ValidationException('Check-in is too early. You can check in 30 minutes before ${scheduleDetails.startTime}.');
+          throw _ValidationException(
+            'Check-in is too early. You can check in 30 minutes before ${scheduleDetails.startTime}.'
+          );
         }
       }
       
-      debugPrint('✓ Check-in validation passed (multiple check-ins allowed)');
+      debugPrint('✓ Check-in validation passed (balanced check-in/out)');
       break;
       
     case 'check_out':
@@ -1212,21 +1291,30 @@ Future<void> _validateAttendanceSequence(
         throw _ValidationException('You must check in before you can check out.');
       }
       
+      // ✅ FIX: Check if balanced
       if (checkOutLogs.length >= checkInLogs.length) {
-        throw _ValidationException('You have already checked out. Please check in first before checking out again.');
+        throw _ValidationException(
+          'You have already checked out. Please check in first before checking out again.'
+        );
       }
       
+      // ✅ FIX: Tidak boleh checkout jika sedang break
       if (lastLog?.eventType == 'break_out') {
-        throw _ValidationException('You are currently on break. Please resume work before checking out.');
+        throw _ValidationException(
+          'You are currently on break. Please resume work before checking out.'
+        );
       }
       
+      // Minimum hours validation
       if (existingRecord?.actualCheckIn != null && scheduleDetails?.minimumHours != null) {
         final totalWorkMinutes = DateTime.now().difference(existingRecord!.actualCheckIn!).inMinutes;
         final breakMinutes = existingRecord.breakDurationMinutes ?? 0;
         final netWorkHours = (totalWorkMinutes - breakMinutes) / 60;
         
         if (netWorkHours < scheduleDetails!.minimumHours!) {
-          throw _ValidationException('You need to complete at least ${scheduleDetails.minimumHours} hours before checking out.');
+          throw _ValidationException(
+            'You need to complete at least ${scheduleDetails.minimumHours} hours before checking out.'
+          );
         }
       }
       
@@ -1234,27 +1322,69 @@ Future<void> _validateAttendanceSequence(
       break;
       
     case 'break_out':
-      if (existingRecord?.hasCheckedIn != true) {
+      // ✅ FIX: Harus sudah check-in dan belum checkout
+      final checkInLogs = todayLogs.where((log) => log.eventType == 'check_in').toList();
+      final checkOutLogs = todayLogs.where((log) => log.eventType == 'check_out').toList();
+      
+      if (checkInLogs.isEmpty) {
         throw _ValidationException('You must check in before taking a break.');
       }
+      
+      if (checkOutLogs.length >= checkInLogs.length) {
+        throw _ValidationException(
+          'You have checked out. Please check in first before taking a break.'
+        );
+      }
+      
+      // ✅ FIX: Tidak boleh double break-out
       if (lastLog?.eventType == 'break_out') {
-        throw _ValidationException('You are already on break. Please resume work first.');
+        throw _ValidationException(
+          'You are already on break. Please resume work first before taking another break.'
+        );
       }
-      if (scheduleDetails?.breakStart != null && scheduleDetails?.breakEnd != null) {
-        final breakStart = TimeHelper.parseTimeString(scheduleDetails!.breakStart!);
-        final breakEnd = TimeHelper.parseTimeString(scheduleDetails.breakEnd!);
-        if (!_isWithinBreakWindow(now, breakStart, breakEnd)) {
-          throw _ValidationException('Break time is ${scheduleDetails.breakStart} - ${scheduleDetails.breakEnd}. Please wait for the break period.');
-        }
-      }
+      
+      // Break time window validation
+if (scheduleDetails?.breakStart != null && scheduleDetails?.breakEnd != null) {
+  final breakStart = TimeHelper.parseTimeString(scheduleDetails!.breakStart!);
+  final breakEnd = TimeHelper.parseTimeString(scheduleDetails.breakEnd!);
+  
+  // ✅ Allow break from 1 minute before until break end
+  final currentMinutes = TimeHelper.timeToMinutes(now);
+  final breakStartMinutes = TimeHelper.timeToMinutes(breakStart);
+  final breakEndMinutes = TimeHelper.timeToMinutes(breakEnd);
+  
+  if (currentMinutes < (breakStartMinutes - 1)) {
+    throw _ValidationException(
+      'Break time starts at ${scheduleDetails.breakStart}. Please wait for the break period.'
+    );
+  }
+  
+  if (currentMinutes > breakEndMinutes) {
+    throw _ValidationException(
+      'Break time has ended at ${scheduleDetails.breakEnd}. You can no longer take a break.'
+    );
+  }
+}
       break;
       
     case 'break_in':
-      if (existingRecord?.hasCheckedIn != true) {
-        throw _ValidationException('You must check in first before resuming work.');
-      }
+      // ✅ FIX: Harus sedang break
       if (lastLog?.eventType != 'break_out') {
         throw _ValidationException('You are not currently on break.');
+      }
+      
+      // ✅ FIX: Harus masih dalam sesi check-in yang aktif
+      final checkInLogs = todayLogs.where((log) => log.eventType == 'check_in').toList();
+      final checkOutLogs = todayLogs.where((log) => log.eventType == 'check_out').toList();
+      
+      if (checkInLogs.isEmpty) {
+        throw _ValidationException('You must check in first before resuming work.');
+      }
+      
+      if (checkOutLogs.length >= checkInLogs.length) {
+        throw _ValidationException(
+          'You have checked out. Please check in first before resuming work.'
+        );
       }
       break;
   }
@@ -1413,7 +1543,6 @@ Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) 
     final currentTime = TimeHelper.getCurrentTime();
     List<AttendanceAction> actions = [];
 
-    // ✅ NEW: Check if schedule exists
     final hasSchedule = scheduleDetails != null;
     final isWorkingDay = scheduleDetails?.isWorkingDay ?? false;
     
@@ -1425,12 +1554,17 @@ Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) 
         ? TimeHelper.isBeforeWorkHours(scheduleDetails!.startTime!, graceMinutes: 30)
         : false;
 
+    // ✅ FIX: Get today's logs to determine exact state
+    final todayLogs = await getTodayAttendanceLogs(organizationMemberId);
+    final checkInCount = todayLogs.where((log) => log.eventType == 'check_in').length;
+    final checkOutCount = todayLogs.where((log) => log.eventType == 'check_out').length;
+    final isBalanced = checkInCount == checkOutCount;
+
     switch (status) {
       case AttendanceStatus.notCheckedIn:
         String? checkInReason;
         bool canCheckIn = true;
         
-        // Check schedule availability
         if (!hasSchedule) {
           checkInReason = 'No work schedule assigned. Contact your administrator.';
           canCheckIn = false;
@@ -1444,19 +1578,28 @@ Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) 
           checkInReason = 'Too early to check in';
           canCheckIn = false;
         } else {
-          checkInReason = _getCheckInReason(currentTime, scheduleDetails);
-          canCheckIn = _canCheckIn(currentTime, scheduleDetails);
+          // ✅ FIX: Show different message for first vs subsequent check-in
+          if (checkInCount > 0) {
+            checkInReason = isBalanced 
+              ? 'Ready for next check-in session'
+              : 'Complete current session first';
+            canCheckIn = isBalanced;
+          } else {
+            checkInReason = _getCheckInReason(currentTime, scheduleDetails);
+            canCheckIn = _canCheckIn(currentTime, scheduleDetails);
+          }
         }
         
         actions.add(AttendanceAction(
           type: 'check_in',
-          label: 'Check In',
+          label: checkInCount > 0 ? 'Check In' : 'Check In',
           isEnabled: canCheckIn,
           reason: checkInReason,
         ));
         break;
 
       case AttendanceStatus.working:
+        // Break action
         if (_canTakeBreak(currentTime, scheduleDetails)) {
           actions.add(AttendanceAction(
             type: 'break_out',
@@ -1470,6 +1613,7 @@ Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) 
           ));
         }
         
+        // Check-out action
         actions.add(AttendanceAction(
           type: 'check_out',
           label: 'Check Out',
@@ -1496,6 +1640,7 @@ Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) 
         break;
 
       case AttendanceStatus.checkedOut:
+        // Should not happen with new logic
         break;
 
       case AttendanceStatus.unknown:
@@ -1522,6 +1667,7 @@ Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) 
 }
 
 
+
   bool _canCheckIn(TimeOfDay currentTime, WorkScheduleDetails? scheduleDetails) {
     if (scheduleDetails?.startTime == null) return true;
     
@@ -1536,15 +1682,22 @@ Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) 
     return null;
   }
 
-  bool _canTakeBreak(TimeOfDay currentTime, WorkScheduleDetails? scheduleDetails) {
-    if (scheduleDetails?.breakStart == null || scheduleDetails?.breakEnd == null) {
-      return true;
-    }
-    
-    final breakStart = TimeHelper.parseTimeString(scheduleDetails!.breakStart!);
-    final breakEnd = TimeHelper.parseTimeString(scheduleDetails.breakEnd!);
-    return _isWithinBreakWindow(currentTime, breakStart, breakEnd);
+ bool _canTakeBreak(TimeOfDay currentTime, WorkScheduleDetails? scheduleDetails) {
+  if (scheduleDetails?.breakStart == null || scheduleDetails?.breakEnd == null) {
+    return true;
   }
+  
+  final breakStart = TimeHelper.parseTimeString(scheduleDetails!.breakStart!);
+  final breakEnd = TimeHelper.parseTimeString(scheduleDetails.breakEnd!);
+  
+  // ✅ Allow break 1 minute before scheduled break time
+  final currentMinutes = TimeHelper.timeToMinutes(currentTime);
+  final breakStartMinutes = TimeHelper.timeToMinutes(breakStart);
+  final breakEndMinutes = TimeHelper.timeToMinutes(breakEnd);
+  
+  // Can take break from 1 minute before start until break end time
+  return currentMinutes >= (breakStartMinutes - 1) && currentMinutes <= breakEndMinutes;
+}
 
   bool _canCheckOut(WorkScheduleDetails? scheduleDetails) {
     return true; // Can be extended with business logic

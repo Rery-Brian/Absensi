@@ -23,12 +23,14 @@ class _JoinOrganizationScreenState extends State<JoinOrganizationScreen> {
   
   bool _isJoining = false;
   bool _isLoadingProfile = true;
+  bool _isAutoChecking = false;
   UserProfile? _userProfile;
 
   @override
   void initState() {
     super.initState();
     _loadUserProfile();
+    _autoCheckOrganization();
   }
 
   @override
@@ -50,6 +52,69 @@ class _JoinOrganizationScreenState extends State<JoinOrganizationScreen> {
       debugPrint('Error loading user profile: $e');
       if (mounted) {
         setState(() => _isLoadingProfile = false);
+      }
+    }
+  }
+
+  // ✅ NEW: Auto-check saat screen dibuka
+  Future<void> _autoCheckOrganization() async {
+    // Wait for profile to load first
+    await Future.delayed(const Duration(milliseconds: 500));
+    
+    if (!mounted) return;
+    
+    setState(() => _isAutoChecking = true);
+    
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) {
+        if (mounted) setState(() => _isAutoChecking = false);
+        return;
+      }
+      
+      // Check if user has organization
+      final existingOrgMember = await Supabase.instance.client
+          .from('organization_members')
+          .select('id, organization_id')
+          .eq('user_id', user.id)
+          .eq('is_active', true)
+          .maybeSingle();
+      
+      if (existingOrgMember != null && mounted) {
+        // ✅ User sudah punya organization - redirect
+        debugPrint('Auto-redirect: User already has organization (ID: ${existingOrgMember['organization_id']})');
+        
+        // Get organization name for message
+        final orgResponse = await Supabase.instance.client
+            .from('organizations')
+            .select('name')
+            .eq('id', existingOrgMember['organization_id'])
+            .single();
+        
+        if (mounted) {
+          FlushbarHelper.showInfo(
+            context,
+            '${LocalizationHelper.getText('already_member_of')} ${orgResponse['name']}',
+          );
+          
+          await Future.delayed(const Duration(milliseconds: 800));
+          
+          if (!mounted) return;
+          
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => const MainDashboard()),
+          );
+        }
+      } else {
+        if (mounted) {
+          setState(() => _isAutoChecking = false);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error auto-checking organization: $e');
+      // Silent fail - user can still manually join
+      if (mounted) {
+        setState(() => _isAutoChecking = false);
       }
     }
   }
@@ -91,6 +156,41 @@ class _JoinOrganizationScreenState extends State<JoinOrganizationScreen> {
         throw Exception(LocalizationHelper.getText('user_not_authenticated'));
       }
 
+      // ✅ STEP 1: Check jika sudah member (double-check)
+      debugPrint('Step 1: Checking existing organization membership...');
+      final existingOrgMember = await Supabase.instance.client
+          .from('organization_members')
+          .select('id, organization_id, organizations(name)')
+          .eq('user_id', user.id)
+          .eq('is_active', true)
+          .maybeSingle();
+
+      if (existingOrgMember != null) {
+        // ✅ User sudah punya organization - redirect langsung
+        debugPrint('User already has organization - redirecting to dashboard');
+        
+        final orgName = existingOrgMember['organizations']?['name'] ?? 'an organization';
+        
+        if (mounted) {
+          FlushbarHelper.showInfo(
+            context,
+            '${LocalizationHelper.getText('already_member_of')} $orgName',
+          );
+          
+          await Future.delayed(const Duration(milliseconds: 500));
+          
+          if (!mounted) return;
+          
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (context) => const MainDashboard()),
+            (route) => false,
+          );
+        }
+        return;
+      }
+
+      // ✅ STEP 2: Validate invitation code
+      debugPrint('Step 2: Validating invitation code: $invCode');
       final orgResponse = await Supabase.instance.client
           .from('organizations')
           .select('id, name, inv_code')
@@ -104,39 +204,66 @@ class _JoinOrganizationScreenState extends State<JoinOrganizationScreen> {
 
       final orgId = orgResponse['id'];
       final orgName = orgResponse['name'];
+      
+      debugPrint('Found organization: $orgName (ID: $orgId)');
 
-      final existingMember = await Supabase.instance.client
+      // ✅ STEP 3: Check if already member of THIS specific organization
+      debugPrint('Step 3: Checking membership in this organization...');
+      final existingMemberInOrg = await Supabase.instance.client
           .from('organization_members')
-          .select('id')
+          .select('id, is_active')
           .eq('organization_id', orgId)
           .eq('user_id', user.id)
           .maybeSingle();
 
-      if (existingMember != null) {
-        throw Exception('already_member_of_organization');
+      if (existingMemberInOrg != null) {
+        if (existingMemberInOrg['is_active'] == true) {
+          // Already active member
+          debugPrint('User is already an active member of this organization');
+          throw Exception('already_member_of_organization');
+        } else {
+          // Re-activate jika sudah ada tapi is_active = false
+          debugPrint('Reactivating existing membership...');
+          await Supabase.instance.client
+              .from('organization_members')
+              .update({
+                'is_active': true,
+                'updated_at': DateTime.now().toIso8601String(),
+              })
+              .eq('id', existingMemberInOrg['id']);
+          
+          debugPrint('✓ Re-activated existing membership');
+        }
+      } else {
+        // ✅ STEP 4: Insert new member
+        debugPrint('Step 4: Creating new organization membership...');
+        await Supabase.instance.client.from('organization_members').insert({
+          'organization_id': orgId,
+          'user_id': user.id,
+          'hire_date': DateTime.now().toIso8601String().split('T')[0],
+          'employment_status': 'active',
+          'is_active': true,
+        });
+        
+        debugPrint('✓ Created new organization membership');
       }
 
-      await Supabase.instance.client.from('organization_members').insert({
-        'organization_id': orgId,
-        'user_id': user.id,
-        'hire_date': DateTime.now().toIso8601String().split('T')[0],
-        'employment_status': 'active',
-        'is_active': true,
-      });
-
+      // ✅ STEP 5: Success - navigate to dashboard
       if (mounted) {
         FlushbarHelper.showSuccess(
           context,
           '${LocalizationHelper.getText('successfully_joined')} $orgName',
         );
         
-        await Future.delayed(const Duration(milliseconds: 500));
+        await Future.delayed(const Duration(milliseconds: 800));
         
         if (!mounted) return;
         
+        // ✅ PENTING: pushAndRemoveUntil untuk clear history
+        debugPrint('Navigating to MainDashboard...');
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (context) => const MainDashboard()),
-          (route) => false,
+          (route) => false, // Remove ALL previous routes
         );
       }
     } catch (e) {
@@ -148,6 +275,8 @@ class _JoinOrganizationScreenState extends State<JoinOrganizationScreen> {
           errorMessage = LocalizationHelper.getText('invalid_invitation_code');
         } else if (e.toString().contains('already_member_of_organization')) {
           errorMessage = LocalizationHelper.getText('already_member_of_organization');
+        } else if (e.toString().contains('user_not_authenticated')) {
+          errorMessage = LocalizationHelper.getText('user_not_authenticated');
         } else {
           errorMessage = e.toString();
         }
@@ -157,6 +286,60 @@ class _JoinOrganizationScreenState extends State<JoinOrganizationScreen> {
     } finally {
       if (mounted) {
         setState(() => _isJoining = false);
+      }
+    }
+  }
+
+  // ✅ NEW: Logout function
+  Future<void> _handleLogout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: Text(LocalizationHelper.getText('confirm_logout')),
+        content: Text(LocalizationHelper.getText('are_you_sure_logout')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(
+              LocalizationHelper.getText('cancel'),
+              style: const TextStyle(color: Colors.grey),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            child: Text(LocalizationHelper.getText('logout')),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      try {
+        await Supabase.instance.client.auth.signOut();
+        
+        if (mounted) {
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (context) => const Login()),
+            (route) => false,
+          );
+        }
+      } catch (e) {
+        debugPrint('Error logging out: $e');
+        if (mounted) {
+          FlushbarHelper.showError(
+            context,
+            LocalizationHelper.getText('failed_to_logout'),
+          );
+        }
       }
     }
   }
@@ -184,11 +367,26 @@ class _JoinOrganizationScreenState extends State<JoinOrganizationScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        child: _isLoadingProfile
+        child: (_isLoadingProfile || _isAutoChecking)
             ? Center(
-                child: CircularProgressIndicator(
-                  valueColor: const AlwaysStoppedAnimation<Color>(primaryColor),
-                  strokeWidth: 3,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(
+                      valueColor: const AlwaysStoppedAnimation<Color>(primaryColor),
+                      strokeWidth: 3,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      _isAutoChecking 
+                        ? LocalizationHelper.getText('checking_organization')
+                        : LocalizationHelper.getText('loading'),
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
                 ),
               )
             : Container(
@@ -213,6 +411,21 @@ class _JoinOrganizationScreenState extends State<JoinOrganizationScreen> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
+                          // ✅ Logout button di pojok kanan atas
+                          Align(
+                            alignment: Alignment.topRight,
+                            child: IconButton(
+                              onPressed: _isJoining ? null : _handleLogout,
+                              icon: Icon(
+                                Icons.logout,
+                                color: _isJoining ? Colors.grey : Colors.red.shade400,
+                              ),
+                              tooltip: LocalizationHelper.getText('logout'),
+                            ),
+                          ),
+                          
+                          const SizedBox(height: 20),
+                          
                           Container(
                             width: logoSize,
                             height: logoSize,
