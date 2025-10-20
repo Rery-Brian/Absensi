@@ -1252,42 +1252,154 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   void _showAboutDialog(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    
+    // Responsive padding dan font size
+    final horizontalPadding = screenWidth * 0.06; // 6% dari lebar layar
+    final titleFontSize = screenWidth < 360 ? 16.0 : 18.0;
+    final contentFontSize = screenWidth < 360 ? 14.0 : 16.0;
+    final descriptionFontSize = screenWidth < 360 ? 13.0 : 14.0;
+    
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: primaryColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(Icons.info_outline, color: primaryColor, size: 20),
-            ),
-            const SizedBox(width: 12),
-            Text(LocalizationHelper.getText('about_this_app')),
-          ],
+        insetPadding: EdgeInsets.symmetric(
+          horizontal: horizontalPadding,
+          vertical: screenHeight * 0.05,
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              LocalizationHelper.getText('attendance_app_version'),
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
-            ),
-            const SizedBox(height: 10),
-            Text(LocalizationHelper.getText('app_description')),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(LocalizationHelper.getText('close').toUpperCase()),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 500, // Max width untuk tablet
+            maxHeight: screenHeight * 0.7, // Max 70% tinggi layar
           ),
-        ],
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: EdgeInsets.all(screenWidth < 360 ? 16.0 : 20.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Title dengan icon
+                  Row(
+                    children: [
+                      Container(
+                        width: screenWidth < 360 ? 36 : 40,
+                        height: screenWidth < 360 ? 36 : 40,
+                        decoration: BoxDecoration(
+                          color: primaryColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(
+                          Icons.info_outline,
+                          color: primaryColor,
+                          size: screenWidth < 360 ? 18 : 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          LocalizationHelper.getText('about_this_app'),
+                          style: TextStyle(
+                            fontSize: titleFontSize,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: screenWidth < 360 ? 16 : 20),
+                  
+                  // App Icon/Logo (opsional)
+                  Container(
+                    width: screenWidth < 360 ? 60 : 70,
+                    height: screenWidth < 360 ? 60 : 70,
+                    decoration: BoxDecoration(
+                      color: primaryColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Icon(
+                      Icons.face_retouching_natural,
+                      size: screenWidth < 360 ? 32 : 40,
+                      color: primaryColor,
+                    ),
+                  ),
+                  SizedBox(height: screenWidth < 360 ? 12 : 16),
+                  
+                  // App Version
+                  Text(
+                    LocalizationHelper.getText('attendance_app_version'),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: contentFontSize,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  
+                  // Version number dengan badge
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: primaryColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: primaryColor.withOpacity(0.3),
+                      ),
+                    ),
+                    child: Text(
+                      'v1.0.0',
+                      style: TextStyle(
+                        color: primaryColor,
+                        fontSize: descriptionFontSize,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: screenWidth < 360 ? 16 : 20),
+                  
+                  // Description
+                  Text(
+                    LocalizationHelper.getText('app_description'),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: descriptionFontSize,
+                      color: Colors.grey[600],
+                      height: 1.5,
+                    ),
+                  ),
+                  SizedBox(height: screenWidth < 360 ? 20 : 24),
+                  
+                  // Close Button - Full width
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primaryColor,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: EdgeInsets.symmetric(
+                          vertical: screenWidth < 360 ? 12 : 14,
+                        ),
+                        elevation: 0,
+                      ),
+                      child: Text(
+                        LocalizationHelper.getText('close').toUpperCase(),
+                        style: TextStyle(
+                          fontSize: descriptionFontSize,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
