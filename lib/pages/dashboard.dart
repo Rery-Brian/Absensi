@@ -2748,7 +2748,7 @@ class _DashboardContentState extends State<_DashboardContent> {
     return Transform.translate(
       offset: const Offset(0, -20),
       child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 16),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 8), // ✅ UPDATED: Margin bottom dikurangi
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
@@ -2856,7 +2856,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                 ),
                 child: Column(
                   children: [
-                    // ===== DATE ROW =====
+                    // DATE ROW
                     Row(
                       children: [
                         Icon(
@@ -2880,8 +2880,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                       ],
                     ),
 
-                    // ===== LOCATION INFO SECTION =====
-                    // ✅ OFFICE WORKER - Tampilkan device location dan GPS status
+                    // LOCATION INFO SECTION
                     if (!_requiresGpsValidation) ...[
                       const SizedBox(height: 8),
                       Divider(height: 1, color: Colors.grey.shade300),
@@ -2962,7 +2961,6 @@ class _DashboardContentState extends State<_DashboardContent> {
                               ],
                             ),
                     ] else ...[
-                      // ✅ OFFICE WORKER - Validasi GPS & radius seperti sebelumnya
                       if (_selectedDevice != null) ...[
                         const SizedBox(height: 8),
                         Divider(height: 1, color: Colors.grey.shade300),
@@ -3058,7 +3056,6 @@ class _DashboardContentState extends State<_DashboardContent> {
                           ],
                         ),
                       ] else ...[
-                        // Office worker belum pilih device
                         const SizedBox(height: 8),
                         Divider(height: 1, color: Colors.grey.shade300),
                         const SizedBox(height: 8),
@@ -3120,7 +3117,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                       ],
                     ],
 
-                    // ===== ACTION BUTTONS =====
+                    // ACTION BUTTONS
                     if (filteredActions.isNotEmpty) ...[
                       const SizedBox(height: 20),
                       Row(
@@ -3128,7 +3125,6 @@ class _DashboardContentState extends State<_DashboardContent> {
                           bool shouldEnable =
                               action.isEnabled && !_isInitialLoading;
 
-                          // ✅ Hanya apply radius check untuk Office Worker
                           if (_requiresGpsValidation) {
                             shouldEnable =
                                 shouldEnable && (_isWithinRadius ?? false);
@@ -3199,7 +3195,7 @@ class _DashboardContentState extends State<_DashboardContent> {
 
   Widget _buildTimelineCard() {
     return Container(
-      margin: const EdgeInsets.all(16),
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16), // ✅ UPDATED: Margin top dihilangkan
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -3223,7 +3219,7 @@ class _DashboardContentState extends State<_DashboardContent> {
           if (_timelineItems.isEmpty)
             Center(
               child: Padding(
-                padding: const EdgeInsets.all(20), // ini masih boleh const
+                padding: const EdgeInsets.all(20),
                 child: Text(
                   LocalizationHelper.getText('no_schedule_available'),
                   style: const TextStyle(color: Colors.grey, fontSize: 14),
