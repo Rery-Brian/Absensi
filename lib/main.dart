@@ -13,7 +13,7 @@ Future<void> main() async {
     url: 'https://oxkuxwkehinhyxfsauqe.supabase.co',
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im94a3V4d2tlaGluaHl4ZnNhdXFlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc5NDYxOTMsImV4cCI6MjA3MzUyMjE5M30.g3BjGtZCSFxnBDwMWkaM2mEcnCkoDL92fvTP_gUgR20',
   );
-
+  
   await initializeDateFormatting('id_ID', null);
   await LocalizationHelper.initialize();
   
