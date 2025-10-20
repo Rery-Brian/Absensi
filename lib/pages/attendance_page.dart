@@ -593,7 +593,7 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
     
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 50, 20, 20),
+      padding: const EdgeInsets.fromLTRB(16, 40, 16, 16),
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           colors: [backgroundColor, Color(0xFF374151)],
@@ -611,7 +611,7 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
           Row(
             children: [
               _buildOrgLogo(),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -628,7 +628,7 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
                     Text(
                       _organization?['name'] ?? LocalizationHelper.getText('unknown_organization'),
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.9),
+                        color: Colors.white.withOpacity(0.85),
                         fontSize: 13,
                         fontWeight: FontWeight.w400,
                       ),
@@ -639,12 +639,12 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Text(
             dateFormat.format(now),
             style: TextStyle(
-              color: Colors.white.withOpacity(0.8),
-              fontSize: 12,
+              color: Colors.white.withOpacity(0.75),
+              fontSize: 13,
               fontWeight: FontWeight.w400,
             ),
           ),
@@ -652,7 +652,7 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
       ),
     );
   }
-  
+
   Widget _buildOrgLogo() {
     return Container(
       width: 50,
