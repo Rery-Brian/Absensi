@@ -193,7 +193,7 @@ class _MainDashboardState extends State<MainDashboard> {
 
     final labels = [
       LocalizationHelper.getText('home'),
-      LocalizationHelper.getText('attendance'),
+      LocalizationHelper.getText('report'),
       LocalizationHelper.getText('profile'),
     ];
 

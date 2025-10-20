@@ -54,7 +54,7 @@ class LocalizationHelper {
     // Main Dashboard
       'verifying_organization': 'Memverifikasi organisasi...',
       'home': 'Beranda',
-      'attendance': 'Kehadiran',
+      'report': 'Laporan',
       'profile': 'Profil',
 
       
@@ -477,7 +477,7 @@ class LocalizationHelper {
     // Main Dashboard
       'verifying_organization': 'Verifying organization...',
       'home': 'Home',
-      'attendance': 'Attendance',
+      'report': 'Report',
       'profile': 'Profile',
 
 

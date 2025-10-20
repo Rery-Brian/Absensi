@@ -593,7 +593,7 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
     
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 50, 20, 30),
+      padding: const EdgeInsets.fromLTRB(20, 50, 20, 20),
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           colors: [backgroundColor, Color(0xFF374151)],
@@ -601,8 +601,8 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(30),
-          bottomRight: Radius.circular(30),
+          bottomLeft: Radius.circular(24),
+          bottomRight: Radius.circular(24),
         ),
       ),
       child: Column(
@@ -617,18 +617,19 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      LocalizationHelper.getText('attendance'),
+                      LocalizationHelper.getText('report'),
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 28,
+                        fontSize: 22,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
+                    const SizedBox(height: 2),
                     Text(
                       _organization?['name'] ?? LocalizationHelper.getText('unknown_organization'),
                       style: TextStyle(
                         color: Colors.white.withOpacity(0.9),
-                        fontSize: 14,
+                        fontSize: 13,
                         fontWeight: FontWeight.w400,
                       ),
                       overflow: TextOverflow.ellipsis,
@@ -638,12 +639,12 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
           Text(
             dateFormat.format(now),
             style: TextStyle(
               color: Colors.white.withOpacity(0.8),
-              fontSize: 14,
+              fontSize: 12,
               fontWeight: FontWeight.w400,
             ),
           ),
@@ -651,7 +652,7 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
       ),
     );
   }
-
+  
   Widget _buildOrgLogo() {
     return Container(
       width: 50,
