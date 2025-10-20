@@ -155,7 +155,7 @@ class _DashboardContentState extends State<_DashboardContent> {
     });
   }
 
-  Future<bool?> _showMapPreviewDialog() async {
+Future<bool?> _showMapPreviewDialog() async {
     if (!mounted) return false;
 
     return showDialog<bool>(
@@ -188,9 +188,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                       userPhotoUrl: _userProfile?.profilePhotoUrl,
                       officePhotoUrl: _organization?.logoUrl,
                       userName: _getDisplayName(),
-                      officeName:
-                          _selectedDevice?.deviceName ??
-                          LocalizationHelper.getText('office'),
+                      officeName: _selectedDevice?.deviceName ?? LocalizationHelper.getText('office'),
                       radiusMeters:
                           _selectedDevice?.radiusMeters.toDouble() ?? 100,
                       showRadius: true,
@@ -240,9 +238,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                LocalizationHelper.getText(
-                                  'verify_your_location',
-                                ),
+                                LocalizationHelper.getText('verify_your_location'),
                                 style: const TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w600,
@@ -251,9 +247,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                               ),
                               const SizedBox(height: 1),
                               Text(
-                                LocalizationHelper.getText(
-                                  'make_sure_within_office_area',
-                                ),
+                                LocalizationHelper.getText('make_sure_within_office_area'),
                                 style: const TextStyle(
                                   fontSize: 11,
                                   color: Colors.black54,
@@ -358,8 +352,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  _selectedDevice?.deviceName ??
-                                      LocalizationHelper.getText('office'),
+                                  _selectedDevice?.deviceName ?? LocalizationHelper.getText('office'),
                                   style: const TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w600,
@@ -408,7 +401,7 @@ class _DashboardContentState extends State<_DashboardContent> {
                       Expanded(
                         flex: 2,
                         child: ElevatedButton(
-                          onPressed: (_isWithinRadius ?? false)
+                           onPressed: (_isWithinRadius ?? false)
                               ? () => Navigator.pop(context, true)
                               : null,
                           style: ElevatedButton.styleFrom(
@@ -434,12 +427,8 @@ class _DashboardContentState extends State<_DashboardContent> {
                               const SizedBox(width: 6),
                               Text(
                                 (_isWithinRadius ?? false)
-                                    ? LocalizationHelper.getText(
-                                        'confirm_location',
-                                      )
-                                    : LocalizationHelper.getText(
-                                        'out_of_range',
-                                      ),
+                                    ? LocalizationHelper.getText('confirm_location')
+                                    : LocalizationHelper.getText('out_of_range'),
                                 style: const TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w600,
@@ -601,90 +590,88 @@ class _DashboardContentState extends State<_DashboardContent> {
   }
 
   Future<void> _checkDeviceSelection() async {
-    if (_organizationMember == null) return;
+  if (_organizationMember == null) return;
 
-    try {
-      // ✅ Check work location type dulu
-      final requiresGps = await _attendanceService.requiresGpsValidation(
-        _organizationMember!.id,
-      );
+  try {
+    // ✅ Check work location type dulu
+    final requiresGps = await _attendanceService.requiresGpsValidation(
+      _organizationMember!.id,
+    );
+    
+    setState(() {
+      _requiresGpsValidation = requiresGps;
+    });
 
+    // ✅ Jika Field Worker, skip device selection sepenuhnya
+    if (!requiresGps) {
+      debugPrint('✓ Field worker detected - skipping device selection');
       setState(() {
-        _requiresGpsValidation = requiresGps;
+        _needsDeviceSelection = false;
+        _selectedDevice = null;
+        _currentPosition = null;
+        _gpsPosition = null;
+        _distanceToDevice = null;
+        _isWithinRadius = null;
       });
+      return;
+    }
 
-      // ✅ PERUBAHAN: Field Worker TETAP bisa pilih device (optional)
-      // Hanya skip device selection jika memang tidak ada device yang tersedia
-      debugPrint(
-        requiresGps
-            ? '✓ Office worker detected - GPS validation required'
-            : '✓ Field worker detected - GPS validation optional',
-      );
+    // ✅ Office Worker - lanjutkan logic device selection seperti biasa
+    final selectionRequired = await _deviceService.isSelectionRequired(
+      _organizationMember!.organizationId,
+    );
 
-      // ✅ Check apakah device selection diperlukan
-      final selectionRequired = await _deviceService.isSelectionRequired(
+    if (selectionRequired) {
+      final selectedDevice = await _deviceService.loadSelectedDevice(
         _organizationMember!.organizationId,
       );
 
-      if (selectionRequired) {
-        final selectedDevice = await _deviceService.loadSelectedDevice(
-          _organizationMember!.organizationId,
-        );
-
-        // ✅ PERUBAHAN: Hanya block jika Office Worker DAN belum pilih device
-        if (selectedDevice == null && requiresGps) {
-          setState(() {
-            _needsDeviceSelection = true;
-            _selectedDevice = null;
-            _currentPosition = null;
-            _gpsPosition = null;
-            _distanceToDevice = null;
-            _isWithinRadius = null;
-          });
-          return;
-        }
-      }
-
-      // ✅ Load selected device (bisa null untuk field worker)
-      final loadedDevice = await _deviceService.loadSelectedDevice(
-        _organizationMember!.organizationId,
-      );
-      _selectedDevice = loadedDevice;
-
-      // ✅ Set position jika ada device
-      if (_selectedDevice != null && _selectedDevice!.hasValidCoordinates) {
-        _currentPosition = Position(
-          longitude: _selectedDevice!.longitude!,
-          latitude: _selectedDevice!.latitude!,
-          timestamp: DateTime.now(),
-          accuracy: 0.0,
-          altitude: 0.0,
-          heading: 0.0,
-          speed: 0.0,
-          speedAccuracy: 0.0,
-          altitudeAccuracy: 0.0,
-          headingAccuracy: 0.0,
-        );
-
-        // ✅ Update GPS hanya untuk Office Worker
-        if (requiresGps) {
-          unawaited(
-            _updateGpsPositionAndDistance(debounce: false, retryCount: 0),
-          );
-        }
-      }
-
-      setState(() => _needsDeviceSelection = false);
-    } catch (e) {
-      debugPrint('Error checking location selection: $e');
-      if (mounted) {
-        FlushbarHelper.showError(
-          context,
-          LocalizationHelper.getText('failed_to_check_location'),
-        );
+      if (selectedDevice == null) {
+        setState(() {
+          _needsDeviceSelection = true;
+          _selectedDevice = null;
+          _currentPosition = null;
+          _gpsPosition = null;
+          _distanceToDevice = null;
+          _isWithinRadius = null;
+        });
+        return;
       }
     }
+
+    final loadedDevice = await _deviceService.loadSelectedDevice(
+      _organizationMember!.organizationId,
+    );
+    _selectedDevice = loadedDevice;
+
+    if (_selectedDevice != null && _selectedDevice!.hasValidCoordinates) {
+      _currentPosition = Position(
+        longitude: _selectedDevice!.longitude!,
+        latitude: _selectedDevice!.latitude!,
+        timestamp: DateTime.now(),
+        accuracy: 0.0,
+        altitude: 0.0,
+        heading: 0.0,
+        speed: 0.0,
+        speedAccuracy: 0.0,
+        altitudeAccuracy: 0.0,
+        headingAccuracy: 0.0,
+      );
+    }
+
+    unawaited(_updateGpsPositionAndDistance(debounce: false, retryCount: 0));
+
+    setState(() => _needsDeviceSelection = false);
+  } catch (e) {
+    debugPrint('Error checking location selection: $e');
+    if (mounted) {
+      FlushbarHelper.showError(
+        context,
+        LocalizationHelper.getText('failed_to_check_location'),
+      );
+    }
   }
+}
 
   Future<void> _navigateToDeviceSelection({bool isRequired = false}) async {
     if (_organizationMember == null) return;
@@ -1127,207 +1114,206 @@ class _DashboardContentState extends State<_DashboardContent> {
   }
 
   Future<void> _buildDynamicTimeline() async {
-    _timelineItems.clear();
+  _timelineItems.clear();
 
-    try {
-      final scheduleItems = await _getScheduleItemsFromDatabase();
-      if (scheduleItems.isEmpty) {
-        if (mounted) setState(() {});
-        return;
-      }
-
-      final currentTime = TimeHelper.getCurrentTime();
-
-      // Group items by type
-      ScheduleItem? checkInItem;
-      ScheduleItem? checkOutItem;
-      ScheduleItem? breakOutItem;
-
-      for (var item in scheduleItems) {
-        switch (item.type) {
-          case AttendanceActionType.checkIn:
-            checkInItem = item;
-            break;
-          case AttendanceActionType.checkOut:
-            checkOutItem = item;
-            break;
-          case AttendanceActionType.breakOut:
-            breakOutItem = item;
-            break;
-          case AttendanceActionType.breakIn:
-            // Skip, kita gabung dengan breakOut
-            break;
-        }
-      }
-
-      // Add Work Period
-      if (checkInItem != null && checkOutItem != null) {
-        final checkInTime = TimeHelper.parseTimeString(checkInItem.time);
-        final status = _getItemStatus(checkInItem, checkInTime, currentTime);
-
-        _timelineItems.add(
-          TimelineItem(
-            time: checkInItem.time,
-            endTime: checkOutItem.time,
-            label: LocalizationHelper.getText('work_time'),
-            subtitle: LocalizationHelper.getText('work_period'),
-            type: AttendanceActionType.checkIn,
-            status: status,
-            statusDescription: _getStatusDescription(
-              AttendanceActionType.checkIn,
-              status,
-            ),
-          ),
-        );
-      }
-
-      // ✅ FIX: Add Break Period dengan status detection yang benar
-      if (breakOutItem != null) {
-        final breakStartTime = TimeHelper.parseTimeString(breakOutItem.time);
-
-        // ✅ Gunakan fungsi _getItemStatus yang sudah diperbaiki
-        final status = _getItemStatus(
-          breakOutItem,
-          breakStartTime,
-          currentTime,
-        );
-
-        // Hitung break end time
-        String breakEndTime = breakOutItem.time;
-        if (_todayScheduleDetails?.breakEnd != null) {
-          breakEndTime = _formatTimeFromDatabase(
-            _todayScheduleDetails!.breakEnd!,
-          );
-        } else if (_todayScheduleDetails?.breakDurationMinutes != null) {
-          final totalMinutes =
-              TimeHelper.timeToMinutes(breakStartTime) +
-              _todayScheduleDetails!.breakDurationMinutes!;
-          breakEndTime = TimeHelper.formatTimeOfDay(
-            TimeHelper.minutesToTime(totalMinutes),
-          );
-        }
-
-        _timelineItems.add(
-          TimelineItem(
-            time: breakOutItem.time,
-            endTime: breakEndTime,
-            label: LocalizationHelper.getText('break_time'),
-            subtitle: LocalizationHelper.getText('break_period'),
-            type: AttendanceActionType.breakOut,
-            status: status, // ✅ Status yang sudah benar
-            statusDescription: _getStatusDescription(
-              AttendanceActionType.breakOut,
-              status,
-            ),
-          ),
-        );
-      }
-
+  try {
+    final scheduleItems = await _getScheduleItemsFromDatabase();
+    if (scheduleItems.isEmpty) {
       if (mounted) setState(() {});
-    } catch (e) {
-      debugPrint('Error building timeline: $e');
-      if (mounted) setState(() {});
+      return;
     }
+
+    final currentTime = TimeHelper.getCurrentTime();
+
+    // Group items by type
+    ScheduleItem? checkInItem;
+    ScheduleItem? checkOutItem;
+    ScheduleItem? breakOutItem;
+
+    for (var item in scheduleItems) {
+      switch (item.type) {
+        case AttendanceActionType.checkIn:
+          checkInItem = item;
+          break;
+        case AttendanceActionType.checkOut:
+          checkOutItem = item;
+          break;
+        case AttendanceActionType.breakOut:
+          breakOutItem = item;
+          break;
+        case AttendanceActionType.breakIn:
+          // Skip, kita gabung dengan breakOut
+          break;
+      }
+    }
+
+    // Add Work Period
+    if (checkInItem != null && checkOutItem != null) {
+      final checkInTime = TimeHelper.parseTimeString(checkInItem.time);
+      final status = _getItemStatus(checkInItem, checkInTime, currentTime);
+
+      _timelineItems.add(
+        TimelineItem(
+          time: checkInItem.time,
+          endTime: checkOutItem.time,
+          label: LocalizationHelper.getText('work_time'),
+          subtitle: LocalizationHelper.getText('work_period'),
+          type: AttendanceActionType.checkIn,
+          status: status,
+          statusDescription: _getStatusDescription(
+            AttendanceActionType.checkIn,
+            status,
+          ),
+        ),
+      );
+    }
+
+    // ✅ FIX: Add Break Period dengan status detection yang benar
+    if (breakOutItem != null) {
+      final breakStartTime = TimeHelper.parseTimeString(breakOutItem.time);
+      
+      // ✅ Gunakan fungsi _getItemStatus yang sudah diperbaiki
+      final status = _getItemStatus(
+        breakOutItem,
+        breakStartTime,
+        currentTime,
+      );
+
+      // Hitung break end time
+      String breakEndTime = breakOutItem.time;
+      if (_todayScheduleDetails?.breakEnd != null) {
+        breakEndTime = _formatTimeFromDatabase(
+          _todayScheduleDetails!.breakEnd!,
+        );
+      } else if (_todayScheduleDetails?.breakDurationMinutes != null) {
+        final totalMinutes =
+            TimeHelper.timeToMinutes(breakStartTime) +
+            _todayScheduleDetails!.breakDurationMinutes!;
+        breakEndTime = TimeHelper.formatTimeOfDay(
+          TimeHelper.minutesToTime(totalMinutes),
+        );
+      }
+
+      _timelineItems.add(
+        TimelineItem(
+          time: breakOutItem.time,
+          endTime: breakEndTime,
+          label: LocalizationHelper.getText('break_time'),
+          subtitle: LocalizationHelper.getText('break_period'),
+          type: AttendanceActionType.breakOut,
+          status: status, // ✅ Status yang sudah benar
+          statusDescription: _getStatusDescription(
+            AttendanceActionType.breakOut,
+            status,
+          ),
+        ),
+      );
+    }
+
+    if (mounted) setState(() {});
+  } catch (e) {
+    debugPrint('Error building timeline: $e');
+    if (mounted) setState(() {});
   }
+}
 
-  TimelineStatus _getItemStatus(
-    ScheduleItem item,
-    TimeOfDay scheduleTime,
-    TimeOfDay currentTime,
-  ) {
-    final currentMinutes = TimeHelper.timeToMinutes(currentTime);
-    final scheduleMinutes = TimeHelper.timeToMinutes(scheduleTime);
 
-    // ✅ FIX 1: Check completion berdasarkan logs
-    switch (item.type) {
-      case AttendanceActionType.checkIn:
-        if (_todayAttendanceRecords.isNotEmpty &&
-            _todayAttendanceRecords.first.hasCheckedIn) {
+ TimelineStatus _getItemStatus(
+  ScheduleItem item,
+  TimeOfDay scheduleTime,
+  TimeOfDay currentTime,
+) {
+  final currentMinutes = TimeHelper.timeToMinutes(currentTime);
+  final scheduleMinutes = TimeHelper.timeToMinutes(scheduleTime);
+
+  // ✅ FIX 1: Check completion berdasarkan logs
+  switch (item.type) {
+    case AttendanceActionType.checkIn:
+      if (_todayAttendanceRecords.isNotEmpty &&
+          _todayAttendanceRecords.first.hasCheckedIn) {
+        return TimelineStatus.completed;
+      }
+      break;
+      
+    case AttendanceActionType.checkOut:
+      if (_todayAttendanceRecords.isNotEmpty &&
+          _todayAttendanceRecords.first.hasCheckedOut) {
+        return TimelineStatus.completed;
+      }
+      break;
+      
+    case AttendanceActionType.breakOut:
+      // ✅ FIX 2: Check break status dari _breakInfo
+      if (_breakInfo != null) {
+        // Jika sedang break, berarti break_out completed
+        if (_breakInfo!['is_currently_on_break'] == true) {
           return TimelineStatus.completed;
         }
-        break;
-
-      case AttendanceActionType.checkOut:
-        if (_todayAttendanceRecords.isNotEmpty &&
-            _todayAttendanceRecords.first.hasCheckedOut) {
-          return TimelineStatus.completed;
-        }
-        break;
-
-      case AttendanceActionType.breakOut:
-        // ✅ FIX 2: Check break status dari _breakInfo
-        if (_breakInfo != null) {
-          // Jika sedang break, berarti break_out completed
-          if (_breakInfo!['is_currently_on_break'] == true) {
+        
+        // Jika sudah pernah break (ada break sessions yang complete)
+        final breakSessions = _breakInfo!['break_sessions'] as List<dynamic>?;
+        if (breakSessions != null && breakSessions.isNotEmpty) {
+          final hasCompletedBreak = breakSessions.any((session) => 
+            session['end'] != null
+          );
+          if (hasCompletedBreak) {
             return TimelineStatus.completed;
           }
-
-          // Jika sudah pernah break (ada break sessions yang complete)
-          final breakSessions = _breakInfo!['break_sessions'] as List<dynamic>?;
-          if (breakSessions != null && breakSessions.isNotEmpty) {
-            final hasCompletedBreak = breakSessions.any(
-              (session) => session['end'] != null,
-            );
-            if (hasCompletedBreak) {
-              return TimelineStatus.completed;
-            }
-          }
         }
-
-        // ✅ FIX 3: Break window detection dengan 1 menit sebelum
-        if (currentMinutes >= scheduleMinutes - 1) {
-          // Hitung break end time
-          int breakEndMinutes = scheduleMinutes + 60; // default 1 jam
-
-          if (_todayScheduleDetails?.breakEnd != null) {
-            final breakEndTime = TimeHelper.parseTimeString(
-              _formatTimeFromDatabase(_todayScheduleDetails!.breakEnd!),
-            );
-            breakEndMinutes = TimeHelper.timeToMinutes(breakEndTime);
-          } else if (_todayScheduleDetails?.breakDurationMinutes != null) {
-            breakEndMinutes =
-                scheduleMinutes + _todayScheduleDetails!.breakDurationMinutes!;
-          }
-
-          // Active jika dalam rentang break time (1 menit sebelum sampai akhir)
-          if (currentMinutes <= breakEndMinutes) {
-            return TimelineStatus.active;
-          }
-
-          // ✅ Jika sudah lewat break period, return upcoming (akan jadi abu-abu)
-          // Note: "upcoming" di sini berarti "passed" atau "missed"
-          return TimelineStatus.upcoming;
-        }
-        break;
-
-      case AttendanceActionType.breakIn:
-        if (_breakInfo != null) {
-          final breakSessions = _breakInfo!['break_sessions'] as List<dynamic>?;
-          if (breakSessions != null && breakSessions.isNotEmpty) {
-            final hasCompletedBreak = breakSessions.any(
-              (session) => session['end'] != null,
-            );
-            if (hasCompletedBreak &&
-                _breakInfo!['is_currently_on_break'] != true) {
-              return TimelineStatus.completed;
-            }
-          }
-        }
-        break;
-    }
-
-    // ✅ FIX 4: General active window (untuk check-in/out)
-    // Active window: 30 menit sebelum sampai 30 menit setelah jadwal
-    if (item.type != AttendanceActionType.breakOut) {
-      if (currentMinutes >= scheduleMinutes - 30 &&
-          currentMinutes <= scheduleMinutes + 30) {
-        return TimelineStatus.active;
       }
-    }
-
-    // Default: upcoming (belum waktunya atau sudah lewat)
-    return TimelineStatus.upcoming;
+      
+      // ✅ FIX 3: Break window detection dengan 1 menit sebelum
+      if (currentMinutes >= scheduleMinutes - 1) {
+        // Hitung break end time
+        int breakEndMinutes = scheduleMinutes + 60; // default 1 jam
+        
+        if (_todayScheduleDetails?.breakEnd != null) {
+          final breakEndTime = TimeHelper.parseTimeString(
+            _formatTimeFromDatabase(_todayScheduleDetails!.breakEnd!)
+          );
+          breakEndMinutes = TimeHelper.timeToMinutes(breakEndTime);
+        } else if (_todayScheduleDetails?.breakDurationMinutes != null) {
+          breakEndMinutes = scheduleMinutes + _todayScheduleDetails!.breakDurationMinutes!;
+        }
+        
+        // Active jika dalam rentang break time (1 menit sebelum sampai akhir)
+        if (currentMinutes <= breakEndMinutes) {
+          return TimelineStatus.active;
+        }
+        
+        // ✅ Jika sudah lewat break period, return upcoming (akan jadi abu-abu)
+        // Note: "upcoming" di sini berarti "passed" atau "missed"
+        return TimelineStatus.upcoming;
+      }
+      break;
+      
+    case AttendanceActionType.breakIn:
+      if (_breakInfo != null) {
+        final breakSessions = _breakInfo!['break_sessions'] as List<dynamic>?;
+        if (breakSessions != null && breakSessions.isNotEmpty) {
+          final hasCompletedBreak = breakSessions.any((session) => 
+            session['end'] != null
+          );
+          if (hasCompletedBreak && _breakInfo!['is_currently_on_break'] != true) {
+            return TimelineStatus.completed;
+          }
+        }
+      }
+      break;
   }
+
+  // ✅ FIX 4: General active window (untuk check-in/out)
+  // Active window: 30 menit sebelum sampai 30 menit setelah jadwal
+  if (item.type != AttendanceActionType.breakOut) {
+    if (currentMinutes >= scheduleMinutes - 30 &&
+        currentMinutes <= scheduleMinutes + 30) {
+      return TimelineStatus.active;
+    }
+  }
+
+  // Default: upcoming (belum waktunya atau sudah lewat)
+  return TimelineStatus.upcoming;
+}
 
   String _getStatusDescription(
     AttendanceActionType type,
@@ -2119,34 +2105,26 @@ class _DashboardContentState extends State<_DashboardContent> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: _requiresGpsValidation
-                ? Colors.orange.withOpacity(0.2) // Orange untuk Office Worker
-                : Colors.blue.withOpacity(0.2), // Blue untuk Field Worker
+            color: Colors.orange.withOpacity(0.2),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                _requiresGpsValidation ? Icons.warning : Icons.add_location,
-                color: _requiresGpsValidation ? Colors.orange : Colors.blue,
-                size: 16,
-              ),
+              const Icon(Icons.warning, color: Colors.orange, size: 16),
               const SizedBox(width: 4),
               Text(
-                _requiresGpsValidation
-                    ? LocalizationHelper.getText('no_location')
-                    : LocalizationHelper.getText('add_location'),
-                style: TextStyle(
-                  color: _requiresGpsValidation ? Colors.orange : Colors.blue,
+                LocalizationHelper.getText('no_location'),
+                style: const TextStyle(
+                  color: Colors.orange,
                   fontSize: 12,
                   fontWeight: FontWeight.w500,
                 ),
               ),
               const SizedBox(width: 4),
-              Icon(
+              const Icon(
                 Icons.keyboard_arrow_down,
-                color: _requiresGpsValidation ? Colors.orange : Colors.blue,
+                color: Colors.orange,
                 size: 16,
               ),
             ],
@@ -2601,601 +2579,592 @@ class _DashboardContentState extends State<_DashboardContent> {
     );
   }
 
-  Widget _buildHeader(String displayName) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 50, 20, 30),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [backgroundColor, backgroundColor.withOpacity(0.8)],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(30),
-          bottomRight: Radius.circular(30),
-        ),
+ Widget _buildHeader(String displayName) {
+  return Container(
+    width: double.infinity,
+    padding: const EdgeInsets.fromLTRB(20, 50, 20, 30),
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        colors: [backgroundColor, backgroundColor.withOpacity(0.8)],
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Row(
-                  children: [
-                    // Organization logo...
-                    if (_organization?.logoUrl != null)
-                      Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
-                          color: Colors.white,
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.network(
-                            _organization!.logoUrl!,
-                            width: 32,
-                            height: 32,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Container(
-                                width: 32,
-                                height: 32,
-                                decoration: BoxDecoration(
-                                  color: primaryColor,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: const Icon(
-                                  Icons.business,
-                                  color: Colors.white,
-                                  size: 20,
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      )
-                    else
-                      Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          color: primaryColor,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(
-                          Icons.business,
-                          color: Colors.white,
-                          size: 20,
+      borderRadius: const BorderRadius.only(
+        bottomLeft: Radius.circular(30),
+        bottomRight: Radius.circular(30),
+      ),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Row(
+                children: [
+                  if (_organization?.logoUrl != null)
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(8),
+                        color: Colors.white,
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          _organization!.logoUrl!,
+                          width: 32,
+                          height: 32,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: primaryColor,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(
+                                Icons.business,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                            );
+                          },
                         ),
                       ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        _organization?.name ?? 'Unknown Organization',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                        overflow: TextOverflow.ellipsis,
+                    )
+                  else
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: primaryColor,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.business,
+                        color: Colors.white,
+                        size: 20,
                       ),
                     ),
-                  ],
-                ),
-              ),
-              // ✅ PERUBAHAN: Tampilkan device chip untuk SEMUA user
-              Row(children: [_buildDeviceInfoChip(), const SizedBox(width: 8)]),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 25,
-                backgroundColor: Colors.orange.shade400,
-                backgroundImage: _userProfile?.profilePhotoUrl != null
-                    ? NetworkImage(_userProfile!.profilePhotoUrl!)
-                    : null,
-                child: _userProfile?.profilePhotoUrl == null
-                    ? const Icon(Icons.person, color: Colors.white, size: 28)
-                    : null,
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "${LocalizationHelper.getText('hello')}, $displayName",
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      _organization?.name ?? 'Unknown Organization',
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w500,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
                       ),
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    Text(
-                      _getCurrentStatusText(),
-                      style: TextStyle(
-                        color: _getStatusColor(),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatusCard() {
-    final isOnBreak =
-        _breakInfo != null && _breakInfo!['is_currently_on_break'] == true;
-    final filteredActions = isOnBreak
-        ? _availableActions
-              .where((action) => action.type != 'break_out')
-              .toList()
-        : _availableActions;
-
-    return Transform.translate(
-      offset: const Offset(0, -20),
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 8), // ✅ UPDATED: Margin bottom dikurangi
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              _getStatusColor().withOpacity(0.1),
-              _getStatusColor().withOpacity(0.05),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: _getStatusColor().withOpacity(0.3),
-            width: 1.5,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: _getStatusColor().withOpacity(0.15),
-              blurRadius: 20,
-              offset: const Offset(0, 8),
+            ),
+            // ✅ HANYA tampilkan untuk Office Worker
+            if (_requiresGpsValidation) // Ini berarti Office Worker
+              Row(
+                children: [
+                  _buildDeviceInfoChip(),
+                  const SizedBox(width: 8),
+                ],
+              ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            CircleAvatar(
+              radius: 25,
+              backgroundColor: Colors.orange.shade400,
+              backgroundImage: _userProfile?.profilePhotoUrl != null
+                  ? NetworkImage(_userProfile!.profilePhotoUrl!)
+                  : null,
+              child: _userProfile?.profilePhotoUrl == null
+                  ? const Icon(Icons.person, color: Colors.white, size: 28)
+                  : null,
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "${LocalizationHelper.getText('hello')}, $displayName",
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  Text(
+                    _getCurrentStatusText(),
+                    style: TextStyle(
+                      color: _getStatusColor(),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(24),
+      ],
+    ),
+  );
+ }
+
+ Widget _buildStatusCard() {
+  final isOnBreak =
+      _breakInfo != null && _breakInfo!['is_currently_on_break'] == true;
+  final filteredActions = isOnBreak
+      ? _availableActions
+            .where((action) => action.type != 'break_out')
+            .toList()
+      : _availableActions;
+
+  return Transform.translate(
+    offset: const Offset(0, -20),
+    child: Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            _getStatusColor().withOpacity(0.1),
+            _getStatusColor().withOpacity(0.05),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(
+          color: _getStatusColor().withOpacity(0.3),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: _getStatusColor().withOpacity(0.15),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
           ),
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: 56,
-                          height: 56,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                _getStatusColor(),
-                                _getStatusColor().withOpacity(0.8),
-                              ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: _getStatusColor().withOpacity(0.3),
-                                blurRadius: 12,
-                                offset: const Offset(0, 4),
-                              ),
+        ],
+      ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              _getStatusColor(),
+                              _getStatusColor().withOpacity(0.8),
                             ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
                           ),
-                          child: Icon(
-                            _getStatusIcon(),
-                            color: Colors.white,
-                            size: 28,
-                          ),
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: _getStatusColor().withOpacity(0.3),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
                         ),
-                      ],
+                        child: Icon(
+                          _getStatusIcon(),
+                          color: Colors.white,
+                          size: 28,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  flex: 2,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        TimezoneHelper.formatOrgTime(
+                          TimezoneHelper.nowInOrgTime(),
+                          'HH:mm',
+                        ),
+                        style: const TextStyle(
+                          fontSize: 42,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_isRefreshing)
+                  SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
                     ),
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    flex: 2,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
+              ],
+            ),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  // ===== DATE ROW =====
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.calendar_today,
+                        size: 14,
+                        color: Colors.grey.shade600,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
                           TimezoneHelper.formatOrgTime(
                             TimezoneHelper.nowInOrgTime(),
-                            'HH:mm',
+                            'EEEE, dd MMMM yyyy',
                           ),
-                          style: const TextStyle(
-                            fontSize: 42,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: -0.5,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade700,
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                  if (_isRefreshing)
-                    SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
                       ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Column(
-                  children: [
-                    // DATE ROW
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.calendar_today,
-                          size: 14,
-                          color: Colors.grey.shade600,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            TimezoneHelper.formatOrgTime(
-                              TimezoneHelper.nowInOrgTime(),
-                              'EEEE, dd MMMM yyyy',
-                            ),
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey.shade700,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    // LOCATION INFO SECTION
-                    if (!_requiresGpsValidation) ...[
+                    ],
+                  ),
+                  
+                  // ===== LOCATION INFO SECTION =====
+                  // ✅ OFFICE WORKER - Tampilkan device location dan GPS status
+                  if (_requiresGpsValidation) ...[
+                    if (_selectedDevice != null) ...[
                       const SizedBox(height: 8),
                       Divider(height: 1, color: Colors.grey.shade300),
                       const SizedBox(height: 8),
-                      _isLoadingLocationInfo
-                          ? const Center(
-                              child: SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.location_on,
+                            size: 14,
+                            color: Colors.grey.shade600,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _selectedDevice!.deviceName,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey.shade700,
                               ),
-                            )
-                          : Row(
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color:
+                                  (_selectedDevice!.hasValidCoordinates &&
+                                      _gpsPosition != null &&
+                                      _isWithinRadius != null)
+                                  ? (_isWithinRadius!
+                                        ? successColor.withOpacity(0.15)
+                                        : warningColor.withOpacity(0.15))
+                                  : Colors.grey.shade200,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
                                 Icon(
-                                  Icons.explore,
-                                  size: 14,
-                                  color: successColor,
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    _selectedDevice != null
-                                        ? '${LocalizationHelper.getText('field_work_at')} ${_selectedDevice!.deviceName}'
-                                        : (_workLocationDetails['city']
-                                                      ?.isNotEmpty ==
-                                                  true
-                                              ? '${LocalizationHelper.getText('field_work_in')} ${_workLocationDetails['city']}'
-                                              : LocalizationHelper.getText(
-                                                  'field_work_mode',
-                                                )),
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: Colors.grey.shade700,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: successColor.withOpacity(0.15),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        _selectedDevice != null
+                                  (_selectedDevice!.hasValidCoordinates &&
+                                          _gpsPosition != null &&
+                                          _isWithinRadius != null)
+                                      ? (_isWithinRadius!
                                             ? Icons.check_circle
-                                            : Icons.location_searching,
-                                        size: 12,
-                                        color: successColor,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        _selectedDevice != null
-                                            ? LocalizationHelper.getText(
-                                                'location_set',
+                                            : Icons.location_off)
+                                      : Icons.location_searching,
+                                  size: 12,
+                                  color:
+                                      (_selectedDevice!
+                                              .hasValidCoordinates &&
+                                          _gpsPosition != null &&
+                                          _isWithinRadius != null)
+                                      ? (_isWithinRadius!
+                                            ? successColor
+                                            : warningColor)
+                                      : Colors.grey.shade600,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  (_selectedDevice!.hasValidCoordinates &&
+                                          _gpsPosition != null &&
+                                          _isWithinRadius != null)
+                                      ? (_isWithinRadius!
+                                            ? _formatDistance(
+                                                _distanceToDevice,
                                               )
                                             : LocalizationHelper.getText(
-                                                'ready',
-                                              ),
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: successColor,
-                                          fontWeight: FontWeight.w600,
+                                                'out_of_range',
+                                              ))
+                                      : LocalizationHelper.getText(
+                                          'locating',
                                         ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                    ] else ...[
-                      if (_selectedDevice != null) ...[
-                        const SizedBox(height: 8),
-                        Divider(height: 1, color: Colors.grey.shade300),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.location_on,
-                              size: 14,
-                              color: Colors.grey.shade600,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _selectedDevice!.deviceName,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey.shade700,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color:
-                                    (_selectedDevice!.hasValidCoordinates &&
-                                        _gpsPosition != null &&
-                                        _isWithinRadius != null)
-                                    ? (_isWithinRadius!
-                                          ? successColor.withOpacity(0.15)
-                                          : warningColor.withOpacity(0.15))
-                                    : Colors.grey.shade200,
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    (_selectedDevice!.hasValidCoordinates &&
-                                            _gpsPosition != null &&
-                                            _isWithinRadius != null)
-                                        ? (_isWithinRadius!
-                                              ? Icons.check_circle
-                                              : Icons.location_off)
-                                        : Icons.location_searching,
-                                    size: 12,
+                                  style: TextStyle(
+                                    fontSize: 11,
                                     color:
-                                        (_selectedDevice!.hasValidCoordinates &&
+                                        (_selectedDevice!
+                                                .hasValidCoordinates &&
                                             _gpsPosition != null &&
                                             _isWithinRadius != null)
                                         ? (_isWithinRadius!
                                               ? successColor
                                               : warningColor)
                                         : Colors.grey.shade600,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ] else ...[
+                      // Office worker tapi belum pilih device
+                      const SizedBox(height: 8),
+                      Divider(height: 1, color: Colors.grey.shade300),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.warning,
+                            size: 14,
+                            color: Colors.orange,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              LocalizationHelper.getText(
+                                'no_attendance_location_selected',
+                              ),
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                          ),
+                          GestureDetector(
+                            onTap: () => _navigateToDeviceSelection(),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(
+                                    Icons.location_on,
+                                    size: 12,
+                                    color: Colors.orange,
                                   ),
                                   const SizedBox(width: 4),
                                   Text(
-                                    (_selectedDevice!.hasValidCoordinates &&
-                                            _gpsPosition != null &&
-                                            _isWithinRadius != null)
-                                        ? (_isWithinRadius!
-                                              ? _formatDistance(
-                                                  _distanceToDevice,
-                                                )
-                                              : LocalizationHelper.getText(
-                                                  'out_of_range',
-                                                ))
-                                        : LocalizationHelper.getText(
-                                            'locating',
-                                          ),
-                                    style: TextStyle(
+                                    LocalizationHelper.getText(
+                                      'select_location',
+                                    ),
+                                    style: const TextStyle(
                                       fontSize: 11,
-                                      color:
-                                          (_selectedDevice!
-                                                  .hasValidCoordinates &&
-                                              _gpsPosition != null &&
-                                              _isWithinRadius != null)
-                                          ? (_isWithinRadius!
-                                                ? successColor
-                                                : warningColor)
-                                          : Colors.grey.shade600,
+                                      color: Colors.orange,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
                                 ],
                               ),
                             ),
-                          ],
-                        ),
-                      ] else ...[
-                        const SizedBox(height: 8),
-                        Divider(height: 1, color: Colors.grey.shade300),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.warning,
-                              size: 14,
-                              color: Colors.orange,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                LocalizationHelper.getText(
-                                  'no_attendance_location_selected',
-                                ),
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: Colors.grey.shade700,
-                                ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ] else ...[
+                    // ✅ FIELD WORKER - Badge sederhana tanpa GPS
+                    const SizedBox(height: 8),
+                    Divider(height: 1, color: Colors.grey.shade300),
+                    const SizedBox(height: 8),
+                    _isLoadingLocationInfo
+                        ? const Center(
+                            child: SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
                               ),
                             ),
-                            GestureDetector(
-                              onTap: () => _navigateToDeviceSelection(),
-                              child: Container(
+                          )
+                        : Row(
+                            children: [
+                              Icon(
+                                Icons.explore,
+                                size: 14,
+                                color: successColor,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  _workLocationDetails['city']?.isNotEmpty ==
+                                          true
+                                      ? '${LocalizationHelper.getText('field_work_in')} ${_workLocationDetails['city']}'
+                                      : LocalizationHelper.getText(
+                                          'field_work_mode',
+                                        ),
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.grey.shade700,
+                                  ),
+                                ),
+                              ),
+                              Container(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 8,
                                   vertical: 4,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.orange.withOpacity(0.15),
+                                  color: successColor.withOpacity(0.15),
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    const Icon(
-                                      Icons.location_on,
+                                    Icon(
+                                      Icons.check_circle,
                                       size: 12,
-                                      color: Colors.orange,
+                                      color: successColor,
                                     ),
                                     const SizedBox(width: 4),
                                     Text(
-                                      LocalizationHelper.getText(
-                                        'select_location',
-                                      ),
-                                      style: const TextStyle(
+                                      LocalizationHelper.getText('ready'),
+                                      style: TextStyle(
                                         fontSize: 11,
-                                        color: Colors.orange,
+                                        color: successColor,
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
+                            ],
+                          ),
+                  ],
+                  
+                  // ===== ACTION BUTTONS =====
+                  if (filteredActions.isNotEmpty) ...[
+                    const SizedBox(height: 20),
+                    Row(
+                      children: filteredActions.take(2).map((action) {
+                        bool shouldEnable = action.isEnabled && !_isInitialLoading;
+
+                        return Expanded(
+                          child: Padding(
+                            padding: EdgeInsets.only(
+                              right: filteredActions.indexOf(action) == 0
+                                  ? 8
+                                  : 0,
+                              left: filteredActions.indexOf(action) == 1
+                                  ? 8
+                                  : 0,
                             ),
-                          ],
-                        ),
-                      ],
-                    ],
-
-                    // ACTION BUTTONS
-                    if (filteredActions.isNotEmpty) ...[
-                      const SizedBox(height: 20),
-                      Row(
-                        children: filteredActions.take(2).map((action) {
-                          bool shouldEnable =
-                              action.isEnabled && !_isInitialLoading;
-
-                          if (_requiresGpsValidation) {
-                            shouldEnable =
-                                shouldEnable && (_isWithinRadius ?? false);
-                          }
-
-                          return Expanded(
-                            child: Padding(
-                              padding: EdgeInsets.only(
-                                right: filteredActions.indexOf(action) == 0
-                                    ? 8
-                                    : 0,
-                                left: filteredActions.indexOf(action) == 1
-                                    ? 8
-                                    : 0,
-                              ),
-                              child: ElevatedButton(
-                                onPressed: shouldEnable
-                                    ? () => _performAttendance(action.type)
-                                    : null,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: shouldEnable
-                                      ? primaryColor
-                                      : Colors.grey.shade300,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 16,
-                                  ),
-                                  elevation: shouldEnable ? 4 : 0,
-                                  shadowColor: primaryColor.withOpacity(0.4),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
+                            child: ElevatedButton(
+                              onPressed: shouldEnable
+                                  ? () => _performAttendance(action.type)
+                                  : null,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: shouldEnable
+                                    ? primaryColor
+                                    : Colors.grey.shade300,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
                                 ),
-                                child: _isInitialLoading && action.isEnabled
-                                    ? const SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          valueColor:
-                                              AlwaysStoppedAnimation<Color>(
-                                                Colors.white,
-                                              ),
-                                        ),
-                                      )
-                                    : Text(
-                                        action.label,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 15,
+                                elevation: shouldEnable ? 4 : 0,
+                                shadowColor: primaryColor.withOpacity(0.4),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                              child: _isInitialLoading && action.isEnabled
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                          Colors.white,
                                         ),
                                       ),
-                              ),
+                                    )
+                                  : Text(
+                                      action.label,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 15,
+                                      ),
+                                    ),
                             ),
-                          );
-                        }).toList(),
-                      ),
-                    ],
+                          ),
+                        );
+                      }).toList(),
+                    ),
                   ],
-                ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildTimelineCard() {
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16), // ✅ UPDATED: Margin top dihilangkan
+      margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -3219,7 +3188,7 @@ class _DashboardContentState extends State<_DashboardContent> {
           if (_timelineItems.isEmpty)
             Center(
               child: Padding(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.all(20), // ini masih boleh const
                 child: Text(
                   LocalizationHelper.getText('no_schedule_available'),
                   style: const TextStyle(color: Colors.grey, fontSize: 14),
