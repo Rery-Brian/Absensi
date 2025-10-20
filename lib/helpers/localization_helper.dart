@@ -49,15 +49,12 @@ class LocalizationHelper {
 
   // Indonesian translations
   static final Map<String, String> _indonesianTranslations = {
-
-
     // Main Dashboard
-      'verifying_organization': 'Memverifikasi organisasi...',
-      'home': 'Beranda',
-      'attendance': 'Kehadiran',
-      'profile': 'Profil',
+    'verifying_organization': 'Memverifikasi organisasi...',
+    'home': 'Beranda',
+    'attendance': 'Kehadiran',
+    'profile': 'Profil',
 
-      
     // Months
     'january': 'Januari',
     'february': 'Februari',
@@ -71,7 +68,7 @@ class LocalizationHelper {
     'october': 'Oktober',
     'november': 'November',
     'december': 'Desember',
-    
+
     // Month abbreviations
     'jan': 'Jan',
     'feb': 'Feb',
@@ -220,7 +217,7 @@ class LocalizationHelper {
     'confirm_check_out': 'Konfirmasi Check-out',
     'sure_to_check_out': 'Apakah Anda yakin ingin check out?',
     'end_work_session': 'Ini akan mengakhiri sesi kerja Anda untuk hari ini.',
-    'yes_check_out': 'Ya, Check Out',
+    'yes_check_out': 'Ya',
 
     // NEW: Photo & Upload
     'photo_required_check_in': 'Foto diperlukan untuk check-in',
@@ -282,7 +279,7 @@ class LocalizationHelper {
     'saving': 'Menyimpan...',
     'profile_updated': 'Profil berhasil diperbarui!',
     'photo_updated': 'Foto profil berhasil diperbarui!',
-    'account_settings': 'Pengaturan Akun',
+    'account_settings': 'Pengaturan',
     'security': 'Keamanan',
     'notifications': 'Notifikasi',
     'language': 'Bahasa',
@@ -424,7 +421,6 @@ class LocalizationHelper {
     'make_sure_within_office_area': 'Pastikan Anda berada di dalam area kantor',
     'cancel': 'Batal',
     'confirm_location': 'Konfirmasi Lokasi',
-    
 
     // Map Widget
     'within_range': 'Dalam Jangkauan',
@@ -437,50 +433,55 @@ class LocalizationHelper {
     'zoom_out': 'Perkecil',
 
     // General
-      'loading': 'Memuat...',
-      'apply': 'Terapkan',
-      'date': 'Tanggal',
-      'time': 'Waktu',
-      'location': 'Lokasi',
-      'hours': 'jam',
-      'minutes': 'menit',
-      
-      // Attendance Page
-      'attendance': 'Kehadiran',
-      'unknown_organization': 'Organisasi Tidak Diketahui',
-      'attendance_rate': 'Tingkat Kehadiran',
-      'present_label': 'Hadir',
-      'absent_label': 'Tidak Hadir',
-      'late': 'Terlambat',
-      'early_leave': 'Pulang Cepat',
-      'work_duration': 'Durasi Kerja',
-      
-      // Calendar & Tabs
-      'calendar_view': 'Kalender',
-      'attendance_details': 'Detail',
-      'daily_events': 'Kegiatan Harian',
-      
-      // Status
-      'check_in': 'Masuk',
-      'check_out': 'Keluar',
-      
-      // Messages
-      'no_attendance_data': 'Tidak ada data kehadiran untuk tanggal ini',
-      'no_records_found': 'Tidak ada catatan untuk bulan ini',
-      
-      // Error Messages
-      'error_loading_data': 'Gagal memuat data',
+    'loading': 'Memuat...',
+    'apply': 'Terapkan',
+    'date': 'Tanggal',
+    'time': 'Waktu',
+    'location': 'Lokasi',
+    'hours': 'jam',
+    'minutes': 'menit',
+
+    // Attendance Page
+    'attendance': 'Kehadiran',
+    'unknown_organization': 'Organisasi Tidak Diketahui',
+    'attendance_rate': 'Tingkat Kehadiran',
+    'present_label': 'Hadir',
+    'absent_label': 'Tidak Hadir',
+    'late': 'Terlambat',
+    'early_leave': 'Pulang Cepat',
+    'work_duration': 'Durasi Kerja',
+
+    // Calendar & Tabs
+    'calendar_view': 'Kalender',
+    'attendance_details': 'Detail',
+    'daily_events': 'Kegiatan Harian',
+
+    // Status
+    'check_in': 'Masuk',
+    'check_out': 'Keluar',
+
+    // Messages
+    'no_attendance_data': 'Tidak ada data kehadiran untuk tanggal ini',
+    'no_records_found': 'Tidak ada catatan untuk bulan ini',
+
+    // Error Messages
+    'error_loading_data': 'Gagal memuat data',
+    'add_location': 'Tambah Lokasi',
+    'location_set': 'Lokasi Dipilih',
+    'field_work_at': 'Kerja lapangan di',
   };
 
   // English translations
   static final Map<String, String> _englishTranslations = {
     // Main Dashboard
-      'verifying_organization': 'Verifying organization...',
-      'home': 'Home',
-      'attendance': 'Attendance',
-      'profile': 'Profile',
+    'verifying_organization': 'Verifying organization...',
+    'home': 'Home',
+    'attendance': 'Attendance',
+    'profile': 'Profile',
 
-
+    'add_location': 'Add Location',
+    'location_set': 'Location Set',
+    'field_work_at': 'Field work at',
     // Months
     'january': 'January',
     'february': 'February',
@@ -494,7 +495,7 @@ class LocalizationHelper {
     'october': 'October',
     'november': 'November',
     'december': 'December',
-    
+
     // Month abbreviations
     'jan': 'Jan',
     'feb': 'Feb',
@@ -656,7 +657,7 @@ class LocalizationHelper {
     'confirm_check_out': 'Confirm Check-out',
     'sure_to_check_out': 'Are you sure you want to check out?',
     'end_work_session': 'This will end your work session for today.',
-    'yes_check_out': 'Yes, Check Out',
+    'yes_check_out': 'Yes',
 
     // NEW: Photo & Upload
     'photo_required_check_in': 'Photo required for check-in',
@@ -718,7 +719,7 @@ class LocalizationHelper {
     'saving': 'Saving...',
     'profile_updated': 'Profile updated successfully!',
     'photo_updated': 'Profile photo updated successfully!',
-    'account_settings': 'Account Settings',
+    'account_settings': 'Settings',
     'security': 'Security',
     'notifications': 'Notifications',
     'language': 'Language',
@@ -840,7 +841,7 @@ class LocalizationHelper {
     'no_records_found': 'No records found',
     'no_records_month': 'No attendance records for this month',
 
-     // Map Preview Dialog
+    // Map Preview Dialog
     'verify_your_location': 'Verify Your Location',
     'make_sure_within_office_area': 'Make sure you are within the office area',
     'confirm_location': 'Confirm Location',
@@ -857,39 +858,39 @@ class LocalizationHelper {
     'zoom_out': 'Zoom out',
 
     // General
-      'loading': 'Loading...',
-      'apply': 'Apply',
-      'date': 'Date',
-      'time': 'Time',
-      'location': 'Location',
-      'hours': 'hours',
-      'minutes': 'minutes',
-      
-      // Attendance Page
-      'attendance': 'Attendance',
-      'unknown_organization': 'Unknown Organization',
-      'attendance_rate': 'Attendance Rate',
-      'present_label': 'Present',
-      'absent_label': 'Absent',
-      'late': 'Late',
-      'early_leave': 'Early Leave',
-      'work_duration': 'Work Duration',
-      
-      // Calendar & Tabs
-      'calendar_view': 'Calendar',
-      'attendance_details': 'Details',
-      'daily_events': 'Daily Events',
-      
-      // Status
-      'check_in': 'Check In',
-      'check_out': 'Check Out',
-      
-      // Messages
-      'no_attendance_data': 'No attendance data for this date',
-      'no_records_found': 'No records found for this month',
-      
-      // Error Messages
-      'error_loading_data': 'Error loading data',
+    'loading': 'Loading...',
+    'apply': 'Apply',
+    'date': 'Date',
+    'time': 'Time',
+    'location': 'Location',
+    'hours': 'hours',
+    'minutes': 'minutes',
+
+    // Attendance Page
+    'attendance': 'Attendance',
+    'unknown_organization': 'Unknown Organization',
+    'attendance_rate': 'Attendance Rate',
+    'present_label': 'Present',
+    'absent_label': 'Absent',
+    'late': 'Late',
+    'early_leave': 'Early Leave',
+    'work_duration': 'Work Duration',
+
+    // Calendar & Tabs
+    'calendar_view': 'Calendar',
+    'attendance_details': 'Details',
+    'daily_events': 'Daily Events',
+
+    // Status
+    'check_in': 'Check In',
+    'check_out': 'Check Out',
+
+    // Messages
+    'no_attendance_data': 'No attendance data for this date',
+    'no_records_found': 'No records found for this month',
+
+    // Error Messages
+    'error_loading_data': 'Error loading data',
   };
 
   // Helper method untuk get text dengan fallback
@@ -900,8 +901,18 @@ class LocalizationHelper {
   // Get month name
   static String getMonthName(int month) {
     const months = [
-      'january', 'february', 'march', 'april', 'may', 'june',
-      'july', 'august', 'september', 'october', 'november', 'december'
+      'january',
+      'february',
+      'march',
+      'april',
+      'may',
+      'june',
+      'july',
+      'august',
+      'september',
+      'october',
+      'november',
+      'december',
     ];
     if (month >= 1 && month <= 12) {
       return getText(months[month - 1]);
@@ -912,8 +923,18 @@ class LocalizationHelper {
   // Get month abbreviation
   static String getMonthAbbr(int month) {
     const months = [
-      'jan', 'feb', 'mar', 'apr', 'may_short', 'jun',
-      'jul', 'aug', 'sep', 'oct', 'nov', 'dec'
+      'jan',
+      'feb',
+      'mar',
+      'apr',
+      'may_short',
+      'jun',
+      'jul',
+      'aug',
+      'sep',
+      'oct',
+      'nov',
+      'dec',
     ];
     if (month >= 1 && month <= 12) {
       return getText(months[month - 1]);
@@ -924,8 +945,13 @@ class LocalizationHelper {
   // Get day name
   static String getDayName(int weekday) {
     const days = [
-      'monday', 'tuesday', 'wednesday', 'thursday', 
-      'friday', 'saturday', 'sunday'
+      'monday',
+      'tuesday',
+      'wednesday',
+      'thursday',
+      'friday',
+      'saturday',
+      'sunday',
     ];
     if (weekday >= 1 && weekday <= 7) {
       return getText(days[weekday - 1]);

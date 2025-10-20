@@ -615,7 +615,6 @@ class _ProfilePageState extends State<ProfilePage> {
               _buildProfileInfo(context),
               if (!_isEditMode) ...[
                 _buildAccountSection(context),
-                _buildSupportSection(context),
                 _buildLogoutSection(context),
               ],
               const SizedBox(height: 100),
@@ -1130,18 +1129,6 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ),
           _buildMenuItem(
-            icon: Icons.security_outlined,
-            title: LocalizationHelper.getText('security'),
-            subtitle: LocalizationHelper.getText('password_and_authentication'),
-            onTap: () => _showComingSoon(context),
-          ),
-          _buildMenuItem(
-            icon: Icons.notifications_outlined,
-            title: LocalizationHelper.getText('notifications'),
-            subtitle: LocalizationHelper.getText('manage_notification_preferences'),
-            onTap: () => _showComingSoon(context),
-          ),
-          _buildMenuItem(
             icon: Icons.language_outlined,
             title: LocalizationHelper.getText('language'),
             subtitle: LocalizationHelper.currentLanguage == 'en' 
@@ -1150,65 +1137,10 @@ class _ProfilePageState extends State<ProfilePage> {
             onTap: () => _showLanguageDialog(),
           ),
           _buildMenuItem(
-            icon: Icons.dark_mode_outlined,
-            title: LocalizationHelper.getText('appearance'),
-            subtitle: LocalizationHelper.getText('theme_and_display'),
-            onTap: () => _showComingSoon(context),
-            isLast: true,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSupportSection(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2))],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            child: Text(
-              LocalizationHelper.getText('support_information'),
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-            ),
-          ),
-          _buildMenuItem(
-            icon: Icons.help_outline,
-            title: LocalizationHelper.getText('help_center'),
-            subtitle: LocalizationHelper.getText('get_help_and_answers'),
-            onTap: () => _showComingSoon(context),
-          ),
-          _buildMenuItem(
-            icon: Icons.contact_support_outlined,
-            title: LocalizationHelper.getText('contact_support'),
-            subtitle: LocalizationHelper.getText('contact_our_team'),
-            onTap: () => _showComingSoon(context),
-          ),
-          _buildMenuItem(
             icon: Icons.info_outline,
             title: LocalizationHelper.getText('about'),
             subtitle: LocalizationHelper.getText('app_version_info'),
             onTap: () => _showAboutDialog(context),
-          ),
-          _buildMenuItem(
-            icon: Icons.privacy_tip_outlined,
-            title: LocalizationHelper.getText('privacy_policy'),
-            subtitle: LocalizationHelper.getText('learn_data_protection'),
-            onTap: () => _showComingSoon(context),
-          ),
-          _buildMenuItem(
-            icon: Icons.article_outlined,
-            title: LocalizationHelper.getText('terms_of_service'),
-            subtitle: LocalizationHelper.getText('read_terms_and_conditions'),
-            onTap: () => _showComingSoon(context),
-            isLast: true,
           ),
         ],
       ),
