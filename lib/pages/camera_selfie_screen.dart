@@ -76,6 +76,8 @@ class _CameraSelfieScreenState extends State<CameraSelfieScreen>
       );
 
       await _controller!.initialize();
+      final size = _controller!.value.previewSize;
+debugPrint('Foto resolusi: ${size?.width} x ${size?.height}');
 
       if (mounted) {
         setState(() {

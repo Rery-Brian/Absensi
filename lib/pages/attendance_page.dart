@@ -535,11 +535,6 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
               const CircularProgressIndicator(
                 valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
               ),
-              const SizedBox(height: 16),
-              Text(
-                LocalizationHelper.getText('loading'),
-                style: const TextStyle(color: Colors.grey),
-              ),
             ],
           ),
         ),
