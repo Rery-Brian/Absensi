@@ -468,8 +468,8 @@ class LocalizationHelper {
     // Error Messages
     'error_loading_data': 'Gagal memuat data',
     'add_location': 'Tambah Lokasi',
-    'location_set': 'Lokasi Dipilih',
-    'field_work_at': 'Kerja lapangan di',
+    'location_set': 'Siap',
+    'field_work_at': 'Kerja di',
   };
 
   // English translations
@@ -481,8 +481,8 @@ class LocalizationHelper {
       'profile': 'Profile',
 
     'add_location': 'Add Location',
-    'location_set': 'Location Set',
-    'field_work_at': 'Field work at',
+    'location_set': 'Ready',
+    'field_work_at': 'Work in',
     // Months
     'january': 'January',
     'february': 'February',
