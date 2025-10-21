@@ -3164,7 +3164,7 @@ Future<bool?> _showMapPreviewDialog() async {
 
   Widget _buildTimelineCard() {
     return Container(
-      margin: const EdgeInsets.all(16),
+      margin: const EdgeInsets.all(0),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
