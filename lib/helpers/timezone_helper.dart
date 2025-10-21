@@ -1,6 +1,7 @@
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 import 'package:intl/intl.dart';
+import 'localization_helper.dart';
 
 class TimezoneHelper {
   static late tz.Location currentTimeZone;
@@ -37,12 +38,18 @@ class TimezoneHelper {
     return tz.TZDateTime.from(dateTime, currentTimeZone);
   }
 
+  /// Format datetime dengan pattern dan locale sesuai bahasa user
   static String formatOrgTime(DateTime dateTime, String pattern) {
     if (!_isInitialized) {
       initialize('UTC');
     }
+    
     final orgTime = tz.TZDateTime.from(dateTime, currentTimeZone);
-    return DateFormat(pattern, 'id_ID').format(orgTime);
+    
+    // Dapatkan locale berdasarkan bahasa yang dipilih user
+    final locale = LocalizationHelper.currentLanguage == 'id' ? 'id_ID' : 'en_US';
+    
+    return DateFormat(pattern, locale).format(orgTime);
   }
 
   static String getTodayDateString() {
@@ -61,11 +68,29 @@ class TimezoneHelper {
     return DateFormat('HH:mm:ss').format(now);
   }
 
+  /// Format attendance datetime dengan locale sesuai bahasa user
   static String formatAttendanceDateTime(DateTime dateTime) {
     if (!_isInitialized) {
       initialize('UTC');
     }
+    
     final orgTime = tz.TZDateTime.from(dateTime, currentTimeZone);
-    return DateFormat('dd MMM yyyy, HH:mm', 'id_ID').format(orgTime) + ' ${currentTimeZone.name}';
+    
+    // Dapatkan locale berdasarkan bahasa yang dipilih user
+    final locale = LocalizationHelper.currentLanguage == 'id' ? 'id_ID' : 'en_US';
+    
+    return DateFormat('dd MMM yyyy, HH:mm', locale).format(orgTime) + ' ${currentTimeZone.name}';
+  }
+  
+  /// Format custom dengan locale awareness
+  static String formatWithLocale(DateTime dateTime, String pattern) {
+    if (!_isInitialized) {
+      initialize('UTC');
+    }
+    
+    final orgTime = tz.TZDateTime.from(dateTime, currentTimeZone);
+    final locale = LocalizationHelper.currentLanguage == 'id' ? 'id_ID' : 'en_US';
+    
+    return DateFormat(pattern, locale).format(orgTime);
   }
 }
