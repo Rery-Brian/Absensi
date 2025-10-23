@@ -83,60 +83,116 @@ class _LoginState extends State<Login> {
 Future<bool> _ensureUserProfile(String userId, String email, {String? googleName}) async {
   try {
     debugPrint('Ensuring user profile for: $userId');
+    debugPrint('Email: $email');
+    debugPrint('Google Name: $googleName');
+    
+    // Tunggu sebentar untuk memastikan user sudah tersimpan di database
+    await Future.delayed(const Duration(milliseconds: 500));
     
     final existingProfile = await _checkUserProfile(userId);
     
+    // Siapkan nama yang akan digunakan
+    String fullName;
+    if (googleName != null && googleName.isNotEmpty) {
+      fullName = googleName;
+      debugPrint('Using Google name: $fullName');
+    } else {
+      fullName = _extractNameFromEmail(email);
+      debugPrint('Extracted name from email: $fullName');
+    }
+    
+    final nameParts = _splitName(fullName);
+    final firstName = nameParts['first_name']!;
+    final lastName = nameParts['last_name']!;
+    final displayName = fullName;
+    
+    debugPrint('Prepared names - First: $firstName, Last: $lastName, Display: $displayName');
+    
     if (existingProfile == null) {
       // Profile belum ada, buat baru dengan nama
-      String fullName;
-      if (googleName != null && googleName.isNotEmpty) {
-        fullName = googleName;
-        debugPrint('Using Google name: $fullName');
-      } else {
-        fullName = _extractNameFromEmail(email);
-        debugPrint('Extracted name from email: $fullName');
-      }
-      
-      final nameParts = _splitName(fullName);
-      final firstName = nameParts['first_name']!;
-      final lastName = nameParts['last_name']!;
-      final displayName = fullName;
-
       debugPrint('Creating new user profile...');
       
-      final response = await supabase
-          .from('user_profiles')
-          .insert({
-            'id': userId,
-            'first_name': firstName,
-            'last_name': lastName,
-            'display_name': displayName,
-            'email': email,
-            'is_active': true,
-          })
-          .select()
-          .single();
+      try {
+        final response = await supabase
+            .from('user_profiles')
+            .insert({
+              'id': userId,
+              'first_name': firstName,
+              'last_name': lastName,
+              'display_name': displayName,
+              'email': email,
+              'is_active': true,
+            })
+            .select()
+            .single();
 
-      debugPrint('User profile created: $response');
-      return true;
+        debugPrint('User profile created successfully: $response');
+        return true;
+      } catch (insertError) {
+        debugPrint('Error inserting profile: $insertError');
+        // Jika insert gagal, coba check lagi apakah profile sudah ada (race condition)
+        await Future.delayed(const Duration(milliseconds: 300));
+        final recheckProfile = await _checkUserProfile(userId);
+        
+        if (recheckProfile != null) {
+          debugPrint('Profile exists after failed insert, updating instead...');
+          // Profile sudah ada dari trigger, update dengan nama yang benar
+          await supabase
+              .from('user_profiles')
+              .update({
+                'first_name': firstName,
+                'last_name': lastName,
+                'display_name': displayName,
+                'email': email,
+                'is_active': true,
+              })
+              .eq('id', userId);
+          
+          debugPrint('Profile updated after race condition');
+          return true;
+        }
+        
+        return false;
+      }
     } else {
-      // Profile sudah ada, HANYA update email jika kosong
-      // TIDAK mengubah nama (first_name, last_name, display_name)
+      // Profile sudah ada
+      debugPrint('Profile already exists');
+      
+      // Check apakah nama kosong atau default
+      final hasValidName = existingProfile['first_name'] != null && 
+                          existingProfile['first_name'].toString().isNotEmpty &&
+                          existingProfile['first_name'] != 'User';
+      
       final needsEmailUpdate = existingProfile['email'] == null || 
                                existingProfile['email'].toString().isEmpty;
 
-      if (needsEmailUpdate) {
-        debugPrint('Updating email only in existing user profile...');
+      if (!hasValidName) {
+        // Jika nama tidak valid, update dengan nama yang baru
+        debugPrint('Updating profile with valid name...');
         
-        final response = await supabase
+        await supabase
             .from('user_profiles')
             .update({
-              'email': email,  // Hanya update email
+              'first_name': firstName,
+              'last_name': lastName,
+              'display_name': displayName,
+              'email': email,
             })
-            .eq('id', userId)
-            .select();
+            .eq('id', userId);
 
-        debugPrint('User profile email updated: $response');
+        debugPrint('User profile updated with name');
+      } else if (needsEmailUpdate) {
+        // Jika nama sudah valid, hanya update email jika perlu
+        debugPrint('Updating email only in existing user profile...');
+        
+        await supabase
+            .from('user_profiles')
+            .update({
+              'email': email,
+            })
+            .eq('id', userId);
+
+        debugPrint('User profile email updated');
       } else {
         debugPrint('User profile already complete, no update needed');
       }
@@ -145,6 +201,7 @@ Future<bool> _ensureUserProfile(String userId, String email, {String? googleName
     }
   } catch (e) {
     debugPrint('Error ensuring user profile: $e');
+    debugPrint('Stack trace: ${StackTrace.current}');
     return false;
   }
 }
