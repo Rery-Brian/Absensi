@@ -598,7 +598,7 @@ class LocalizationHelper {
     'email': 'Email',
     'password': 'Password',
     'full_name': 'Full Name',
-    'welcome_back': 'Welcome Back',
+    'welcome_back': 'Welcome ',
     'sign_in_to_continue': 'Sign in to continue',
     'create_account': 'Create Account',
     'already_have_account': 'Already have an account?',
