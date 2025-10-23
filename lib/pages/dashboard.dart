@@ -513,6 +513,8 @@ static DateTime? _scheduleDetailsCacheTime;
   }
 
 Future<void> _loadUserData() async {
+  if (!mounted) return; // ✅ CHECK #1: Awal method
+  
   setState(() => _isInitialLoading = true);
 
   try {
@@ -531,23 +533,25 @@ Future<void> _loadUserData() async {
       },
     );
 
+    if (!mounted) return; // ✅ CHECK #2: Setelah async
+
     _userProfile = criticalData[0] as UserProfile?;
     _organizationMember = criticalData[1] as OrganizationMember?;
 
     if (_userProfile == null || _organizationMember == null) {
-      if (mounted) {
+      if (mounted) { // ✅ CHECK #3: Sebelum Navigator
         FlushbarHelper.showError(
           context,
           LocalizationHelper.getText('no_user_profile_found'),
         );
         Navigator.of(context).pushReplacementNamed('/login');
       }
-      setState(() => _isInitialLoading = false);
+      if (mounted) setState(() => _isInitialLoading = false); // ✅ CHECK #4
       return;
     }
 
     // ✅ STEP 2: Set organization dari member data dulu (temporary)
-    if (_organizationMember?.organization != null && mounted) {
+    if (_organizationMember?.organization != null && mounted) { // ✅ CHECK #5
       setState(() {
         _organization = SimpleOrganization(
           id: _organizationMember!.organization!.id,
@@ -572,8 +576,10 @@ Future<void> _loadUserData() async {
       },
     );
 
+    if (!mounted) return; // ✅ CHECK #6: Setelah async
+
     if (_needsDeviceSelection) {
-      setState(() => _isInitialLoading = false);
+      if (mounted) setState(() => _isInitialLoading = false); // ✅ CHECK #7
       return;
     }
 
@@ -589,6 +595,8 @@ Future<void> _loadUserData() async {
       },
     );
 
+    if (!mounted) return; // ✅ CHECK #8: Setelah async
+
     // ✅ STEP 5: Update status dan timeline
     await _updateAttendanceStatus().timeout(
       const Duration(seconds: 3),
@@ -598,6 +606,8 @@ Future<void> _loadUserData() async {
       },
     );
 
+    if (!mounted) return; // ✅ CHECK #9: Setelah async
+
     await _buildDynamicTimeline().timeout(
       const Duration(seconds: 2),
       onTimeout: () async {
@@ -606,18 +616,20 @@ Future<void> _loadUserData() async {
       },
     );
 
+    if (!mounted) return; // ✅ CHECK #10: Setelah async
+
     // ✅ Hide skeleton - semua data sudah ready
     setState(() => _isInitialLoading = false);
     
   } catch (e) {
     debugPrint('Error in _loadUserData: $e');
-    if (mounted) {
+    if (mounted) { // ✅ CHECK #11: Sebelum FlushbarHelper
       FlushbarHelper.showError(
         context,
         LocalizationHelper.getText('failed_to_load_user_data'),
       );
     }
-    setState(() => _isInitialLoading = false);
+    if (mounted) setState(() => _isInitialLoading = false); // ✅ CHECK #12
   }
 }
 
@@ -742,32 +754,32 @@ Future<void> _loadRemainingDataInBackground() async {
   }
 }
   Future<void> _loadLocationInfo() async {
-    if (_organizationMember == null || _isLoadingLocationInfo) return;
+  if (_organizationMember == null || _isLoadingLocationInfo || !mounted) return; // ✅
 
-    setState(() => _isLoadingLocationInfo = true);
+  setState(() => _isLoadingLocationInfo = true);
 
-    try {
-      final requiresGps = await _attendanceService.requiresGpsValidation(
-        _organizationMember!.id,
-      );
-      final locationDetails = await _attendanceService.getWorkLocationDetails(
-        _organizationMember!.id,
-      );
+  try {
+    final requiresGps = await _attendanceService.requiresGpsValidation(
+      _organizationMember!.id,
+    );
+    final locationDetails = await _attendanceService.getWorkLocationDetails(
+      _organizationMember!.id,
+    );
 
-      if (mounted) {
-        setState(() {
-          _requiresGpsValidation = requiresGps;
-          _workLocationDetails = locationDetails;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error loading location info: $e');
-    } finally {
-      if (mounted) {
-        setState(() => _isLoadingLocationInfo = false);
-      }
+    if (!mounted) return; // ✅ CHECK setelah async
+
+    setState(() {
+      _requiresGpsValidation = requiresGps;
+      _workLocationDetails = locationDetails;
+    });
+  } catch (e) {
+    debugPrint('Error loading location info: $e');
+  } finally {
+    if (mounted) { // ✅ CHECK sebelum setState
+      setState(() => _isLoadingLocationInfo = false);
     }
   }
+}
 
   Future<void> _loadBreakInfo() async {
     if (_organizationMember == null) return;
@@ -783,13 +795,14 @@ Future<void> _loadRemainingDataInBackground() async {
   }
 
   Future<void> _checkDeviceSelection() async {
-  if (_organizationMember == null) return;
+  if (_organizationMember == null || !mounted) return; // ✅ CHECK di awal
 
   try {
-    // ✅ STEP 1: Check GPS requirement (cepat, dari database)
     final requiresGps = await _attendanceService.requiresGpsValidation(
       _organizationMember!.id,
     );
+
+    if (!mounted) return; // ✅ CHECK setelah async
 
     setState(() {
       _requiresGpsValidation = requiresGps;
@@ -845,6 +858,8 @@ Future<void> _loadRemainingDataInBackground() async {
         );
       }
     }
+
+    if (!mounted) return;
 
     setState(() => _needsDeviceSelection = false);
   } catch (e) {
@@ -1156,37 +1171,37 @@ Future<void> _loadRemainingDataInBackground() async {
 }
 
   Future<void> _loadScheduleData() async {
-  if (_organizationMember == null) return;
+  if (_organizationMember == null || !mounted) return; // ✅ CHECK di awal
 
   try {
     _currentSchedule = await _attendanceService.loadCurrentSchedule(
       _organizationMember!.id,
     );
 
+    if (!mounted) return; // ✅ CHECK setelah async
+
     if (_currentSchedule?.workScheduleId != null) {
       final dayOfWeek = TimeHelper.getCurrentDayOfWeek();
       final cacheKey = '${_currentSchedule!.workScheduleId}_$dayOfWeek';
       
-      // ✅ CRITICAL: Check cache SEBELUM setState
+      // Check cache...
       if (_cachedScheduleDetails != null && 
           _cachedScheduleDetailsKey == cacheKey &&
           _scheduleDetailsCacheTime != null &&
           DateTime.now().difference(_scheduleDetailsCacheTime!) < const Duration(hours: 1)) {
         _todayScheduleDetails = _cachedScheduleDetails;
         debugPrint('✓ Using cached schedule details');
-        // ✅ JANGAN setState di sini, langsung return
-        return;
+        return; // ✅ TIDAK perlu setState
       }
       
-      // ✅ Load dari database hanya jika cache tidak ada
-      debugPrint('Loading work schedule details for schedule: ${_currentSchedule!.workScheduleId}, day: $dayOfWeek');
       _todayScheduleDetails = await _attendanceService
           .loadWorkScheduleDetails(
             _currentSchedule!.workScheduleId!,
             dayOfWeek,
           );
       
-      // ✅ Cache result
+      if (!mounted) return; // ✅ CHECK setelah async
+      
       if (_todayScheduleDetails != null) {
         _cachedScheduleDetails = _todayScheduleDetails;
         _cachedScheduleDetailsKey = cacheKey;
@@ -1195,8 +1210,7 @@ Future<void> _loadRemainingDataInBackground() async {
       }
     }
 
-    // ✅ setState hanya sekali di akhir
-    if (mounted) setState(() {});
+    if (mounted) setState(() {}); // ✅ CHECK sebelum setState
   } catch (e) {
     debugPrint('Error loading schedule details: $e');
   }

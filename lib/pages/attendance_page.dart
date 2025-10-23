@@ -7,6 +7,7 @@ import '../models/attendance_model.dart';
 import '../services/attendance_service.dart';
 import '../helpers/localization_helper.dart';
 import '../helpers/timezone_helper.dart';
+import 'attendance_skeleton_widgets.dart';
 
 class AttendancePage extends StatefulWidget {
   final VoidCallback? onAttendanceUpdated;
@@ -199,23 +200,26 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
   }
 
   Future<void> _loadAttendanceLogs() async {
-    if (_organizationMember == null) return;
+  if (_organizationMember == null) return;
+  if (!mounted) return; // ✅ TAMBAHKAN INI
 
-    try {
-      final memberId = int.parse(_organizationMember!.id);
-      
-      final response = await supabase
-          .from('attendance_logs')
-          .select('*')
-          .eq('organization_member_id', memberId)
-          .order('event_time', ascending: false);
+  try {
+    final memberId = int.parse(_organizationMember!.id);
+    
+    final response = await supabase
+        .from('attendance_logs')
+        .select('*')
+        .eq('organization_member_id', memberId)
+        .order('event_time', ascending: false);
 
-      _allAttendanceLogs = List<Map<String, dynamic>>.from(response);
-      _processAttendanceLogs();
-    } catch (e) {
-      debugPrint('Error loading attendance logs: $e');
-    }
+    if (!mounted) return; // ✅ CHECK SETELAH ASYNC
+
+    _allAttendanceLogs = List<Map<String, dynamic>>.from(response);
+    _processAttendanceLogs();
+  } catch (e) {
+    debugPrint('Error loading attendance logs: $e');
   }
+}
 
   void _processAttendanceLogs() {
     final Map<DateTime, List<Map<String, dynamic>>> groupedData = {};
@@ -317,6 +321,7 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
   }
 
   void _calculateMetrics() {
+    if (!mounted) return;
     final monthRecords = _attendanceRecords.where((r) {
       final utcDate = DateTime.parse(r.attendanceDate);
       final orgDate = TimezoneHelper.toOrgTime(utcDate);
@@ -373,13 +378,13 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
   }
 
   void _onDaySelected(DateTime selectedDay, DateTime focusedDay) {
-    if (!mounted) return;
-    
-    setState(() {
-      _selectedDay = selectedDay;
-      _focusedDay = focusedDay;
-    });
-  }
+  if (!mounted) return; // ✅ TAMBAHKAN INI
+  
+  setState(() {
+    _selectedDay = selectedDay;
+    _focusedDay = focusedDay;
+  });
+}
 
   String _getMonthName(int month) {
     final now = TimezoneHelper.nowInOrgTime();
@@ -489,6 +494,7 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
                     width: double.infinity,
                     child: ElevatedButton(
                       onPressed: () {
+                        if (!mounted) return;
                         setState(() {
                           _selectedMonth = tempMonth;
                           _selectedYear = tempYear;
@@ -526,20 +532,8 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
   @override
   Widget build(BuildContext context) {
     if (!_isInitialized || _isLoading) {
-      return Scaffold(
-        backgroundColor: Colors.grey.shade100,
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
+    return AttendanceSkeletonWidgets.buildFullPageSkeleton();
+  }
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
@@ -1013,6 +1007,7 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
             },
             onDaySelected: _onDaySelected,
             onFormatChanged: (format) {
+              if (!mounted) return;
               if (_calendarFormat != format) {
                 setState(() {
                   _calendarFormat = format;
@@ -1020,6 +1015,7 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
               }
             },
             onPageChanged: (focusedDay) {
+              if (!mounted) return;
               setState(() {
                 _focusedDay = focusedDay;
               });

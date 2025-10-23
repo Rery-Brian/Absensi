@@ -8,6 +8,7 @@ import '../models/attendance_model.dart';
 import '../services/attendance_service.dart';
 import '../helpers/flushbar_helper.dart';
 import '../helpers/localization_helper.dart'; // ADD THIS
+import 'profile_skeleton_widgets.dart';
 
 class ProfilePage extends StatefulWidget {
   final VoidCallback? onProfileUpdated;
@@ -586,44 +587,56 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    if (_isLoading) {
-      return Scaffold(
-        backgroundColor: Colors.grey.shade100,
-        body: Center(
-          child: CircularProgressIndicator(
-            valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-          ),
-        ),
-      );
-    }
+Widget build(BuildContext context) {
+  // Loading state - tampilkan full page skeleton
+  if (_isLoading) {
+    return ProfileSkeletonWidgets.buildFullPageSkeleton();
+  }
 
-    final user = Supabase.instance.client.auth.currentUser;
-    final displayName = _userProfile?.displayName ?? _userProfile?.fullName ?? user?.email?.split('@')[0] ?? 'User';
-    final email = user?.email ?? 'No email';
-
+  // Saving state - tampilkan edit mode skeleton
+  if (_isSaving) {
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
-      body: RefreshIndicator(
-        onRefresh: _loadUserData,
-        color: primaryColor,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: Column(
-            children: [
-              _buildHeader(displayName, email),
-              _buildProfileInfo(context),
-              if (!_isEditMode) ...[
-                _buildAccountSection(context),
-                _buildLogoutSection(context),
-              ],
-              const SizedBox(height: 24),
-            ],
-          ),
+      body: SingleChildScrollView(
+        physics: const NeverScrollableScrollPhysics(),
+        child: Column(
+          children: [
+            ProfileSkeletonWidgets.buildSkeletonHeader(),
+            ProfileSkeletonWidgets.buildSkeletonEditMode(),
+            const SizedBox(height: 24),
+          ],
         ),
       ),
     );
   }
+
+  // Konten utama
+  final user = Supabase.instance.client.auth.currentUser;
+  final displayName = _userProfile?.displayName ?? _userProfile?.fullName ?? user?.email?.split('@')[0] ?? 'User';
+  final email = user?.email ?? 'No email';
+
+  return Scaffold(
+    backgroundColor: Colors.grey.shade100,
+    body: RefreshIndicator(
+      onRefresh: _loadUserData,
+      color: primaryColor,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: Column(
+          children: [
+            _buildHeader(displayName, email),
+            _buildProfileInfo(context),
+            if (!_isEditMode) ...[
+              _buildAccountSection(context),
+              _buildLogoutSection(context),
+            ],
+            const SizedBox(height: 24),
+          ],
+        ),
+      ),
+    ),
+  );
+}
 
   Widget _buildHeader(String displayName, String email) {
     return Container(
