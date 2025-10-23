@@ -61,23 +61,23 @@ class _LoginState extends State<Login> {
   }
 
   // Function untuk check apakah user profile sudah ada dan lengkap
-  Future<Map<String, dynamic>?> _checkUserProfile(String userId) async {
-    try {
-      debugPrint('Checking user profile for ID: $userId');
+ Future<Map<String, dynamic>?> _checkUserProfile(String userId) async {
+  try {
+    debugPrint('Checking user profile for ID: $userId');
 
-      final response = await supabase
-          .from('user_profiles')
-          .select('id, first_name, last_name, display_name')
-          .eq('id', userId)
-          .maybeSingle();
+    final response = await supabase
+        .from('user_profiles')
+        .select('id, first_name, last_name, display_name, email')
+        .eq('id', userId)
+        .maybeSingle();
 
-      debugPrint('User profile data: $response');
-      return response;
-    } catch (e) {
-      debugPrint('Error checking user profile: $e');
-      return null;
-    }
+    debugPrint('User profile data: $response');
+    return response;
+  } catch (e) {
+    debugPrint('Error checking user profile: $e');
+    return null;
   }
+}
 
  // Function untuk create atau update user profile
 Future<bool> _ensureUserProfile(String userId, String email, {String? googleName}) async {
@@ -86,21 +86,22 @@ Future<bool> _ensureUserProfile(String userId, String email, {String? googleName
     
     final existingProfile = await _checkUserProfile(userId);
     
-    String fullName;
-    if (googleName != null && googleName.isNotEmpty) {
-      fullName = googleName;
-      debugPrint('Using Google name: $fullName');
-    } else {
-      fullName = _extractNameFromEmail(email);
-      debugPrint('Extracted name from email: $fullName');
-    }
-    
-    final nameParts = _splitName(fullName);
-    final firstName = nameParts['first_name']!;
-    final lastName = nameParts['last_name']!;
-    final displayName = fullName;
-
     if (existingProfile == null) {
+      // Profile belum ada, buat baru dengan nama
+      String fullName;
+      if (googleName != null && googleName.isNotEmpty) {
+        fullName = googleName;
+        debugPrint('Using Google name: $fullName');
+      } else {
+        fullName = _extractNameFromEmail(email);
+        debugPrint('Extracted name from email: $fullName');
+      }
+      
+      final nameParts = _splitName(fullName);
+      final firstName = nameParts['first_name']!;
+      final lastName = nameParts['last_name']!;
+      final displayName = fullName;
+
       debugPrint('Creating new user profile...');
       
       final response = await supabase
@@ -110,7 +111,7 @@ Future<bool> _ensureUserProfile(String userId, String email, {String? googleName
             'first_name': firstName,
             'last_name': lastName,
             'display_name': displayName,
-            'email': email,  // Include email
+            'email': email,
             'is_active': true,
           })
           .select()
@@ -119,30 +120,25 @@ Future<bool> _ensureUserProfile(String userId, String email, {String? googleName
       debugPrint('User profile created: $response');
       return true;
     } else {
-      // Check if update is needed (name or email)
-      final needsUpdate = existingProfile['first_name'] == null || 
-                         existingProfile['first_name'].toString().isEmpty ||
-                         existingProfile['first_name'] == 'User' ||
-                         existingProfile['email'] == null ||
-                         existingProfile['email'].toString().isEmpty;
+      // Profile sudah ada, HANYA update email jika kosong
+      // TIDAK mengubah nama (first_name, last_name, display_name)
+      final needsEmailUpdate = existingProfile['email'] == null || 
+                               existingProfile['email'].toString().isEmpty;
 
-      if (needsUpdate) {
-        debugPrint('Updating existing user profile...');
+      if (needsEmailUpdate) {
+        debugPrint('Updating email only in existing user profile...');
         
         final response = await supabase
             .from('user_profiles')
             .update({
-              'first_name': firstName,
-              'last_name': lastName,
-              'display_name': displayName,
-              'email': email,  // Always update email
+              'email': email,  // Hanya update email
             })
             .eq('id', userId)
             .select();
 
-        debugPrint('User profile updated: $response');
+        debugPrint('User profile email updated: $response');
       } else {
-        debugPrint('User profile already complete, skipping update');
+        debugPrint('User profile already complete, no update needed');
       }
       
       return true;
