@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:absensiwajah/pages/login.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../helpers/flushbar_helper.dart';
 import '../helpers/localization_helper.dart';
 
 final supabase = Supabase.instance.client;
@@ -24,28 +23,172 @@ class _SignupState extends State<Signup> {
   static const Color primaryColor = Color(0xFF6366F1);
   static const Color backgroundColor = Color(0xFF1F2937);
 
+  // Function untuk split nama menjadi first_name dan last_name
+  Map<String, String> _splitName(String fullName) {
+    List<String> nameParts = fullName.trim().split(' ').where((n) => n.isNotEmpty).toList();
+    
+    if (nameParts.isEmpty) {
+      return {'first_name': 'User', 'last_name': ''};
+    } else if (nameParts.length == 1) {
+      return {'first_name': nameParts[0], 'last_name': ''};
+    } else {
+      String firstName = nameParts[0];
+      String lastName = nameParts.sublist(1).join(' ');
+      return {'first_name': firstName, 'last_name': lastName};
+    }
+  }
+
+  // Function untuk create user profile setelah signup
+  Future<bool> _createUserProfile(String userId, String fullName, String email) async {
+    try {
+      print('Creating user profile for: $userId');
+      
+      final nameParts = _splitName(fullName);
+      final firstName = nameParts['first_name']!;
+      final lastName = nameParts['last_name']!;
+      
+      // Wait a bit untuk memastikan trigger selesai
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      // Check apakah profile sudah ada dari trigger
+      final existingProfile = await supabase
+          .from('user_profiles')
+          .select('id')
+          .eq('id', userId)
+          .maybeSingle();
+
+      if (existingProfile != null) {
+        // Update profile yang sudah dibuat oleh trigger
+        print('Updating existing profile created by trigger...');
+        await supabase
+            .from('user_profiles')
+            .update({
+              'first_name': firstName,
+              'last_name': lastName,
+              'display_name': fullName,
+              'is_active': true,
+            })
+            .eq('id', userId);
+      } else {
+        // Create new profile jika trigger gagal
+        print('Creating new user profile...');
+        await supabase
+            .from('user_profiles')
+            .insert({
+              'id': userId,
+              'first_name': firstName,
+              'last_name': lastName,
+              'display_name': fullName,
+              'is_active': true,
+            });
+      }
+
+      print('User profile created/updated successfully');
+      return true;
+    } catch (e) {
+      print('Error creating user profile: $e');
+      return false;
+    }
+  }
+
+  // Function untuk menampilkan dialog
+  void _showDialog({
+    required String title,
+    required String message,
+    required bool isSuccess,
+  }) {
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          backgroundColor: Colors.white,
+          title: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: isSuccess ? Colors.green.shade50 : Colors.red.shade50,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isSuccess ? Icons.check_circle : Icons.error,
+                  color: isSuccess ? Colors.green : Colors.red,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 18,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            message,
+            style: const TextStyle(fontSize: 16, height: 1.5),
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primaryColor,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: Text(LocalizationHelper.getText('ok')),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _signUp() async {
     final name = _nameController.text.trim();
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
 
     if (name.isEmpty || email.isEmpty || password.isEmpty) {
-      FlushbarHelper.showError(
-        context,
-        'Name, email, and password are required',
+      _showDialog(
+        title: LocalizationHelper.getText('registration_failed'),
+        message: LocalizationHelper.getText('name_email_password_required'),
+        isSuccess: false,
       );
       return;
     }
 
     if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email)) {
-      FlushbarHelper.showError(context, 'Invalid email format');
+      _showDialog(
+        title: LocalizationHelper.getText('registration_failed'),
+        message: LocalizationHelper.getText('invalid_email_format'),
+        isSuccess: false,
+      );
       return;
     }
 
     if (password.length < 6) {
-      FlushbarHelper.showError(
-        context,
-        'Password must be at least 6 characters',
+      _showDialog(
+        title: LocalizationHelper.getText('registration_failed'),
+        message: LocalizationHelper.getText('password_min_6_characters'),
+        isSuccess: false,
       );
       return;
     }
@@ -55,43 +198,68 @@ class _SignupState extends State<Signup> {
     });
 
     try {
+      // Sign up dengan metadata nama
       final AuthResponse res = await supabase.auth.signUp(
         email: email,
         password: password,
-        data: {'name': name},
+        data: {
+          'name': name,
+          'display_name': name,
+        },
       );
 
       if (res.user != null) {
-        _showSuccessDialog();
+        print('Signup successful, user ID: ${res.user!.id}');
+        
+        // Create/update user profile
+        final profileSuccess = await _createUserProfile(
+          res.user!.id,
+          name,
+          email,
+        );
+
+        if (!profileSuccess) {
+          print('Warning: Failed to create user profile');
+        }
+
+        if (mounted) {
+          _showSuccessDialog();
+        }
       } else {
         if (mounted) {
-          FlushbarHelper.showError(context, 'Failed to create account');
+          _showDialog(
+            title: LocalizationHelper.getText('registration_failed'),
+            message: LocalizationHelper.getText('failed_create_account'),
+            isSuccess: false,
+          );
         }
       }
     } catch (e) {
-      String errorMessage = 'Registration failed: ';
+      String errorMessage;
 
       if (e.toString().contains('already registered')) {
-        errorMessage += 'Email already registered';
+        errorMessage = LocalizationHelper.getText('email_already_registered');
       } else if (e.toString().contains('invalid email')) {
-        errorMessage += 'Invalid email format';
+        errorMessage = LocalizationHelper.getText('invalid_email_format');
       } else if (e.toString().contains('weak password')) {
-        errorMessage += 'Password too weak';
+        errorMessage = LocalizationHelper.getText('password_too_weak');
       } else {
-        errorMessage += e.toString();
+        errorMessage = e.toString();
       }
 
       if (mounted) {
-        FlushbarHelper.showError(
-          context,
-          errorMessage,
-          duration: const Duration(seconds: 5),
+        _showDialog(
+          title: LocalizationHelper.getText('error'),
+          message: errorMessage,
+          isSuccess: false,
         );
       }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -150,9 +318,9 @@ class _SignupState extends State<Signup> {
                         ),
                       ),
                       const SizedBox(height: 20),
-                      const Text(
-                        'Registration Successful!',
-                        style: TextStyle(
+                      Text(
+                        LocalizationHelper.getText('registration_successful'),
+                        style: const TextStyle(
                           color: Colors.white,
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
@@ -160,9 +328,9 @@ class _SignupState extends State<Signup> {
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 8),
-                      const Text(
-                        'Your account has been created successfully',
-                        style: TextStyle(color: Colors.white70, fontSize: 16),
+                      Text(
+                        LocalizationHelper.getText('account_created_successfully'),
+                        style: const TextStyle(color: Colors.white70, fontSize: 16),
                         textAlign: TextAlign.center,
                       ),
                     ],
@@ -190,9 +358,9 @@ class _SignupState extends State<Signup> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                     ),
-                    child: const Text(
-                      'Continue to Login',
-                      style: TextStyle(
+                    child: Text(
+                      LocalizationHelper.getText('continue_to_login'),
+                      style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                       ),
@@ -222,7 +390,6 @@ class _SignupState extends State<Signup> {
 
     double logoSize = isLandscape ? 50 : (isSmallScreen ? 70 : 80);
     double titleFontSize = isLandscape ? 20 : (isSmallScreen ? 24 : 28);
-    double subtitleFontSize = isLandscape ? 11 : (isSmallScreen ? 13 : 14);
     double cardTopOffset = isLandscape ? -15 : -20;
 
     return Scaffold(
@@ -273,15 +440,6 @@ class _SignupState extends State<Signup> {
                         fontWeight: FontWeight.w700,
                         fontSize: titleFontSize,
                         color: Colors.white,
-                      ),
-                    ),
-                    SizedBox(height: isLandscape ? 2 : 4),
-                    Text(
-                      LocalizationHelper.getText('create_account'),
-                      style: TextStyle(
-                        fontSize: subtitleFontSize,
-                        color: Colors.white.withValues(alpha: 0.8),
-                        fontWeight: FontWeight.w400,
                       ),
                     ),
                   ],
@@ -487,13 +645,13 @@ class _SignupState extends State<Signup> {
           // Login Link
           Padding(
             padding: EdgeInsets.only(
-              top: isLandscape ? 4 : (isSmallScreen ? 8 : 0),
+              top: isLandscape ? 8 : (isSmallScreen ? 12 : 16),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                   LocalizationHelper.getText('already_have_account'),
+                  LocalizationHelper.getText('already_have_account'),
                   style: TextStyle(
                     color: Colors.grey.shade600,
                     fontSize: hintFontSize,

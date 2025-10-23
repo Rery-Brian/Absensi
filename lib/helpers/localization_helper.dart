@@ -50,12 +50,11 @@ class LocalizationHelper {
   // Indonesian translations
   static final Map<String, String> _indonesianTranslations = {
     // Main Dashboard
-      'verifying_organization': 'Memverifikasi organisasi...',
-      'home': 'Beranda',
-      'report': 'Laporan',
-      'profile': 'Profil',
+    'verifying_organization': 'Memverifikasi organisasi...',
+    'home': 'Beranda',
+    'report': 'Laporan',
+    'profile': 'Profil',
 
-      
     // Months
     'january': 'Januari',
     'february': 'Februari',
@@ -470,15 +469,35 @@ class LocalizationHelper {
     'add_location': 'Tambah Lokasi',
     'location_set': 'Siap',
     'field_work_at': 'Kerja di',
+    'registration_failed': 'Pendaftaran Gagal',
+    'name_email_password_required': 'Nama, email, dan kata sandi wajib diisi',
+    'invalid_email_format': 'Format email tidak valid',
+    'password_min_6_characters': 'Kata sandi minimal 6 karakter',
+    'failed_create_account': 'Gagal membuat akun',
+    'email_already_registered': 'Email sudah terdaftar',
+    'password_too_weak': 'Kata sandi terlalu lemah',
+    'login_failed': 'Login Gagal',
+    'email_password_required': 'Email dan kata sandi wajib diisi',
+    'incorrect_email_or_password': 'Email atau kata sandi salah',
   };
 
   // English translations
   static final Map<String, String> _englishTranslations = {
+    'registration_failed': 'Registration Failed',
+    'name_email_password_required': 'Name, email, and password are required',
+    'invalid_email_format': 'Invalid email format',
+    'password_min_6_characters': 'Password must be at least 6 characters',
+    'failed_create_account': 'Failed to create account',
+    'email_already_registered': 'Email already registered',
+    'password_too_weak': 'Password too weak',
+    'login_failed': 'Login Failed',
+    'email_password_required': 'Email and password are required',
+    'incorrect_email_or_password': 'Incorrect email or password',
     // Main Dashboard
-      'verifying_organization': 'Verifying organization...',
-      'home': 'Home',
-      'report': 'Report',
-      'profile': 'Profile',
+    'verifying_organization': 'Verifying organization...',
+    'home': 'Home',
+    'report': 'Report',
+    'profile': 'Profile',
 
     'add_location': 'Add Location',
     'location_set': 'Ready',

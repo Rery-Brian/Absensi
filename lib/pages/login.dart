@@ -4,7 +4,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'signup.dart';
-import 'dashboard.dart';
 import 'main_dashboard.dart';
 import '../helpers/localization_helper.dart';
 
@@ -30,86 +29,121 @@ class _LoginState extends State<Login> {
   // Function untuk extract nama dari email
   String _extractNameFromEmail(String email) {
     try {
-      // Ambil bagian sebelum @ dari email
       String namePart = email.split('@')[0];
-      
-      // Hapus angka dan karakter khusus, ganti dengan space
       namePart = namePart.replaceAll(RegExp(r'[_.\-0-9]'), ' ').trim();
       
-      // Capitalize setiap kata
-      List<String> words = namePart.split(' ');
+      List<String> words = namePart.split(' ').where((w) => w.isNotEmpty).toList();
       String capitalizedName = words
-          .map((word) => word.isEmpty 
-              ? word 
-              : word[0].toUpperCase() + word.substring(1).toLowerCase())
+          .map((word) => word[0].toUpperCase() + word.substring(1).toLowerCase())
           .join(' ')
           .trim();
       
-      // Jika hasil kosong, gunakan email sebagai fallback
       return capitalizedName.isEmpty ? email.split('@')[0] : capitalizedName;
     } catch (e) {
-      print('Error extracting name from email: $e');
+      debugPrint('Error extracting name from email: $e');
       return email.split('@')[0];
     }
   }
 
-  // Function untuk check apakah user sudah punya first_name
-  Future<bool> _userHasFirstName(String userId) async {
-    try {
-      print('Checking if user has first_name...');
-
-      final response = await supabase
-          .from('user_profiles')
-          .select('first_name')
-          .eq('id', userId)
-          .maybeSingle();
-
-      if (response != null && response['first_name'] != null && response['first_name'].toString().isNotEmpty) {
-        print('User already has first_name: ${response['first_name']}');
-        return true;
-      } else {
-        print('User does not have first_name');
-        return false;
-      }
-    } catch (e) {
-      print('Error checking user first_name: $e');
-      return false;
+  // Function untuk split nama menjadi first_name dan last_name
+  Map<String, String> _splitName(String fullName) {
+    List<String> nameParts = fullName.trim().split(' ').where((n) => n.isNotEmpty).toList();
+    
+    if (nameParts.isEmpty) {
+      return {'first_name': 'User', 'last_name': ''};
+    } else if (nameParts.length == 1) {
+      return {'first_name': nameParts[0], 'last_name': ''};
+    } else {
+      String firstName = nameParts[0];
+      String lastName = nameParts.sublist(1).join(' ');
+      return {'first_name': firstName, 'last_name': lastName};
     }
   }
 
-  // Function untuk update user profile dengan first_name dari email (hanya untuk user baru)
-  Future<bool> _updateUserProfileWithName(String userId, String email) async {
+  // Function untuk check apakah user profile sudah ada dan lengkap
+  Future<Map<String, dynamic>?> _checkUserProfile(String userId) async {
     try {
-      // Check dulu apakah user sudah punya first_name
-      final hasFirstName = await _userHasFirstName(userId);
-      
-      if (hasFirstName) {
-        print('User already has first_name, skipping update');
-        return true; // Return true karena tidak perlu update
-      }
-
-      String firstName = _extractNameFromEmail(email);
-      
-      print('Updating user profile with first_name: $firstName');
+      debugPrint('Checking user profile for ID: $userId');
 
       final response = await supabase
           .from('user_profiles')
-          .update({
-            'first_name': firstName,
-            'display_name': firstName,
-          })
+          .select('id, first_name, last_name, display_name')
           .eq('id', userId)
-          .select();
+          .maybeSingle();
 
-      if (response.isNotEmpty) {
-        print('User profile updated successfully');
+      debugPrint('User profile data: $response');
+      return response;
+    } catch (e) {
+      debugPrint('Error checking user profile: $e');
+      return null;
+    }
+  }
+
+  // Function untuk create atau update user profile
+  Future<bool> _ensureUserProfile(String userId, String email, {String? googleName}) async {
+    try {
+      debugPrint('Ensuring user profile for: $userId');
+      
+      final existingProfile = await _checkUserProfile(userId);
+      
+      String fullName;
+      if (googleName != null && googleName.isNotEmpty) {
+        fullName = googleName;
+        debugPrint('Using Google name: $fullName');
+      } else {
+        fullName = _extractNameFromEmail(email);
+        debugPrint('Extracted name from email: $fullName');
+      }
+      
+      final nameParts = _splitName(fullName);
+      final firstName = nameParts['first_name']!;
+      final lastName = nameParts['last_name']!;
+      final displayName = fullName;
+
+      if (existingProfile == null) {
+        debugPrint('Creating new user profile...');
+        
+        final response = await supabase
+            .from('user_profiles')
+            .insert({
+              'id': userId,
+              'first_name': firstName,
+              'last_name': lastName,
+              'display_name': displayName,
+              'is_active': true,
+            })
+            .select()
+            .single();
+
+        debugPrint('User profile created: $response');
         return true;
       } else {
-        print('Failed to update user profile');
-        return false;
+        final needsUpdate = existingProfile['first_name'] == null || 
+                           existingProfile['first_name'].toString().isEmpty ||
+                           existingProfile['first_name'] == 'User';
+
+        if (needsUpdate) {
+          debugPrint('Updating existing user profile...');
+          
+          final response = await supabase
+              .from('user_profiles')
+              .update({
+                'first_name': firstName,
+                'last_name': lastName,
+                'display_name': displayName,
+              })
+              .eq('id', userId)
+              .select();
+
+          debugPrint('User profile updated: $response');
+        } else {
+          debugPrint('User profile already complete, skipping update');
+        }
+        
+        return true;
       }
     } catch (e) {
-      print('Error updating user profile: $e');
+      debugPrint('Error ensuring user profile: $e');
       return false;
     }
   }
@@ -117,7 +151,7 @@ class _LoginState extends State<Login> {
   // Function untuk check apakah user sudah punya organisasi
   Future<bool> _userHasOrganization(String userId) async {
     try {
-      print('Checking if user has organization...');
+      debugPrint('Checking if user has organization...');
 
       final response = await supabase
           .from('organization_members')
@@ -127,82 +161,74 @@ class _LoginState extends State<Login> {
           .maybeSingle();
 
       if (response != null) {
-        print('User already has organization');
+        debugPrint('User already has organization');
         return true;
       } else {
-        print('User does not have organization');
+        debugPrint('User does not have organization');
         return false;
       }
     } catch (e) {
-      print('Error checking user organization: $e');
+      debugPrint('Error checking user organization: $e');
       return false;
     }
   }
 
   // Function untuk navigate ke halaman yang sesuai
   Future<void> _navigateAfterLogin(BuildContext context, String userId) async {
-  if (!mounted) return;
+    if (!mounted) return;
 
-  // Show loading
-  showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (context) => WillPopScope(
-      onWillPop: () async => false,
-      child: const Center(
-        child: CircularProgressIndicator(
-          valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => PopScope(
+        canPop: false,
+        child: const Center(
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+          ),
         ),
       ),
-    ),
-  );
-
-  try {
-    // ✅ Check organization membership
-    final hasOrganization = await _userHasOrganization(userId);
-    
-    if (!mounted) return;
-    
-    // Close loading dialog
-    Navigator.of(context).pop();
-    
-    if (!mounted) return;
-
-    if (hasOrganization) {
-      // ✅ User sudah punya organization - langsung ke dashboard
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (context) => const MainDashboard()),
-        (route) => false, // Remove all previous routes
-      );
-    } else {
-      // ✅ User belum punya organization - ke join screen
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const JoinOrganizationScreen(),
-        ),
-        (route) => false, // Remove all previous routes
-      );
-    }
-  } catch (e) {
-    debugPrint('Error checking organization: $e');
-    
-    if (!mounted) return;
-    
-    // Close loading dialog if still open
-    if (Navigator.of(context).canPop()) {
-      Navigator.of(context).pop();
-    }
-    
-    // Show error
-    _showDialog(
-      title: "Error",
-      message: "Failed to check organization status: ${e.toString()}",
-      isSuccess: false,
     );
+
+    try {
+      final hasOrganization = await _userHasOrganization(userId);
+      
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      
+      if (!mounted) return;
+
+      if (hasOrganization) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => const MainDashboard()),
+          (route) => false,
+        );
+      } else {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const JoinOrganizationScreen(),
+          ),
+          (route) => false,
+        );
+      }
+    } catch (e) {
+      debugPrint('Error checking organization: $e');
+      
+      if (!mounted) return;
+      
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+      
+      _showDialog(
+        title: LocalizationHelper.getText('error'),
+        message: '${LocalizationHelper.getText('failed_to_check_location')}: ${e.toString()}',
+        isSuccess: false,
+      );
+    }
   }
-}
 
   Future<void> _nativeGoogleSignIn() async {
     if (_isLoading) return;
@@ -238,10 +264,11 @@ class _LoginState extends State<Login> {
       final googleAuth = await googleUser.authentication;
 
       if (googleAuth.idToken == null) {
-        throw Exception('No ID Token found.');
+        throw Exception(LocalizationHelper.getText('google_signin_no_token'));
       }
 
-      print('Google User: ${googleUser.email}');
+      debugPrint('Google User: ${googleUser.email}');
+      debugPrint('Google Display Name: ${googleUser.displayName}');
 
       final response = await supabase.auth.signInWithIdToken(
         provider: OAuthProvider.google,
@@ -250,16 +277,16 @@ class _LoginState extends State<Login> {
       );
 
       if (response.user != null) {
-        print('Google login successful, user ID: ${response.user!.id}');
+        debugPrint('Google login successful, user ID: ${response.user!.id}');
 
-        // Update user profile dengan first_name dari email (hanya jika belum ada)
-        final profileUpdateSuccess = await _updateUserProfileWithName(
+        final profileSuccess = await _ensureUserProfile(
           response.user!.id,
           response.user!.email!,
+          googleName: googleUser.displayName,
         );
 
-        if (!profileUpdateSuccess) {
-          print('Warning: User profile update failed, but continuing');
+        if (!profileSuccess) {
+          debugPrint('Warning: Failed to ensure user profile, but continuing');
         }
 
         SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -269,14 +296,14 @@ class _LoginState extends State<Login> {
 
         _navigateAfterLogin(context, response.user!.id);
       } else {
-        throw Exception('Login gagal: User null dari Supabase');
+        throw Exception(LocalizationHelper.getText('google_signin_failed'));
       }
     } catch (e) {
-      print('Google Sign-in Error: $e');
+      debugPrint('Google Sign-in Error: $e');
       if (!mounted) return;
       _showDialog(
-        title: "Error Google Sign-in",
-        message: "Gagal login dengan Google: ${e.toString()}",
+        title: LocalizationHelper.getText('google_signin_error'),
+        message: '${LocalizationHelper.getText('google_signin_failed')}: ${e.toString()}',
         isSuccess: false,
       );
     } finally {
@@ -291,19 +318,49 @@ class _LoginState extends State<Login> {
   void signIn() async {
     if (_isLoading) return;
 
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+
+    if (email.isEmpty || password.isEmpty) {
+      _showDialog(
+        title: LocalizationHelper.getText('login_failed'),
+        message: LocalizationHelper.getText('email_password_required'),
+        isSuccess: false,
+      );
+      return;
+    }
+
+    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email)) {
+      _showDialog(
+        title: LocalizationHelper.getText('login_failed'),
+        message: LocalizationHelper.getText('invalid_email_format'),
+        isSuccess: false,
+      );
+      return;
+    }
+
     setState(() {
       _isLoading = true;
     });
 
     try {
       final res = await supabase.auth.signInWithPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text,
+        email: email,
+        password: password,
       );
 
       final user = res.user;
       if (user != null) {
-        print('Email login successful, user ID: ${user.id}');
+        debugPrint('Email login successful, user ID: ${user.id}');
+
+        final profileSuccess = await _ensureUserProfile(
+          user.id,
+          user.email!,
+        );
+
+        if (!profileSuccess) {
+          debugPrint('Warning: Failed to ensure user profile, but continuing');
+        }
 
         SharedPreferences prefs = await SharedPreferences.getInstance();
         await prefs.setString('user_email', user.email!);
@@ -314,14 +371,18 @@ class _LoginState extends State<Login> {
       } else {
         if (!mounted) return;
         _showDialog(
-          title: "Login Gagal",
-          message: "Email atau password salah.",
+          title: LocalizationHelper.getText('login_failed'),
+          message: LocalizationHelper.getText('incorrect_email_or_password'),
           isSuccess: false,
         );
       }
     } catch (e) {
       if (!mounted) return;
-      _showDialog(title: "Error", message: e.toString(), isSuccess: false);
+      _showDialog(
+        title: LocalizationHelper.getText('error'), 
+        message: e.toString(), 
+        isSuccess: false
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -392,7 +453,7 @@ class _LoginState extends State<Login> {
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              child: const Text('OK'),
+              child: Text(LocalizationHelper.getText('ok')),
             ),
           ],
         );
@@ -405,13 +466,10 @@ class _LoginState extends State<Login> {
     final size = MediaQuery.of(context).size;
     final orientation = MediaQuery.of(context).orientation;
     final isLandscape = orientation == Orientation.landscape;
-
-    // Responsive sizing
     final isSmallScreen = size.width < 360;
 
-    // Dynamic values - landscape lebih kecil
     double headerHeight = isLandscape
-        ? 180.0 // Fixed height untuk landscape
+        ? 180.0
         : (isSmallScreen ? size.height * 0.30 : size.height * 0.35);
 
     double logoSize = isLandscape ? 50 : (isSmallScreen ? 70 : 80);
@@ -425,7 +483,6 @@ class _LoginState extends State<Login> {
         child: SingleChildScrollView(
           child: Column(
             children: [
-              // Header dengan gradient dan logo
               Container(
                 width: double.infinity,
                 height: headerHeight,
@@ -447,7 +504,6 @@ class _LoginState extends State<Login> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     SizedBox(height: isLandscape ? 10 : 20),
-                    // Logo dengan background circle
                     Container(
                       width: logoSize,
                       height: logoSize,
@@ -462,7 +518,6 @@ class _LoginState extends State<Login> {
                       ),
                     ),
                     SizedBox(height: isLandscape ? 8 : 16),
-                    // Title
                     Text(
                       "Absensi",
                       style: TextStyle(
@@ -471,21 +526,9 @@ class _LoginState extends State<Login> {
                         color: Colors.white,
                       ),
                     ),
-                    SizedBox(height: isLandscape ? 2 : 4),
-                    // Subtitle
-                    Text(
-                      "Smart Attendance System",
-                      style: TextStyle(
-                        fontSize: subtitleFontSize,
-                        color: Colors.white.withValues(alpha: 0.8),
-                        fontWeight: FontWeight.w400,
-                      ),
-                    ),
                   ],
                 ),
               ),
-
-              // Form login card dengan negative margin
               Transform.translate(
                 offset: Offset(0, cardTopOffset),
                 child: Padding(
@@ -496,8 +539,6 @@ class _LoginState extends State<Login> {
                   ),
                 ),
               ),
-
-              // Extra padding di bawah untuk landscape
               if (isLandscape) const SizedBox(height: 20),
             ],
           ),
@@ -510,14 +551,12 @@ class _LoginState extends State<Login> {
     required bool isSmallScreen,
     required bool isLandscape,
   }) {
-    // Responsive font sizes - lebih kecil di landscape
     double welcomeFontSize = isLandscape ? 16 : (isSmallScreen ? 18 : 20);
     double labelFontSize = isLandscape ? 11 : (isSmallScreen ? 12 : 13);
     double hintFontSize = isLandscape ? 12 : (isSmallScreen ? 13 : 14);
     double buttonFontSize = isLandscape ? 13 : (isSmallScreen ? 14 : 15);
     double dividerFontSize = isLandscape ? 10 : (isSmallScreen ? 11 : 12);
     double cardPadding = isLandscape ? 14 : (isSmallScreen ? 16 : 20);
-
     double verticalSpacing = isLandscape ? 6 : (isSmallScreen ? 8 : 10);
     double sectionSpacing = isLandscape ? 8 : (isSmallScreen ? 12 : 15);
     double buttonVerticalPadding = isLandscape ? 8 : (isSmallScreen ? 10 : 12);
@@ -556,8 +595,6 @@ class _LoginState extends State<Login> {
             ),
           ),
           SizedBox(height: sectionSpacing + (isLandscape ? 2 : 5)),
-
-          // Google Sign In Button - DIPINDAH KE ATAS
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
@@ -575,46 +612,51 @@ class _LoginState extends State<Login> {
                 ),
                 elevation: 0,
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Image.network(
-                    'https://cdn.freebiesupply.com/logos/large/2x/google-g-2015-logo-png-transparent.png',
-                    height: isLandscape ? 18 : 20,
-                    width: isLandscape ? 18 : 20,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        width: isLandscape ? 18 : 20,
-                        height: isLandscape ? 18 : 20,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(2),
-                          image: const DecorationImage(
-                            image: NetworkImage(
-                              'https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg',
-                            ),
-                            fit: BoxFit.contain,
+              child: _isLoading
+                  ? SizedBox(
+                      width: isLandscape ? 18 : 20,
+                      height: isLandscape ? 18 : 20,
+                      child: const CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
+                      ),
+                    )
+                  : Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Image.asset(
+                          'assets/logo/logo_google.png',
+                          height: isLandscape ? 18 : 20,
+                          width: isLandscape ? 18 : 20,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              width: isLandscape ? 18 : 20,
+                              height: isLandscape ? 18 : 20,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(2),
+                                color: Colors.grey.shade300,
+                              ),
+                              child: Icon(
+                                Icons.g_mobiledata,
+                                size: isLandscape ? 16 : 18,
+                                color: Colors.grey.shade600,
+                              ),
+                            );
+                          },
+                        ),
+                        SizedBox(width: isLandscape ? 10 : 12),
+                        Text(
+                          LocalizationHelper.getText('continue_with_google'),
+                          style: TextStyle(
+                            fontSize: buttonFontSize,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                      );
-                    },
-                  ),
-                  SizedBox(width: isLandscape ? 10 : 12),
-                  Text(
-                    _isLoading
-                        ? LocalizationHelper.getText('processing')
-                        : LocalizationHelper.getText('continue_with_google'),
-                    style: TextStyle(
-                      fontSize: buttonFontSize,
-                      fontWeight: FontWeight.w600,
+                      ],
                     ),
-                  ),
-                ],
-              ),
             ),
           ),
           SizedBox(height: sectionSpacing),
-
-          // Divider
           Row(
             children: [
               Expanded(
@@ -637,8 +679,6 @@ class _LoginState extends State<Login> {
             ],
           ),
           SizedBox(height: sectionSpacing),
-
-          // Email Field
           _buildTextField(
             controller: _emailController,
             label: LocalizationHelper.getText('email'),
@@ -650,8 +690,6 @@ class _LoginState extends State<Login> {
             isLandscape: isLandscape,
           ),
           SizedBox(height: verticalSpacing),
-
-          // Password Field
           _buildTextField(
             controller: _passwordController,
             label: LocalizationHelper.getText('password'),
@@ -679,8 +717,6 @@ class _LoginState extends State<Login> {
             ),
           ),
           SizedBox(height: sectionSpacing),
-
-          // Sign In Button
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
@@ -714,45 +750,6 @@ class _LoginState extends State<Login> {
                     ),
             ),
           ),
-
-          // Loading indicator
-          if (_isLoading) ...[
-            SizedBox(height: verticalSpacing + 2),
-            Container(
-              padding: EdgeInsets.all(
-                isLandscape ? 6 : (isSmallScreen ? 8 : 10),
-              ),
-              decoration: BoxDecoration(
-                color: primaryColor.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: primaryColor.withValues(alpha: 0.3)),
-              ),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: isLandscape ? 12 : 14,
-                    height: isLandscape ? 12 : 14,
-                    child: const CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
-                    ),
-                  ),
-                  SizedBox(width: isLandscape ? 8 : 10),
-                  Expanded(
-                    child: Text(
-                       LocalizationHelper.getText('processing'),
-                      style: TextStyle(
-                        fontSize: dividerFontSize,
-                        color: Colors.black87,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-
-          // Sign Up Link
           Padding(
             padding: EdgeInsets.only(
               top: isLandscape ? 6 : (isSmallScreen ? 10 : 12),
@@ -761,7 +758,7 @@ class _LoginState extends State<Login> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                 LocalizationHelper.getText('dont_have_account'),
+                  LocalizationHelper.getText('dont_have_account'),
                   style: TextStyle(
                     color: Colors.grey.shade600,
                     fontSize: hintFontSize,
@@ -773,7 +770,7 @@ class _LoginState extends State<Login> {
                       : () {
                           Navigator.pushReplacement(
                             context,
-                            MaterialPageRoute(builder: (_) => Signup()),
+                            MaterialPageRoute(builder: (_) => const Signup()),
                           );
                         },
                   style: TextButton.styleFrom(
@@ -784,7 +781,7 @@ class _LoginState extends State<Login> {
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                   child: Text(
-                   LocalizationHelper.getText('sign_up'),
+                    LocalizationHelper.getText('sign_up'),
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
                       color: primaryColor,
@@ -863,5 +860,12 @@ class _LoginState extends State<Login> {
         ),
       ],
     );
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
   }
 }

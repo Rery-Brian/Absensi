@@ -1577,7 +1577,7 @@ class _DashboardContentState extends State<_DashboardContent> {
               context,
               LocalizationHelper.getText('attendance_location_not_configured'),
             );
-          }
+          } 
           return;
         }
 

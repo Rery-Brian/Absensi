@@ -617,7 +617,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 _buildAccountSection(context),
                 _buildLogoutSection(context),
               ],
-              const SizedBox(height: 100),
+              const SizedBox(height: 24),
             ],
           ),
         ),
