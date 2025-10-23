@@ -18,6 +18,8 @@ import '../helpers/flushbar_helper.dart';
 import '../helpers/localization_helper.dart';
 import 'attendance_map_widget.dart';
 import 'join_organization_screen.dart';
+import 'skeleton_widget.dart';
+import 'package:shimmer/shimmer.dart';
 
 class UserDashboard extends StatefulWidget {
   const UserDashboard({super.key});
@@ -29,9 +31,12 @@ class UserDashboard extends StatefulWidget {
 class UserDashboardState extends State<UserDashboard> {
   static const Color primaryColor = Color(0xFF6366F1);
   static const Color backgroundColor = Color(0xFF1F2937);
+  
 
   final GlobalKey<_DashboardContentState> _dashboardContentKey =
       GlobalKey<_DashboardContentState>();
+
+  
 
   void refreshUserProfile() {
     debugPrint('UserDashboard: refreshUserProfile called');
@@ -56,6 +61,21 @@ class _DashboardContent extends StatefulWidget {
 class _DashboardContentState extends State<_DashboardContent> {
   final AttendanceService _attendanceService = AttendanceService();
   final DeviceService _deviceService = DeviceService();
+  static const Duration dataLoadTimeout = Duration(seconds: 10);
+  static const int maxRetries = 2;
+  
+  // Cache variables
+  static SimpleOrganization? _cachedOrganization;
+  static DateTime? _organizationCacheTime;
+  static const Duration cacheValidity = Duration(minutes: 5);
+
+  SupabaseClient get _supabase => Supabase.instance.client;
+
+  bool _isSecondaryDataLoading = false;
+
+static WorkScheduleDetails? _cachedScheduleDetails;
+static String? _cachedScheduleDetailsKey;
+static DateTime? _scheduleDetailsCacheTime;
 
   bool _isInitialLoading = true;
   bool _isRefreshing = false;
@@ -492,73 +512,235 @@ class _DashboardContentState extends State<_DashboardContent> {
     }
   }
 
-  Future<void> _loadUserData() async {
-    setState(() => _isInitialLoading = true);
+Future<void> _loadUserData() async {
+  setState(() => _isInitialLoading = true);
 
-    try {
-      final criticalData = await Future.wait([
-        _attendanceService.loadUserProfile(),
-        _attendanceService.loadOrganizationMember(),
-      ]);
+  try {
+    // ✅ STEP 1: Load critical data
+    final criticalData = await Future.wait([
+      _attendanceService.loadUserProfile(),
+      _attendanceService.loadOrganizationMember(),
+    ]).timeout(
+      const Duration(seconds: 6),
+      onTimeout: () async {
+        debugPrint('⚠️ Critical data timeout, retrying...');
+        return Future.wait([
+          _attendanceService.loadUserProfile(),
+          _attendanceService.loadOrganizationMember(),
+        ]);
+      },
+    );
 
-      _userProfile = criticalData[0] as UserProfile?;
-      _organizationMember = criticalData[1] as OrganizationMember?;
+    _userProfile = criticalData[0] as UserProfile?;
+    _organizationMember = criticalData[1] as OrganizationMember?;
 
-      if (_userProfile == null || _organizationMember == null) {
-        if (mounted) {
-          FlushbarHelper.showError(
-            context,
-            LocalizationHelper.getText('no_user_profile_found'),
-          );
-          // Redirect ke login atau halaman sesuai kebutuhan
-          Navigator.of(context).pushReplacementNamed('/login');
-        }
-        setState(() => _isInitialLoading = false);
-        return;
-      }
-
-      await Future.wait([_loadOrganizationInfo(), _checkDeviceSelection()]);
-
-      if (_needsDeviceSelection) {
-        setState(() => _isInitialLoading = false);
-        return;
-      }
-
-      setState(() => _isInitialLoading = false);
-      _loadSecondaryDataInBackground();
-    } catch (e) {
-      debugPrint('Error in _loadUserData: $e');
+    if (_userProfile == null || _organizationMember == null) {
       if (mounted) {
         FlushbarHelper.showError(
           context,
-          LocalizationHelper.getText('failed_to_load_user_data'),
+          LocalizationHelper.getText('no_user_profile_found'),
         );
+        Navigator.of(context).pushReplacementNamed('/login');
       }
       setState(() => _isInitialLoading = false);
+      return;
+    }
+
+    // ✅ STEP 2: Set organization dari member data dulu (temporary)
+    if (_organizationMember?.organization != null && mounted) {
+      setState(() {
+        _organization = SimpleOrganization(
+          id: _organizationMember!.organization!.id,
+          name: _organizationMember!.organization!.name,
+          logoUrl: _organizationMember!.organization!.logoUrl,
+        );
+      });
+      debugPrint('✓ Organization set from member data: ${_organization?.name}');
+    }
+
+    // ✅ STEP 3: Load organization info lengkap dengan logo (parallel dengan data lain)
+    await Future.wait([
+      _checkDeviceSelection(),
+      _loadScheduleData(),
+      _loadLocationInfo(),
+      _loadOrganizationInfo(), // ✅ Load organization info lengkap di sini
+    ]).timeout(
+      const Duration(seconds: 5),
+      onTimeout: () async {
+        debugPrint('⚠️ Essential data timeout');
+        return [];
+      },
+    );
+
+    if (_needsDeviceSelection) {
+      setState(() => _isInitialLoading = false);
+      return;
+    }
+
+    // ✅ STEP 4: Load data untuk status card
+    await Future.wait([
+      _loadOrganizationData(),
+      _loadBreakInfo(),
+    ]).timeout(
+      const Duration(seconds: 5),
+      onTimeout: () async {
+        debugPrint('⚠️ Organization data timeout');
+        return [];
+      },
+    );
+
+    // ✅ STEP 5: Update status dan timeline
+    await _updateAttendanceStatus().timeout(
+      const Duration(seconds: 3),
+      onTimeout: () async {
+        debugPrint('⚠️ Status update timeout');
+        return Future.value();
+      },
+    );
+
+    await _buildDynamicTimeline().timeout(
+      const Duration(seconds: 2),
+      onTimeout: () async {
+        debugPrint('⚠️ Timeline build timeout');
+        return Future.value();
+      },
+    );
+
+    // ✅ Hide skeleton - semua data sudah ready
+    setState(() => _isInitialLoading = false);
+    
+  } catch (e) {
+    debugPrint('Error in _loadUserData: $e');
+    if (mounted) {
+      FlushbarHelper.showError(
+        context,
+        LocalizationHelper.getText('failed_to_load_user_data'),
+      );
+    }
+    setState(() => _isInitialLoading = false);
+  }
+}
+
+Future<void> _loadRemainingDataInBackground() async {
+  if (_organizationMember == null) return;
+
+  if (mounted) {
+    setState(() => _isSecondaryDataLoading = true);
+  }
+
+  try {
+    // ✅ Load data yang tidak urgent (parallel)
+    await Future.wait([
+      _loadOrganizationData(),
+      _loadBreakInfo(),
+      _loadLocationInfo(), // Pindahkan ke sini
+    ]).timeout(
+      const Duration(seconds: 8),
+      onTimeout: () async {
+        debugPrint('⚠️ Remaining data timeout');
+        return [];
+      },
+    );
+
+    // ✅ Update status (butuh data dari loadOrganizationData)
+    await _updateAttendanceStatus().timeout(
+      const Duration(seconds: 3),
+      onTimeout: () async {
+        debugPrint('⚠️ Status update timeout');
+        return Future.value();
+      },
+    );
+
+    // ✅ Build timeline (terakhir)
+    await _buildDynamicTimeline().timeout(
+      const Duration(seconds: 2),
+      onTimeout: () async {
+        debugPrint('⚠️ Timeline build timeout');
+        return Future.value();
+      },
+    );
+
+  } catch (e) {
+    debugPrint('Error loading remaining data: $e');
+  } finally {
+    if (mounted) {
+      setState(() => _isSecondaryDataLoading = false);
     }
   }
+}
 
   Future<void> _loadSecondaryDataInBackground() async {
-    if (_organizationMember == null) return;
+  if (_organizationMember == null) return;
 
-    try {
-      await _loadScheduleData();
-
-      await Future.wait([
-        _loadOrganizationData(),
-        _loadBreakInfo(),
-        _loadLocationInfo(), // ✅ Tambahkan ini
-      ]);
-
-      await _updateAttendanceStatus();
-      await _buildDynamicTimeline();
-
-      if (mounted) setState(() {});
-    } catch (e) {
-      debugPrint('Error loading secondary data: $e');
-    }
+  // ✅ Set loading state
+  if (mounted) {
+    setState(() => _isSecondaryDataLoading = true);
   }
 
+  try {
+    // ✅ STEP 1: Load schedule dulu (penting untuk timeline)
+    await _loadScheduleData().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () {
+        debugPrint('⚠️ Schedule load timeout');
+        return Future.value();
+      },
+    );
+
+    // ✅ STEP 2: Load data lainnya (parallel, dengan individual timeout)
+    await Future.wait([
+      _loadOrganizationData().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          debugPrint('⚠️ Organization data timeout');
+          return Future.value();
+        },
+      ),
+      _loadBreakInfo().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () {
+          debugPrint('⚠️ Break info timeout');
+          return Future.value();
+        },
+      ),
+      _loadLocationInfo().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () {
+          debugPrint('⚠️ Location info timeout');
+          return Future.value();
+        },
+      ),
+    ]).catchError((e) {
+      debugPrint('Some secondary data failed to load: $e');
+      return []; // ✅ Return empty list
+    });
+
+    // ✅ STEP 3: Update status dan timeline
+    await _updateAttendanceStatus().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () {
+        debugPrint('⚠️ Attendance status timeout');
+        return Future.value();
+      },
+    );
+    
+    await _buildDynamicTimeline().timeout(
+      const Duration(seconds: 3),
+      onTimeout: () {
+        debugPrint('⚠️ Timeline build timeout');
+        return Future.value();
+      },
+    );
+
+  } catch (e) {
+    debugPrint('Error loading secondary data: $e');
+  } finally {
+    // ✅ Clear loading state
+    if (mounted) {
+      setState(() => _isSecondaryDataLoading = false);
+    }
+  }
+}
   Future<void> _loadLocationInfo() async {
     if (_organizationMember == null || _isLoadingLocationInfo) return;
 
@@ -601,90 +783,74 @@ class _DashboardContentState extends State<_DashboardContent> {
   }
 
   Future<void> _checkDeviceSelection() async {
-    if (_organizationMember == null) return;
+  if (_organizationMember == null) return;
 
-    try {
-      // ✅ Check work location type dulu
-      final requiresGps = await _attendanceService.requiresGpsValidation(
-        _organizationMember!.id,
-      );
+  try {
+    // ✅ STEP 1: Check GPS requirement (cepat, dari database)
+    final requiresGps = await _attendanceService.requiresGpsValidation(
+      _organizationMember!.id,
+    );
 
+    setState(() {
+      _requiresGpsValidation = requiresGps;
+    });
+
+    debugPrint(
+      requiresGps
+          ? '✓ Office worker detected - GPS validation required'
+          : '✓ Field worker detected - GPS validation optional',
+    );
+
+    // ✅ STEP 2: Check device selection (1x saja)
+    final selectionRequired = await _deviceService.isSelectionRequired(
+      _organizationMember!.organizationId,
+    );
+
+    final selectedDevice = await _deviceService.loadSelectedDevice(
+      _organizationMember!.organizationId,
+    );
+
+    // ✅ Block jika Office Worker DAN belum pilih device
+    if (selectedDevice == null && requiresGps && selectionRequired) {
       setState(() {
-        _requiresGpsValidation = requiresGps;
+        _needsDeviceSelection = true;
+        _selectedDevice = null;
+        _currentPosition = null;
       });
+      return;
+    }
 
-      // ✅ PERUBAHAN: Field Worker TETAP bisa pilih device (optional)
-      // Hanya skip device selection jika memang tidak ada device yang tersedia
-      debugPrint(
-        requiresGps
-            ? '✓ Office worker detected - GPS validation required'
-            : '✓ Field worker detected - GPS validation optional',
+    // ✅ Set device (1x saja)
+    _selectedDevice = selectedDevice;
+
+    // ✅ Set position jika ada device
+    if (_selectedDevice != null && _selectedDevice!.hasValidCoordinates) {
+      _currentPosition = Position(
+        longitude: _selectedDevice!.longitude!,
+        latitude: _selectedDevice!.latitude!,
+        timestamp: DateTime.now(),
+        accuracy: 0.0,
+        altitude: 0.0,
+        heading: 0.0,
+        speed: 0.0,
+        speedAccuracy: 0.0,
+        altitudeAccuracy: 0.0,
+        headingAccuracy: 0.0,
       );
 
-      // ✅ Check apakah device selection diperlukan
-      final selectionRequired = await _deviceService.isSelectionRequired(
-        _organizationMember!.organizationId,
-      );
-
-      if (selectionRequired) {
-        final selectedDevice = await _deviceService.loadSelectedDevice(
-          _organizationMember!.organizationId,
-        );
-
-        // ✅ PERUBAHAN: Hanya block jika Office Worker DAN belum pilih device
-        if (selectedDevice == null && requiresGps) {
-          setState(() {
-            _needsDeviceSelection = true;
-            _selectedDevice = null;
-            _currentPosition = null;
-            _gpsPosition = null;
-            _distanceToDevice = null;
-            _isWithinRadius = null;
-          });
-          return;
-        }
-      }
-
-      // ✅ Load selected device (bisa null untuk field worker)
-      final loadedDevice = await _deviceService.loadSelectedDevice(
-        _organizationMember!.organizationId,
-      );
-      _selectedDevice = loadedDevice;
-
-      // ✅ Set position jika ada device
-      if (_selectedDevice != null && _selectedDevice!.hasValidCoordinates) {
-        _currentPosition = Position(
-          longitude: _selectedDevice!.longitude!,
-          latitude: _selectedDevice!.latitude!,
-          timestamp: DateTime.now(),
-          accuracy: 0.0,
-          altitude: 0.0,
-          heading: 0.0,
-          speed: 0.0,
-          speedAccuracy: 0.0,
-          altitudeAccuracy: 0.0,
-          headingAccuracy: 0.0,
-        );
-
-        // ✅ Update GPS hanya untuk Office Worker
-        if (requiresGps) {
-          unawaited(
-            _updateGpsPositionAndDistance(debounce: false, retryCount: 0),
-          );
-        }
-      }
-
-      setState(() => _needsDeviceSelection = false);
-    } catch (e) {
-      debugPrint('Error checking location selection: $e');
-      if (mounted) {
-        FlushbarHelper.showError(
-          context,
-          LocalizationHelper.getText('failed_to_check_location'),
+      // ✅ Update GPS async (tidak blocking)
+      if (requiresGps) {
+        unawaited(
+          _updateGpsPositionAndDistance(debounce: false, retryCount: 0),
         );
       }
     }
+
+    setState(() => _needsDeviceSelection = false);
+  } catch (e) {
+    debugPrint('Error checking location selection: $e');
   }
+}
 
   Future<void> _navigateToDeviceSelection({bool isRequired = false}) async {
     if (_organizationMember == null) return;
@@ -864,130 +1030,200 @@ class _DashboardContentState extends State<_DashboardContent> {
   }
 
   Future<void> _loadOrganizationInfo() async {
-    if (_organizationMember == null) return;
+  if (_organizationMember == null) return;
 
+  // ✅ Check cache first
+  if (_cachedOrganization != null && 
+      _organizationCacheTime != null &&
+      DateTime.now().difference(_organizationCacheTime!) < cacheValidity) {
+    setState(() {
+      _organization = _cachedOrganization;
+    });
+    debugPrint('✓ Using cached organization data');
+    return;
+  }
+
+  try {
+    dynamic orgIdValue;
     try {
-      dynamic orgIdValue;
-      try {
-        orgIdValue = int.parse(_organizationMember!.organizationId);
-      } catch (e) {
-        orgIdValue = _organizationMember!.organizationId;
-      }
-
-      final response = await Supabase.instance.client
-          .from('organizations')
-          .select('id, name, logo_url')
-          .eq('id', orgIdValue)
-          .single();
-
-      if (response != null && mounted) {
-        setState(() {
-          _organization = SimpleOrganization(
-            id: response['id'].toString(),
-            name: response['name'] ?? 'Unknown Organization',
-            logoUrl: response['logo_url'],
-          );
-        });
-      }
+      orgIdValue = int.parse(_organizationMember!.organizationId);
     } catch (e) {
-      debugPrint('Error loading organization info: $e');
+      orgIdValue = _organizationMember!.organizationId;
+    }
+
+    final response = await Supabase.instance.client
+        .from('organizations')
+        .select('id, name, logo_url')
+        .eq('id', orgIdValue)
+        .single()
+        .timeout(const Duration(seconds: 5));
+
+    if (response != null && mounted) {
+      final org = SimpleOrganization(
+        id: response['id'].toString(),
+        name: response['name'] ?? 'Unknown Organization',
+        logoUrl: response['logo_url'],
+      );
+      
+      setState(() {
+        _organization = org;
+        _cachedOrganization = org;
+        _organizationCacheTime = DateTime.now();
+      });
+      debugPrint('✓ Organization data loaded: ${org.name}, Logo: ${org.logoUrl}');
+    }
+  } catch (e) {
+    debugPrint('Error loading organization info: $e');
+    // Use cached data if available
+    if (_cachedOrganization != null && mounted) {
+      setState(() {
+        _organization = _cachedOrganization;
+      });
+      debugPrint('✓ Using cached organization data after error');
     }
   }
+}
 
   Future<void> _refreshData() async {
-    setState(() => _isRefreshing = true);
+  setState(() => _isRefreshing = true);
 
-    try {
-      _userProfile = await _attendanceService.loadUserProfile();
+  try {
+    // ✅ Refresh profile
+    _userProfile = await _attendanceService.loadUserProfile().timeout(
+      const Duration(seconds: 3),
+      onTimeout: () async {
+        debugPrint('⚠️ Profile refresh timeout, using cached');
+        return _userProfile;
+      },
+    );
 
-      if (_organizationMember != null) {
-        await _checkDeviceSelection();
-
-        if (!_needsDeviceSelection) {
-          await Future.wait([
-            _loadOrganizationData(),
-            _loadScheduleData(),
-            _loadBreakInfo(),
-            _loadLocationInfo(),
-          ]);
-
-          await _updateAttendanceStatus();
-          await _buildDynamicTimeline();
-        }
-      }
-    } catch (e) {
-      debugPrint('Error refreshing data: $e');
-      if (mounted) {
-        FlushbarHelper.showError(
-          context,
-          LocalizationHelper.getText('failed_to_refresh_data'),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isRefreshing = false);
-    }
-  }
-
-  Future<void> _loadOrganizationData() async {
-    if (_organizationMember == null) return;
-
-    try {
-      final results = await Future.wait([
-        _attendanceService.loadTodayAttendanceRecords(_organizationMember!.id),
-        _attendanceService.loadRecentAttendanceRecords(_organizationMember!.id),
-      ]);
-
-      if (mounted) {
-        setState(() {
-          _todayAttendanceRecords = results[0] as List<AttendanceRecord>;
-          _recentAttendanceRecords = results[1] as List<AttendanceRecord>;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error loading organization data: $e');
-    }
-  }
-
-  Future<void> _loadScheduleData() async {
-    if (_organizationMember == null) return;
-
-    try {
-      _currentSchedule = await _attendanceService.loadCurrentSchedule(
-        _organizationMember!.id,
+    if (_organizationMember != null) {
+      // ✅ Parallel refresh essential data (include organization info)
+      await Future.wait([
+        _loadScheduleData(),
+        _loadLocationInfo(),
+        _loadOrganizationData(),
+        _loadBreakInfo(),
+        _loadOrganizationInfo(), // ✅ Refresh organization info dengan logo
+      ]).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () async {
+          debugPrint('⚠️ Refresh data timeout');
+          return [];
+        },
       );
 
-      if (_currentSchedule?.workScheduleId != null) {
-        final dayOfWeek = TimeHelper.getCurrentDayOfWeek();
-        _todayScheduleDetails = await _attendanceService
-            .loadWorkScheduleDetails(
-              _currentSchedule!.workScheduleId!,
-              dayOfWeek,
-            );
-      }
-
-      if (mounted) setState(() {});
-    } catch (e) {
-      debugPrint('Error loading schedule details: $e');
+      // ✅ Update status dan timeline
+      await _updateAttendanceStatus().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () => Future.value(),
+      );
+      
+      await _buildDynamicTimeline().timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => Future.value(),
+      );
     }
+  } catch (e) {
+    debugPrint('Error refreshing data: $e');
+    if (mounted) {
+      FlushbarHelper.showError(
+        context,
+        LocalizationHelper.getText('failed_to_refresh_data'),
+      );
+    }
+  } finally {
+    if (mounted) setState(() => _isRefreshing = false);
   }
+}
+
+  Future<void> _loadOrganizationData() async {
+  if (_organizationMember == null) return;
+
+  try {
+    // ✅ Load semua data sekaligus (1 call)
+    final data = await _attendanceService.loadDashboardData(_organizationMember!.id);
+
+    if (mounted) {
+      setState(() {
+        _todayAttendanceRecords = data['today_records'] as List<AttendanceRecord>;
+        _recentAttendanceRecords = data['recent_records'] as List<AttendanceRecord>;
+      });
+    }
+  } catch (e) {
+    debugPrint('Error loading organization data: $e');
+  }
+}
+
+  Future<void> _loadScheduleData() async {
+  if (_organizationMember == null) return;
+
+  try {
+    _currentSchedule = await _attendanceService.loadCurrentSchedule(
+      _organizationMember!.id,
+    );
+
+    if (_currentSchedule?.workScheduleId != null) {
+      final dayOfWeek = TimeHelper.getCurrentDayOfWeek();
+      final cacheKey = '${_currentSchedule!.workScheduleId}_$dayOfWeek';
+      
+      // ✅ CRITICAL: Check cache SEBELUM setState
+      if (_cachedScheduleDetails != null && 
+          _cachedScheduleDetailsKey == cacheKey &&
+          _scheduleDetailsCacheTime != null &&
+          DateTime.now().difference(_scheduleDetailsCacheTime!) < const Duration(hours: 1)) {
+        _todayScheduleDetails = _cachedScheduleDetails;
+        debugPrint('✓ Using cached schedule details');
+        // ✅ JANGAN setState di sini, langsung return
+        return;
+      }
+      
+      // ✅ Load dari database hanya jika cache tidak ada
+      debugPrint('Loading work schedule details for schedule: ${_currentSchedule!.workScheduleId}, day: $dayOfWeek');
+      _todayScheduleDetails = await _attendanceService
+          .loadWorkScheduleDetails(
+            _currentSchedule!.workScheduleId!,
+            dayOfWeek,
+          );
+      
+      // ✅ Cache result
+      if (_todayScheduleDetails != null) {
+        _cachedScheduleDetails = _todayScheduleDetails;
+        _cachedScheduleDetailsKey = cacheKey;
+        _scheduleDetailsCacheTime = DateTime.now();
+        debugPrint('✓ Schedule details loaded and cached');
+      }
+    }
+
+    // ✅ setState hanya sekali di akhir
+    if (mounted) setState(() {});
+  } catch (e) {
+    debugPrint('Error loading schedule details: $e');
+  }
+}
 
   Future<void> _updateAttendanceStatus() async {
-    if (_organizationMember == null) return;
+  if (_organizationMember == null) return;
 
-    try {
-      final results = await Future.wait([
-        _attendanceService.getCurrentAttendanceStatus(_organizationMember!.id),
-        _attendanceService.getAvailableActions(_organizationMember!.id),
-      ]);
+  try {
+    final results = await Future.wait([
+      _attendanceService.getCurrentAttendanceStatus(_organizationMember!.id),
+      // ✅ Pass existing data untuk avoid duplicate query
+      _attendanceService.getAvailableActions(
+        _organizationMember!.id,
+        existingSchedule: _currentSchedule,
+        existingScheduleDetails: _todayScheduleDetails,
+      ),
+    ]);
 
-      _currentStatus = results[0] as AttendanceStatus;
-      _availableActions = results[1] as List<AttendanceAction>;
+    _currentStatus = results[0] as AttendanceStatus;
+    _availableActions = results[1] as List<AttendanceAction>;
 
-      if (mounted) setState(() {});
-    } catch (e) {
-      debugPrint('Error updating attendance status: $e');
-    }
+    if (mounted) setState(() {});
+  } catch (e) {
+    debugPrint('Error updating attendance status: $e');
   }
+}
 
   Future<List<ScheduleItem>> _getScheduleItemsFromDatabase() async {
     List<ScheduleItem> items = [];
@@ -2360,6 +2596,9 @@ class _DashboardContentState extends State<_DashboardContent> {
             onRefresh: _refreshData,
             color: primaryColor,
             backgroundColor: Colors.white,
+            // Disable spinner karena kita pakai skeleton
+            displacement: 40,
+            strokeWidth: 2.5,
             child: _buildMainContent(displayName),
           ),
           _buildBreakIndicator(),
@@ -2587,20 +2826,49 @@ class _DashboardContentState extends State<_DashboardContent> {
     );
   }
 
-  Widget _buildMainContent(String displayName) {
+Widget _buildMainContent(String displayName) {
+  // ✅ Hanya show skeleton saat initial loading atau refresh
+  if (_isInitialLoading || _isRefreshing) {
     return SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
       child: Column(
         children: [
-          _buildHeader(displayName),
-          _buildStatusCard(),
-          _buildTimelineCard(),
+          SkeletonWidgets.buildSkeletonHeader(),
+          SkeletonWidgets.buildSkeletonStatusCard(),
+          SkeletonWidgets.buildSkeletonTimelineCard(),
           const SizedBox(height: 100),
         ],
       ),
     );
   }
 
+  // ✅ Tampilkan konten lengkap (tanpa loading indicator pojok)
+  return SingleChildScrollView(
+    physics: const AlwaysScrollableScrollPhysics(),
+    child: Column(
+      children: [
+        _buildHeader(displayName),
+        _buildStatusCard(),
+        _buildTimelineCard(),
+        const SizedBox(height: 100),
+      ],
+    ),
+  );
+}
+
+@override
+void didChangeDependencies() {
+  super.didChangeDependencies();
+  // Reload data jika halaman kembali visible dan data kosong
+  if (mounted && 
+      !_isInitialLoading && 
+      !_isSecondaryDataLoading &&
+      _todayAttendanceRecords.isEmpty && 
+      _organizationMember != null) {
+    debugPrint('Page resumed - reloading secondary data');
+    _loadSecondaryDataInBackground();
+  }
+}
   Widget _buildHeader(String displayName) {
     return Container(
       width: double.infinity,
@@ -3185,7 +3453,7 @@ class _DashboardContentState extends State<_DashboardContent> {
 
   Widget _buildTimelineCard() {
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 0),
+      margin: const EdgeInsets.symmetric(horizontal: 20),
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,

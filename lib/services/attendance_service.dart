@@ -16,42 +16,48 @@ class AttendanceService {
   static const String _genericError = 'Something went wrong. Please try again in a moment.';
 
   Future<UserProfile?> loadUserProfile() async {
-    try {
-      final user = _supabase.auth.currentUser;
-      if (user == null) {
-        throw _AuthException('Please log in to access your profile.');
-      }
+    return _executeWithRetry(
+      operation: () async {
+        try {
+          final user = _supabase.auth.currentUser;
+          if (user == null) {
+            throw _AuthException('Please log in to access your profile.');
+          }
 
-      final profileResponse = await _supabase
-          .from('user_profiles')
-          .select()
-          .eq('id', user.id)
-          .maybeSingle();
+          final profileResponse = await _supabase
+              .from('user_profiles')
+              .select()
+              .eq('id', user.id)
+              .maybeSingle();
 
-      if (profileResponse == null) {
-        await _createUserProfile(user);
-        
-        final newProfileResponse = await _supabase
-            .from('user_profiles')
-            .select()
-            .eq('id', user.id)
-            .maybeSingle();
+          if (profileResponse == null) {
+            await _createUserProfile(user);
             
-        return newProfileResponse != null ? UserProfile.fromJson(newProfileResponse) : null;
-      } else {
-        return UserProfile.fromJson(profileResponse);
-      }
-    } on _AuthException {
-      rethrow;
-    } on SocketException {
-      throw _NetworkException(_networkError);
-    } on PostgrestException catch (e) {
-      debugPrint('Database error loading profile: ${e.message}');
-      throw _DatabaseException('Unable to load your profile. Please try again.');
-    } catch (e) {
-      debugPrint('Unexpected error loading profile: $e');
-      throw _GeneralException('Failed to load your profile. Please restart the app.');
-    }
+            final newProfileResponse = await _supabase
+                .from('user_profiles')
+                .select()
+                .eq('id', user.id)
+                .maybeSingle();
+                
+            return newProfileResponse != null ? UserProfile.fromJson(newProfileResponse) : null;
+          } else {
+            return UserProfile.fromJson(profileResponse);
+          }
+        } on _AuthException {
+          rethrow;
+        } on SocketException {
+          throw _NetworkException(_networkError);
+        } on PostgrestException catch (e) {
+          debugPrint('Database error loading profile: ${e.message}');
+          throw _DatabaseException('Unable to load your profile. Please try again.');
+        } catch (e) {
+          debugPrint('Unexpected error loading profile: $e');
+          throw _GeneralException('Failed to load your profile. Please restart the app.');
+        }
+      },
+      maxRetries: 2,
+      timeout: const Duration(seconds: 8),
+    );
   }
 
   Future<void> _createUserProfile(User user) async {
@@ -1527,15 +1533,24 @@ Future<List<DateTime>> getTodayCheckInTimes(String organizationMemberId) async {
   }
 }
  
-Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) async {
+Future<List<AttendanceAction>> getAvailableActions(
+  String organizationMemberId, {
+  MemberSchedule? existingSchedule, // ✅ TAMBAHKAN parameter optional
+  WorkScheduleDetails? existingScheduleDetails, // ✅ TAMBAHKAN parameter optional
+}) async {
   try {
     await _validateUserAccess(organizationMemberId);
     
     final status = await getCurrentAttendanceStatus(organizationMemberId);
-    final schedule = await loadCurrentSchedule(organizationMemberId);
     
-    WorkScheduleDetails? scheduleDetails;
-    if (schedule?.workScheduleId != null) {
+    // ✅ Gunakan existing schedule jika ada, jika tidak load baru
+    final schedule = existingSchedule ?? await loadCurrentSchedule(organizationMemberId);
+    
+    // ✅ Gunakan existing schedule details jika ada
+    WorkScheduleDetails? scheduleDetails = existingScheduleDetails;
+    
+    // ✅ Load schedule details hanya jika belum ada DAN schedule punya workScheduleId
+    if (scheduleDetails == null && schedule?.workScheduleId != null) {
       final dayOfWeek = TimeHelper.getCurrentDayOfWeek();
       scheduleDetails = await loadWorkScheduleDetails(schedule!.workScheduleId!, dayOfWeek);
     }
@@ -1554,7 +1569,7 @@ Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) 
         ? TimeHelper.isBeforeWorkHours(scheduleDetails!.startTime!, graceMinutes: 30)
         : false;
 
-    // ✅ FIX: Get today's logs to determine exact state
+    // ✅ Get today's logs to determine exact state
     final todayLogs = await getTodayAttendanceLogs(organizationMemberId);
     final checkInCount = todayLogs.where((log) => log.eventType == 'check_in').length;
     final checkOutCount = todayLogs.where((log) => log.eventType == 'check_out').length;
@@ -1578,7 +1593,7 @@ Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) 
           checkInReason = 'Too early to check in';
           canCheckIn = false;
         } else {
-          // ✅ FIX: Show different message for first vs subsequent check-in
+          // ✅ Show different message for first vs subsequent check-in
           if (checkInCount > 0) {
             checkInReason = isBalanced 
               ? 'Ready for next check-in session'
@@ -1665,8 +1680,6 @@ Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) 
     return [];
   }
 }
-
-
 
   bool _canCheckIn(TimeOfDay currentTime, WorkScheduleDetails? scheduleDetails) {
     if (scheduleDetails?.startTime == null) return true;
@@ -2176,6 +2189,82 @@ Future<List<AttendanceAction>> getAvailableActions(String organizationMemberId) 
       return ['Unable to validate attendance data. Please try again later.'];
     }
   }
+
+  // ✅ Helper untuk retry with timeout
+  Future<T> _executeWithRetry<T>({
+    required Future<T> Function() operation,
+    int maxRetries = 2,
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    int attempts = 0;
+    
+    while (attempts < maxRetries) {
+      try {
+        return await operation().timeout(timeout);
+      } catch (e) {
+        attempts++;
+        if (attempts >= maxRetries) {
+          rethrow;
+        }
+        debugPrint('Retry attempt $attempts after error: $e');
+        await Future.delayed(Duration(seconds: attempts));
+      }
+    }
+    
+    throw Exception('Max retries exceeded');
+  }
+
+  // ✅ TAMBAHKAN method baru untuk load data sekaligus
+Future<Map<String, dynamic>> loadDashboardData(String organizationMemberId) async {
+  try {
+    await _validateUserAccess(organizationMemberId);
+    
+    final today = TimezoneHelper.getTodayDateString();
+    
+    // ✅ Load semua data dalam 1 query dengan join
+    final results = await Future.wait([
+      // Today records
+      _supabase
+          .from('attendance_records')
+          .select('*, shifts(id, name, start_time, end_time)')
+          .eq('organization_member_id', organizationMemberId)
+          .eq('attendance_date', today)
+          .order('created_at'),
+      
+      // Recent records (30 days)
+      _supabase
+          .from('attendance_records')
+          .select('*, shifts(id, name, start_time, end_time)')
+          .eq('organization_member_id', organizationMemberId)
+          .order('attendance_date', ascending: false)
+          .limit(30),
+      
+      // Today logs
+      _supabase
+          .from('attendance_logs')
+          .select('*')
+          .eq('organization_member_id', organizationMemberId)
+          .gte('event_time', '${today}T00:00:00')
+          .lte('event_time', '${today}T23:59:59')
+          .order('event_time'),
+    ]);
+    
+    return {
+      'today_records': List<Map<String, dynamic>>.from(results[0])
+          .map((json) => AttendanceRecord.fromJson(json))
+          .toList(),
+      'recent_records': List<Map<String, dynamic>>.from(results[1])
+          .map((json) => AttendanceRecord.fromJson(json))
+          .toList(),
+      'today_logs': List<Map<String, dynamic>>.from(results[2])
+          .map((json) => AttendanceLog.fromJson(json))
+          .toList(),
+    };
+  } catch (e) {
+    debugPrint('Error loading dashboard data: $e');
+    rethrow;
+  }
+}
 
   // Helper methods for formatting
   String _formatDate(DateTime date) {
