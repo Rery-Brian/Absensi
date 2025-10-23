@@ -2836,7 +2836,7 @@ Widget _buildMainContent(String displayName) {
           SkeletonWidgets.buildSkeletonHeader(),
           SkeletonWidgets.buildSkeletonStatusCard(),
           SkeletonWidgets.buildSkeletonTimelineCard(),
-          const SizedBox(height: 100),
+          const SizedBox(height: 24),
         ],
       ),
     );
@@ -2850,7 +2850,7 @@ Widget _buildMainContent(String displayName) {
         _buildHeader(displayName),
         _buildStatusCard(),
         _buildTimelineCard(),
-        const SizedBox(height: 100),
+        const SizedBox(height: 24),
       ],
     ),
   );

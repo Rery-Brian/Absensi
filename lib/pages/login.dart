@@ -79,75 +79,79 @@ class _LoginState extends State<Login> {
     }
   }
 
-  // Function untuk create atau update user profile
-  Future<bool> _ensureUserProfile(String userId, String email, {String? googleName}) async {
-    try {
-      debugPrint('Ensuring user profile for: $userId');
-      
-      final existingProfile = await _checkUserProfile(userId);
-      
-      String fullName;
-      if (googleName != null && googleName.isNotEmpty) {
-        fullName = googleName;
-        debugPrint('Using Google name: $fullName');
-      } else {
-        fullName = _extractNameFromEmail(email);
-        debugPrint('Extracted name from email: $fullName');
-      }
-      
-      final nameParts = _splitName(fullName);
-      final firstName = nameParts['first_name']!;
-      final lastName = nameParts['last_name']!;
-      final displayName = fullName;
+ // Function untuk create atau update user profile
+Future<bool> _ensureUserProfile(String userId, String email, {String? googleName}) async {
+  try {
+    debugPrint('Ensuring user profile for: $userId');
+    
+    final existingProfile = await _checkUserProfile(userId);
+    
+    String fullName;
+    if (googleName != null && googleName.isNotEmpty) {
+      fullName = googleName;
+      debugPrint('Using Google name: $fullName');
+    } else {
+      fullName = _extractNameFromEmail(email);
+      debugPrint('Extracted name from email: $fullName');
+    }
+    
+    final nameParts = _splitName(fullName);
+    final firstName = nameParts['first_name']!;
+    final lastName = nameParts['last_name']!;
+    final displayName = fullName;
 
-      if (existingProfile == null) {
-        debugPrint('Creating new user profile...');
+    if (existingProfile == null) {
+      debugPrint('Creating new user profile...');
+      
+      final response = await supabase
+          .from('user_profiles')
+          .insert({
+            'id': userId,
+            'first_name': firstName,
+            'last_name': lastName,
+            'display_name': displayName,
+            'email': email,  // Include email
+            'is_active': true,
+          })
+          .select()
+          .single();
+
+      debugPrint('User profile created: $response');
+      return true;
+    } else {
+      // Check if update is needed (name or email)
+      final needsUpdate = existingProfile['first_name'] == null || 
+                         existingProfile['first_name'].toString().isEmpty ||
+                         existingProfile['first_name'] == 'User' ||
+                         existingProfile['email'] == null ||
+                         existingProfile['email'].toString().isEmpty;
+
+      if (needsUpdate) {
+        debugPrint('Updating existing user profile...');
         
         final response = await supabase
             .from('user_profiles')
-            .insert({
-              'id': userId,
+            .update({
               'first_name': firstName,
               'last_name': lastName,
               'display_name': displayName,
-              'is_active': true,
+              'email': email,  // Always update email
             })
-            .select()
-            .single();
+            .eq('id', userId)
+            .select();
 
-        debugPrint('User profile created: $response');
-        return true;
+        debugPrint('User profile updated: $response');
       } else {
-        final needsUpdate = existingProfile['first_name'] == null || 
-                           existingProfile['first_name'].toString().isEmpty ||
-                           existingProfile['first_name'] == 'User';
-
-        if (needsUpdate) {
-          debugPrint('Updating existing user profile...');
-          
-          final response = await supabase
-              .from('user_profiles')
-              .update({
-                'first_name': firstName,
-                'last_name': lastName,
-                'display_name': displayName,
-              })
-              .eq('id', userId)
-              .select();
-
-          debugPrint('User profile updated: $response');
-        } else {
-          debugPrint('User profile already complete, skipping update');
-        }
-        
-        return true;
+        debugPrint('User profile already complete, skipping update');
       }
-    } catch (e) {
-      debugPrint('Error ensuring user profile: $e');
-      return false;
+      
+      return true;
     }
+  } catch (e) {
+    debugPrint('Error ensuring user profile: $e');
+    return false;
   }
-
+}
   // Function untuk check apakah user sudah punya organisasi
   Future<bool> _userHasOrganization(String userId) async {
     try {

@@ -38,58 +38,60 @@ class _SignupState extends State<Signup> {
     }
   }
 
-  // Function untuk create user profile setelah signup
-  Future<bool> _createUserProfile(String userId, String fullName, String email) async {
-    try {
-      print('Creating user profile for: $userId');
-      
-      final nameParts = _splitName(fullName);
-      final firstName = nameParts['first_name']!;
-      final lastName = nameParts['last_name']!;
-      
-      // Wait a bit untuk memastikan trigger selesai
-      await Future.delayed(const Duration(milliseconds: 500));
-      
-      // Check apakah profile sudah ada dari trigger
-      final existingProfile = await supabase
+ // Function untuk create user profile setelah signup
+Future<bool> _createUserProfile(String userId, String fullName, String email) async {
+  try {
+    print('Creating user profile for: $userId');
+    
+    final nameParts = _splitName(fullName);
+    final firstName = nameParts['first_name']!;
+    final lastName = nameParts['last_name']!;
+    
+    // Wait a bit untuk memastikan trigger selesai
+    await Future.delayed(const Duration(milliseconds: 500));
+    
+    // Check apakah profile sudah ada dari trigger
+    final existingProfile = await supabase
+        .from('user_profiles')
+        .select('id, email')
+        .eq('id', userId)
+        .maybeSingle();
+
+    if (existingProfile != null) {
+      // Update profile yang sudah dibuat oleh trigger, ALWAYS include email
+      print('Updating existing profile created by trigger...');
+      await supabase
           .from('user_profiles')
-          .select('id')
-          .eq('id', userId)
-          .maybeSingle();
-
-      if (existingProfile != null) {
-        // Update profile yang sudah dibuat oleh trigger
-        print('Updating existing profile created by trigger...');
-        await supabase
-            .from('user_profiles')
-            .update({
-              'first_name': firstName,
-              'last_name': lastName,
-              'display_name': fullName,
-              'is_active': true,
-            })
-            .eq('id', userId);
-      } else {
-        // Create new profile jika trigger gagal
-        print('Creating new user profile...');
-        await supabase
-            .from('user_profiles')
-            .insert({
-              'id': userId,
-              'first_name': firstName,
-              'last_name': lastName,
-              'display_name': fullName,
-              'is_active': true,
-            });
-      }
-
-      print('User profile created/updated successfully');
-      return true;
-    } catch (e) {
-      print('Error creating user profile: $e');
-      return false;
+          .update({
+            'first_name': firstName,
+            'last_name': lastName,
+            'display_name': fullName,
+            'email': email,  // Always update email
+            'is_active': true,
+          })
+          .eq('id', userId);
+    } else {
+      // Create new profile jika trigger gagal
+      print('Creating new user profile...');
+      await supabase
+          .from('user_profiles')
+          .insert({
+            'id': userId,
+            'first_name': firstName,
+            'last_name': lastName,
+            'display_name': fullName,
+            'email': email,  // Include email
+            'is_active': true,
+          });
     }
+
+    print('User profile created/updated successfully with email: $email');
+    return true;
+  } catch (e) {
+    print('Error creating user profile: $e');
+    return false;
   }
+}
 
   // Function untuk menampilkan dialog
   void _showDialog({
