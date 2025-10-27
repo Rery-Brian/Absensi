@@ -139,12 +139,6 @@ class _DeviceSelectionScreenState extends State<DeviceSelectionScreen> {
     try {
       await _deviceService.setSelectedDevice(device);
 
-      if (mounted) {
-        FlushbarHelper.showSuccess(
-          context,
-          '${device.deviceName} ${LocalizationHelper.getText('success').toLowerCase()}',
-        );
-      }
 
       await Future.delayed(const Duration(milliseconds: 400));
 

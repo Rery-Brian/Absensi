@@ -81,7 +81,7 @@ class AttendanceService {
       debugPrint('Database error creating profile: ${e.message}');
       throw _DatabaseException('Unable to set up your profile. Please contact support.');
     } catch (e) {
-      debugPrint('Unexpected error creating profile: $e');
+      debugPrint('Unexpected ernror creating profile: $e');
       throw _GeneralException('Profile setup failed. Please contact support.');
     }
   }
