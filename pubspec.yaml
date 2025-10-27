@@ -45,6 +45,7 @@ dependencies:
   flutter_map: ^6.1.0
   latlong2: ^0.9.0
   shimmer: ^3.0.0
+  lottie: ^3.1.0
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -79,6 +80,7 @@ flutter:
   - assets/logo/logo_apk.png
   - assets/logo/logo.png
   - assets/logo/logo_google.png
+  - assets/lottie/Done.json
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

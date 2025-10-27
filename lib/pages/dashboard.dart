@@ -20,6 +20,7 @@ import 'attendance_map_widget.dart';
 import 'join_organization_screen.dart';
 import 'skeleton_widget.dart';
 import 'package:shimmer/shimmer.dart';
+import 'package:lottie/lottie.dart';
 
 class UserDashboard extends StatefulWidget {
   const UserDashboard({super.key});
@@ -2168,125 +2169,133 @@ Future<void> _loadRemainingDataInBackground() async {
   }
 
   Future<void> _showSuccessAttendancePopup(String type) async {
-    if (!mounted) return;
+  if (!mounted) return;
 
-    final orgTime = TimezoneHelper.nowInOrgTime();
+  final orgTime = TimezoneHelper.nowInOrgTime();
 
-    // tampilkan dialog
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final isLandscape =
-                  MediaQuery.of(context).orientation == Orientation.landscape;
+  showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (BuildContext context) {
+      return Dialog(
+        backgroundColor: Colors.transparent,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isLandscape =
+                MediaQuery.of(context).orientation == Orientation.landscape;
 
-              return SingleChildScrollView(
-                child: Container(
-                  width:
-                      MediaQuery.of(context).size.width *
-                      (isLandscape ? 0.6 : 0.85),
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.of(context).size.height * 0.9,
-                  ),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [primaryColor, primaryColor.withOpacity(0.8)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.3),
-                        blurRadius: 20,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        padding: EdgeInsets.symmetric(
-                          vertical: isLandscape ? 15 : 30,
-                          horizontal: 20,
-                        ),
-                        child: Column(
-                          children: [
-                            Container(
-                              width: isLandscape ? 60 : 80,
-                              height: isLandscape ? 60 : 80,
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.2),
-                                    blurRadius: 15,
-                                    offset: const Offset(0, 5),
-                                  ),
-                                ],
-                              ),
-                              child: Icon(
-                                Icons.check_circle,
-                                size: isLandscape ? 30 : 40,
-                                color: primaryColor,
-                              ),
-                            ),
-                            SizedBox(height: isLandscape ? 12 : 20),
-                            Text(
-                              LocalizationHelper.getText(
-                                'attendance_successful',
-                              ),
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: isLandscape ? 20 : 24,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                            SizedBox(height: isLandscape ? 4 : 8),
-                            Text(
-                              _getAttendanceTypeLabel(type),
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: isLandscape ? 14 : 16,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                            SizedBox(height: isLandscape ? 4 : 8),
-                            Text(
-                              TimezoneHelper.formatAttendanceDateTime(orgTime),
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: isLandscape ? 12 : 14,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
-                        ),
-                      ),
-                      SizedBox(height: isLandscape ? 15 : 20),
-                    ],
-                  ),
+            return SingleChildScrollView(
+              child: Container(
+                width: MediaQuery.of(context).size.width *
+                    (isLandscape ? 0.6 : 0.85),
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.9,
                 ),
-              );
-            },
-          ),
-        );
-      },
-    );
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [primaryColor, primaryColor.withOpacity(0.8)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.3),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: EdgeInsets.symmetric(
+                        vertical: isLandscape ? 15 : 30,
+                        horizontal: 20,
+                      ),
+                      child: Column(
+                        children: [
+                          // 🎬 LOTTIE ANIMATION (Ganti icon check_circle)
+                          Lottie.asset(
+                            'assets/lottie/Done.json',
+                            width: isLandscape ? 100 : 140,
+                            height: isLandscape ? 100 : 140,
+                            repeat: false, // Play once only
+                            // Fallback jika file tidak ada
+                            errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                width: isLandscape ? 60 : 80,
+                                height: isLandscape ? 60 : 80,
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.2),
+                                      blurRadius: 15,
+                                      offset: const Offset(0, 5),
+                                    ),
+                                  ],
+                                ),
+                                child: Icon(
+                                  Icons.check_circle,
+                                  size: isLandscape ? 30 : 40,
+                                  color: primaryColor,
+                                ),
+                              );
+                            },
+                          ),
+                          SizedBox(height: isLandscape ? 12 : 20),
+                          Text(
+                            LocalizationHelper.getText(
+                              'attendance_successful',
+                            ),
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: isLandscape ? 20 : 24,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          SizedBox(height: isLandscape ? 4 : 8),
+                          Text(
+                            _getAttendanceTypeLabel(type),
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: isLandscape ? 14 : 16,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          SizedBox(height: isLandscape ? 4 : 8),
+                          Text(
+                            TimezoneHelper.formatAttendanceDateTime(orgTime),
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: isLandscape ? 12 : 14,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(height: isLandscape ? 15 : 20),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      );
+    },
+  );
 
-    // ⏳ Tutup otomatis setelah 2 detik
-    await Future.delayed(const Duration(seconds: 2));
-    if (mounted && Navigator.of(context).canPop()) {
-      Navigator.of(context).pop();
-    }
+  // ⏳ Tutup otomatis setelah 2 detik
+  await Future.delayed(const Duration(seconds: 2));
+  if (mounted && Navigator.of(context).canPop()) {
+    Navigator.of(context).pop();
   }
+}
 
   String _getAttendanceTypeLabel(String type) {
     switch (type) {
