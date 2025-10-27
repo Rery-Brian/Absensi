@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
 import '../helpers/timezone_helper.dart';
 import '../helpers/flushbar_helper.dart';
+import '../helpers/localization_helper.dart';
 import '../services/attendance_service.dart';
 
 class BreakPage extends StatefulWidget {
@@ -90,7 +91,7 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       if (mounted) {
         FlushbarHelper.showError(
           context,
-          'Failed to load break data. Please try again.',
+          LocalizationHelper.getText('failed_to_load_break_data'),
         );
       }
     } finally {
@@ -258,7 +259,7 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       if (mounted) {
         FlushbarHelper.showError(
           context,
-          'Failed to check break status. Please try again.',
+          LocalizationHelper.getText('failed_to_check_break_status'),
         );
       }
     }
@@ -323,31 +324,31 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
   String _getBreakStatusMessage() {
     if (_isOnBreak) {
       if (_hasExceeded) {
-        return 'Break time exceeded! Please resume work.';
+        return LocalizationHelper.getText('break_time_exceeded');
       } else if (_showWarning) {
-        return 'Break time almost over';
+        return LocalizationHelper.getText('break_time_almost_over');
       }
-      return 'Break in progress';
+      return LocalizationHelper.getText('break_in_progress');
     }
 
     if (!_canStartBreak()) {
       final now = TimezoneHelper.nowInOrgTime();
       
       if (_scheduledBreakStart != null && now.isBefore(_scheduledBreakStart!.subtract(const Duration(minutes: 30)))) {
-        return 'Break available at ${DateFormat('HH.mm', 'id_ID').format(_scheduledBreakStart!)}';
+        return '${LocalizationHelper.getText('break_available_at')} ${DateFormat('HH.mm', 'id_ID').format(_scheduledBreakStart!)}';
       }
       
       final remainingBreakMinutes = _maxBreakDuration.inMinutes - _totalBreakMinutesToday;
       if (remainingBreakMinutes <= 5) {
-        return 'Daily break time exhausted';
+        return LocalizationHelper.getText('daily_break_time_exhausted');
       }
       
       if (_scheduledBreakStart != null && now.isAfter(_scheduledBreakEnd!)) {
-        return 'Break time has passed';
+        return LocalizationHelper.getText('break_time_has_passed');
       }
     }
 
-    return 'Break available';
+    return LocalizationHelper.getText('break_available');
   }
 
   Future<void> _getCurrentLocation() async {
@@ -396,7 +397,7 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       if (mounted) {
         FlushbarHelper.showSuccess(
           context,
-          'Break started successfully',
+          LocalizationHelper.getText('break_started_successfully'),
         );
       }
       
@@ -406,7 +407,7 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       if (mounted) {
         FlushbarHelper.showError(
           context,
-          'Failed to start break. Please try again.',
+          LocalizationHelper.getText('failed_to_start_break'),
         );
       }
     } finally {
@@ -423,7 +424,7 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       if (mounted) {
         FlushbarHelper.showError(
           context,
-          'Break start time not found',
+          LocalizationHelper.getText('break_start_time_not_found'),
         );
       }
       return;
@@ -439,14 +440,12 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       final now = TimezoneHelper.nowInOrgTime();
       final actualBreakDuration = now.difference(_breakStartTime!);
       
-      // Preserve data BEFORE async operations
       final breakStartForSummary = _breakStartTime!;
       final breakEndForSummary = now;
       final durationForSummary = actualBreakDuration;
       final maxDurationForSummary = _maxBreakDuration;
       final totalBreakForSummary = _totalBreakMinutesToday;
 
-      // Insert break_in log
       await Supabase.instance.client.from('attendance_logs').insert({
         'organization_member_id': widget.organizationMemberId,
         'event_type': 'break_in',
@@ -463,7 +462,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
 
       debugPrint('Break-in log created successfully');
 
-      // Update break duration
       try {
         await _attendanceService.updateBreakDuration(
           widget.organizationMemberId,
@@ -474,11 +472,9 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
         debugPrint('Warning: Failed to update break duration: $e');
       }
 
-      // Stop timers
       _timer?.cancel();
       _warningTimer?.cancel();
 
-      // Reset state
       if (mounted) {
         setState(() {
           _isOnBreak = false;
@@ -491,7 +487,6 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
         });
       }
 
-      // Show summary with preserved data
       if (mounted) {
         await _showBreakSummary(
           breakStartForSummary,
@@ -508,7 +503,7 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       if (mounted) {
         FlushbarHelper.showError(
           context,
-          'Failed to end break: ${e.toString()}',
+          '${LocalizationHelper.getText('failed_to_end_break')}: ${e.toString()}',
           duration: const Duration(seconds: 5),
         );
         setState(() {
@@ -528,21 +523,27 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
         return AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           backgroundColor: warningColor,
-          title: const Row(
+          title: Row(
             children: [
-              Icon(Icons.warning, color: Colors.white),
-              SizedBox(width: 8),
-              Text('Break Warning', style: TextStyle(color: Colors.white)),
+              const Icon(Icons.warning, color: Colors.white),
+              const SizedBox(width: 8),
+              Text(
+                LocalizationHelper.getText('break_warning'),
+                style: const TextStyle(color: Colors.white),
+              ),
             ],
           ),
-          content: const Text(
-            'Your break time is almost over. Please consider resuming work soon.',
-            style: TextStyle(color: Colors.white),
+          content: Text(
+            LocalizationHelper.getText('break_warning_message'),
+            style: const TextStyle(color: Colors.white),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Continue Break', style: TextStyle(color: Colors.white)),
+              child: Text(
+                LocalizationHelper.getText('continue_break'),
+                style: const TextStyle(color: Colors.white),
+              ),
             ),
             ElevatedButton(
               onPressed: () {
@@ -550,7 +551,10 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
                 _endBreak();
               },
               style: ElevatedButton.styleFrom(backgroundColor: Colors.white),
-              child: Text('End Break Now', style: TextStyle(color: warningColor)),
+              child: Text(
+                LocalizationHelper.getText('end_break_now'),
+                style: TextStyle(color: warningColor),
+              ),
             ),
           ],
         );
@@ -609,7 +613,9 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
                   ),
                   const SizedBox(height: 20),
                   Text(
-                    wasExceeded ? 'Break Completed (Exceeded)' : 'Break Summary',
+                    wasExceeded 
+                        ? LocalizationHelper.getText('break_completed_exceeded')
+                        : LocalizationHelper.getText('break_summary'),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 24,
@@ -626,18 +632,30 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
                     ),
                     child: Column(
                       children: [
-                        _buildSummaryRow('Started', TimezoneHelper.formatOrgTime(breakStartTime, 'HH.mm')),
-                        _buildSummaryRow('Ended', TimezoneHelper.formatOrgTime(breakEndTime, 'HH.mm')),
-                        _buildSummaryRow('Duration', _formatDuration(actualDuration)),
-                        _buildSummaryRow('Allowed', _formatDuration(maxDuration)),
+                        _buildSummaryRow(
+                          LocalizationHelper.getText('started'),
+                          TimezoneHelper.formatOrgTime(breakStartTime, 'HH.mm'),
+                        ),
+                        _buildSummaryRow(
+                          LocalizationHelper.getText('ended'),
+                          TimezoneHelper.formatOrgTime(breakEndTime, 'HH.mm'),
+                        ),
+                        _buildSummaryRow(
+                          LocalizationHelper.getText('duration'),
+                          _formatDuration(actualDuration),
+                        ),
+                        _buildSummaryRow(
+                          LocalizationHelper.getText('allowed'),
+                          _formatDuration(maxDuration),
+                        ),
                         if (wasExceeded)
                           _buildSummaryRow(
-                            'Overtime',
+                            LocalizationHelper.getText('overtime'),
                             _formatDuration(Duration(minutes: actualDuration.inMinutes - maxDuration.inMinutes)),
                             isWarning: true,
                           ),
                         _buildSummaryRow(
-                          'Total Today',
+                          LocalizationHelper.getText('total_today'),
                           _formatDuration(Duration(minutes: totalTodayMinutes)),
                         ),
                       ],
@@ -652,14 +670,14 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: warningColor.withOpacity(0.5)),
                       ),
-                      child: const Row(
+                      child: Row(
                         children: [
-                          Icon(Icons.info, color: warningColor, size: 20),
-                          SizedBox(width: 8),
+                          const Icon(Icons.info, color: warningColor, size: 20),
+                          const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'Break time exceeded the allowed duration. Please be mindful of break limits.',
-                              style: TextStyle(color: Colors.white, fontSize: 12),
+                              LocalizationHelper.getText('break_exceeded_notice'),
+                              style: const TextStyle(color: Colors.white, fontSize: 12),
                             ),
                           ),
                         ],
@@ -680,9 +698,9 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
-                          child: const Text(
-                            'Back to Dashboard',
-                            style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                          child: Text(
+                            LocalizationHelper.getText('back_to_dashboard'),
+                            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
                           ),
                         ),
                       ),
@@ -779,9 +797,9 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
             onPressed: () => Navigator.of(context).pop(),
           ),
           const Spacer(),
-          const Text(
-            'Break Time',
-            style: TextStyle(
+          Text(
+            LocalizationHelper.getText('break_time'),
+            style: const TextStyle(
               color: Colors.white,
               fontSize: 20,
               fontWeight: FontWeight.bold,
@@ -796,7 +814,9 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
               border: Border.all(color: _getStatusColor().withOpacity(0.5)),
             ),
             child: Text(
-              _isOnBreak ? 'ON BREAK' : 'AVAILABLE',
+              _isOnBreak 
+                  ? LocalizationHelper.getText('on_break_status')
+                  : LocalizationHelper.getText('available'),
               style: TextStyle(
                 color: _getStatusColor(),
                 fontSize: 12,
@@ -830,16 +850,16 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
             shape: BoxShape.circle,
             border: Border.all(color: successColor.withOpacity(0.5), width: 2),
           ),
-          child: Icon(
+          child: const Icon(
             Icons.coffee,
             color: successColor,
             size: 60,
           ),
         ),
         const SizedBox(height: 32),
-        const Text(
-          'Break Schedule',
-          style: TextStyle(
+        Text(
+          LocalizationHelper.getText('break_schedule'),
+          style: const TextStyle(
             color: Colors.white70,
             fontSize: 18,
             fontWeight: FontWeight.w500,
@@ -865,7 +885,7 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
         ],
         const SizedBox(height: 16),
         Text(
-          'Max Duration: ${_formatDuration(_maxBreakDuration)}',
+          '${LocalizationHelper.getText('max_duration')}: ${_formatDuration(_maxBreakDuration)}',
           style: const TextStyle(
             color: Colors.white70,
             fontSize: 16,
@@ -884,9 +904,9 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
-                      'Break taken today:',
-                      style: TextStyle(color: Colors.white70, fontSize: 14),
+                    Text(
+                      '${LocalizationHelper.getText('break_taken_today')}:',
+                      style: const TextStyle(color: Colors.white70, fontSize: 14),
                     ),
                     Text(
                       _formatDuration(Duration(minutes: _totalBreakMinutesToday)),
@@ -898,9 +918,9 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
-                      'Remaining:',
-                      style: TextStyle(color: Colors.white70, fontSize: 14),
+                    Text(
+                      '${LocalizationHelper.getText('remaining')}:',
+                      style: const TextStyle(color: Colors.white70, fontSize: 14),
                     ),
                     Text(
                       _formatDuration(Duration(minutes: remainingBreakMinutes)),
@@ -940,7 +960,9 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
                     ),
                   )
                 : Text(
-                    canStart ? 'Start Break' : 'Not Available',
+                    canStart 
+                        ? LocalizationHelper.getText('start_break')
+                        : LocalizationHelper.getText('not_available'),
                     style: TextStyle(
                       color: canStart ? Colors.white : Colors.grey[500],
                       fontSize: 18,
@@ -1029,7 +1051,7 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'elapsed',
+                    LocalizationHelper.getText('elapsed'),
                     style: TextStyle(
                       color: progressColor.withOpacity(0.7),
                       fontSize: 14,
@@ -1053,9 +1075,9 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'Started at:',
-                    style: TextStyle(color: Colors.white70, fontSize: 16),
+                  Text(
+                    '${LocalizationHelper.getText('started_at')}:',
+                    style: const TextStyle(color: Colors.white70, fontSize: 16),
                   ),
                   Text(
                     TimezoneHelper.formatOrgTime(_breakStartTime!, 'HH.mm'),
@@ -1071,9 +1093,9 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'Maximum:',
-                    style: TextStyle(color: Colors.white70, fontSize: 14),
+                  Text(
+                    '${LocalizationHelper.getText('maximum')}:',
+                    style: const TextStyle(color: Colors.white70, fontSize: 14),
                   ),
                   Text(
                     _formatDuration(_maxBreakDuration),
@@ -1096,12 +1118,12 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
             ),
             child: Row(
               children: [
-                Icon(Icons.warning, color: errorColor, size: 20),
+                const Icon(Icons.warning, color: errorColor, size: 20),
                 const SizedBox(width: 8),
-                const Expanded(
+                Expanded(
                   child: Text(
-                    'Break time exceeded! Please end your break immediately.',
-                    style: TextStyle(
+                    LocalizationHelper.getText('break_exceeded_alert'),
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 14,
                       fontWeight: FontWeight.bold,
@@ -1122,12 +1144,12 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
             ),
             child: Row(
               children: [
-                Icon(Icons.schedule, color: warningColor, size: 20),
+                const Icon(Icons.schedule, color: warningColor, size: 20),
                 const SizedBox(width: 8),
-                const Expanded(
+                Expanded(
                   child: Text(
-                    'Break time almost over. Consider ending your break soon.',
-                    style: TextStyle(color: Colors.white, fontSize: 14),
+                    LocalizationHelper.getText('break_almost_over_notice'),
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
                   ),
                 ),
               ],
@@ -1159,7 +1181,9 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
                     ),
                   )
                 : Text(
-                    _hasExceeded ? 'End Break (Overdue)' : 'End Break',
+                    _hasExceeded 
+                        ? LocalizationHelper.getText('end_break_overdue')
+                        : LocalizationHelper.getText('end_break'),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 18,
@@ -1184,9 +1208,9 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Today\'s Break Sessions',
-            style: TextStyle(
+          Text(
+            LocalizationHelper.getText('todays_break_sessions'),
+            style: const TextStyle(
               color: Colors.white,
               fontSize: 16,
               fontWeight: FontWeight.bold,
@@ -1215,7 +1239,7 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.coffee, color: Colors.white70, size: 16),
+                        const Icon(Icons.coffee, color: Colors.white70, size: 16),
                         const SizedBox(width: 8),
                         Text(
                           DateFormat('HH.mm', 'id_ID').format(start),
@@ -1232,7 +1256,7 @@ class _BreakPageState extends State<BreakPage> with WidgetsBindingObserver {
                       ],
                     ),
                     Text(
-                      '${duration}m',
+                      '${duration}${LocalizationHelper.getText('minutes_short')}',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 14,

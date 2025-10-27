@@ -479,10 +479,108 @@ class LocalizationHelper {
     'login_failed': 'Login Gagal',
     'email_password_required': 'Email dan kata sandi wajib diisi',
     'incorrect_email_or_password': 'Email atau kata sandi salah',
+
+    // Break Page - Indonesian
+    'failed_to_load_break_data':
+    'Gagal memuat data istirahat. Silakan coba lagi.',
+    'failed_to_check_break_status':
+    'Gagal memeriksa status istirahat. Silakan coba lagi.',
+    'break_time_exceeded':
+    'Waktu istirahat terlampaui! Silakan lanjutkan bekerja.',
+    'break_time_almost_over': 'Waktu istirahat hampir habis',
+    'break_in_progress': 'Sedang istirahat',
+    'break_available_at': 'Istirahat tersedia pada',
+    'daily_break_time_exhausted': 'Waktu istirahat harian habis',
+    'break_time_has_passed': 'Waktu istirahat telah lewat',
+    'break_available': 'Istirahat tersedia',
+    'break_started_successfully': 'Istirahat dimulai dengan sukses',
+    'failed_to_start_break': 'Gagal memulai istirahat. Silakan coba lagi.',
+    'break_warning': 'Peringatan Istirahat',
+    'break_warning_message':
+    'Waktu istirahat Anda hampir habis. Pertimbangkan untuk melanjutkan bekerja segera.',
+    'continue_break': 'Lanjutkan Istirahat',
+    'end_break_now': 'Akhiri Istirahat Sekarang',
+    'break_completed_exceeded': 'Istirahat Selesai (Terlampaui)',
+    'break_summary': 'Ringkasan Istirahat',
+    'started': 'Dimulai',
+    'ended': 'Berakhir',
+    'allowed': 'Diizinkan',
+    'overtime': 'Kelebihan',
+    'total_today': 'Total Hari Ini',
+    'break_exceeded_notice':
+    'Waktu istirahat melampaui durasi yang diizinkan. Harap perhatikan batas waktu istirahat.',
+    'back_to_dashboard': 'Kembali ke Dashboard',
+    'on_break_status': 'ISTIRAHAT',
+    'available': 'TERSEDIA',
+    'break_schedule': 'Jadwal Istirahat',
+    'max_duration': 'Durasi Maks',
+    'break_taken_today': 'Istirahat hari ini',
+    'remaining': 'Sisa',
+    'start_break': 'Mulai Istirahat',
+    'not_available': 'Tidak Tersedia',
+    'elapsed': 'berlalu',
+    'started_at': 'Dimulai pada',
+    'maximum': 'Maksimum',
+    'break_exceeded_alert':
+    'Waktu istirahat terlampaui! Harap akhiri istirahat Anda segera.',
+    'break_almost_over_notice':
+    'Waktu istirahat hampir habis. Pertimbangkan untuk mengakhiri istirahat segera.',
+    'end_break_overdue': 'Akhiri Istirahat (Terlambat)',
+    'end_break': 'Akhiri Istirahat',
+    'todays_break_sessions': 'Sesi Istirahat Hari Ini',
+    'minutes_short': 'm',
   };
 
   // English translations
   static final Map<String, String> _englishTranslations = {
+    // Break Page - English
+    'failed_to_load_break_data': 'Failed to load break data. Please try again.',
+    'failed_to_check_break_status':
+    'Failed to check break status. Please try again.',
+    'break_time_exceeded': 'Break time exceeded! Please resume work.',
+    'break_time_almost_over': 'Break time almost over',
+    'break_in_progress': 'Break in progress',
+    'break_available_at': 'Break available at',
+    'daily_break_time_exhausted': 'Daily break time exhausted',
+    'break_time_has_passed': 'Break time has passed',
+    'break_available': 'Break available',
+    'break_started_successfully': 'Break started successfully',
+    'failed_to_start_break': 'Failed to start break. Please try again.',
+    'break_warning': 'Break Warning',
+    'break_warning_message':
+    'Your break time is almost over. Please consider resuming work soon.',
+    'continue_break': 'Continue Break',
+    'end_break_now': 'End Break Now',
+    'break_completed_exceeded': 'Break Completed (Exceeded)',
+    'break_summary': 'Break Summary',
+    'started': 'Started',
+    'ended': 'Ended',
+    'allowed': 'Allowed',
+    'overtime': 'Overtime',
+    'total_today': 'Total Today',
+    'break_exceeded_notice':
+    'Break time exceeded the allowed duration. Please be mindful of break limits.',
+    'back_to_dashboard': 'Back to Dashboard',
+    'on_break_status': 'ON BREAK',
+    'available': 'AVAILABLE',
+    'break_schedule': 'Break Schedule',
+    'max_duration': 'Max Duration',
+    'break_taken_today': 'Break taken today',
+    'remaining': 'Remaining',
+    'start_break': 'Start Break',
+    'not_available': 'Not Available',
+    'elapsed': 'elapsed',
+    'started_at': 'Started at',
+    'maximum': 'Maximum',
+    'break_exceeded_alert':
+    'Break time exceeded! Please end your break immediately.',
+    'break_almost_over_notice':
+    'Break time almost over. Consider ending your break soon.',
+    'end_break_overdue': 'End Break (Overdue)',
+    'end_break': 'End Break',
+    'todays_break_sessions': "Today's Break Sessions",
+    'minutes_short': 'm',
+
     'registration_failed': 'Registration Failed',
     'name_email_password_required': 'Name, email, and password are required',
     'invalid_email_format': 'Invalid email format',
