@@ -296,7 +296,7 @@ Future<bool> _ensureUserProfile(String userId, String email, {String? googleName
 
     try {
       const webClientId =
-          '210380129521-4qnge4hlqjphmjahj79d4tv5h67gjc5s.apps.googleusercontent.com';
+          '210380129521-9kb8of23fk2jrf6p09do71v4df4asehf.apps.googleusercontent.com';
 
       const androidClientId =
           '210380129521-9qcqse1mqa96aqo6liereotg82bquv8d.apps.googleusercontent.com';
