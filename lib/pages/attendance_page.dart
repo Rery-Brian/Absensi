@@ -1704,7 +1704,7 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
                           _buildDetailRow(
                             Icons.calendar_today,
                             LocalizationHelper.getText('date'),
-                            TimezoneHelper.formatOrgTime(orgTime, 'EEEE, dd MMMM yyyy'),
+                            TimezoneHelper.formatOrgTime(orgTime, 'EEEE, d MMM yyyy'),
                           ),
                           _buildDetailRow(
                             Icons.access_time,

@@ -1,4 +1,4 @@
-// screens/profile_page.dart - Updated with work schedule selection
+// screens/profile_page.dart - Updated with clean layout
 import 'package:absensiwajah/pages/login.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -465,8 +465,6 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  // ... (keep all existing methods: _showLanguageDialog, _pickImage, _uploadProfileImage, etc.)
-  
   Future<void> _showLanguageDialog() async {
     final currentLang = LocalizationHelper.currentLanguage;
     final screenWidth = MediaQuery.of(context).size.width;
@@ -1070,14 +1068,14 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
           const SizedBox(height: 20),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
+            padding: const EdgeInsets.symmetric(horizontal: 40),
             child: Text(
               displayName,
               textAlign: TextAlign.center,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                fontSize: 28,
+                fontSize: 24,
                 fontWeight: FontWeight.bold,
                 color: Colors.white,
               ),
@@ -1085,14 +1083,14 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
           const SizedBox(height: 8),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
+            padding: const EdgeInsets.symmetric(horizontal: 40),
             child: Text(
               email,
               textAlign: TextAlign.center,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                fontSize: 16,
+                fontSize: 14,
                 color: Colors.white70,
               ),
             ),
@@ -1115,12 +1113,16 @@ class _ProfilePageState extends State<ProfilePage> {
                     size: 16,
                   ),
                   const SizedBox(width: 8),
-                  Text(
-                    _organization!.name,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
+                  Flexible(
+                    child: Text(
+                      _organization!.name,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],
@@ -1370,6 +1372,8 @@ class _ProfilePageState extends State<ProfilePage> {
                       fontWeight: FontWeight.w500,
                       color: Colors.black87,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -1394,7 +1398,7 @@ class _ProfilePageState extends State<ProfilePage> {
         ? LocalizationHelper.getText('male')
         : LocalizationHelper.getText('female');
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
       ),
@@ -1457,12 +1461,12 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _buildDateOfBirthField() {
     final canEdit = _isEditMode;
     final dateDisplay = _selectedDateOfBirth != null
-        ? '${_selectedDateOfBirth!.day}/${_selectedDateOfBirth!.month}/${_selectedDateOfBirth!.year}'
+        ? '${_selectedDateOfBirth!.day.toString().padLeft(2, '0')}/${_selectedDateOfBirth!.month.toString().padLeft(2, '0')}/${_selectedDateOfBirth!.year}'
         : LocalizationHelper.getText('not_provided');
     return InkWell(
       onTap: canEdit ? _selectDate : null,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         decoration: BoxDecoration(
           border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
         ),
@@ -1512,7 +1516,7 @@ class _ProfilePageState extends State<ProfilePage> {
   }) {
     final canEdit = _isEditMode && isEditable && controller != null;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       decoration: BoxDecoration(
         border: isLast ? null : Border(bottom: BorderSide(color: Colors.grey.shade200)),
       ),

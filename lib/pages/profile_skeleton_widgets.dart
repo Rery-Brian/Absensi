@@ -23,20 +23,7 @@ class ProfileSkeletonWidgets {
       ),
       child: Column(
         children: [
-          // Title
-          Shimmer.fromColors(
-            baseColor: Colors.grey.shade700,
-            highlightColor: Colors.grey.shade600,
-            child: Container(
-              width: 100,
-              height: 20,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
+          
           
           // Profile Photo Circle
           Shimmer.fromColors(
