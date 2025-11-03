@@ -1937,43 +1937,59 @@ Future<void> _loadRemainingDataInBackground() async {
         }
       }
 
-      // Ambil foto untuk check-in
+      // ✅ PERBAIKAN: Ambil foto berdasarkan configuration
       String? photoUrl;
       if (actionType == 'check_in') {
-        final imagePath = await _takeSelfie();
-        if (imagePath == null) {
+        // ✅ Cek configuration: allow_selfie (default true jika tidak ada)
+        final allowSelfie = _selectedDevice?.configuration?['allow_selfie'] as bool? ?? true;
+        
+        debugPrint('=== Photo Configuration ===');
+        debugPrint('Device: ${_selectedDevice?.deviceName}');
+        debugPrint('Allow Selfie: $allowSelfie');
+        
+        if (allowSelfie) {
+          // ✅ Foto WAJIB
+          debugPrint('Photo required for check-in');
+          
+          final imagePath = await _takeSelfie();
+          if (imagePath == null) {
+            if (mounted) {
+              FlushbarHelper.showError(
+                context,
+                LocalizationHelper.getText('photo_required_check_in'),
+              );
+            }
+            return;
+          }
+
           if (mounted) {
-            FlushbarHelper.showError(
+            FlushbarHelper.showInfo(
               context,
-              LocalizationHelper.getText('photo_required_check_in'),
+              LocalizationHelper.getText('uploading_photo'),
             );
           }
-          return;
-        }
 
-        if (mounted) {
-          FlushbarHelper.showInfo(
-            context,
-            LocalizationHelper.getText('uploading_photo'),
+          photoUrl = await _attendanceService.uploadPhoto(imagePath);
+
+          if (photoUrl == null) {
+            if (mounted) {
+              FlushbarHelper.showError(
+                context,
+                LocalizationHelper.getText('failed_upload_photo'),
+              );
+            }
+            return;
+          }
+
+          File(imagePath).delete().catchError(
+            (e) => debugPrint('Failed to delete temp file: $e'),
           );
+          debugPrint('✓ Photo uploaded successfully: $photoUrl');
+        } else {
+          // ✅ Foto OPSIONAL - skip photo taking
+          debugPrint('Photo not required - skipping photo capture');
+          photoUrl = null; // ✅ Explicit null untuk attendance tanpa foto
         }
-
-        photoUrl = await _attendanceService.uploadPhoto(imagePath);
-
-        if (photoUrl == null) {
-          if (mounted) {
-            FlushbarHelper.showError(
-              context,
-              LocalizationHelper.getText('failed_upload_photo'),
-            );
-          }
-          return;
-        }
-
-        File(imagePath).delete().catchError(
-          (e) => debugPrint('Failed to delete temp file: $e'),
-        );
-        debugPrint('✓ Photo uploaded successfully');
       }
 
       // Simpan attendance record
@@ -1982,7 +1998,7 @@ Future<void> _loadRemainingDataInBackground() async {
         type: actionType,
         organizationMemberId: _organizationMember!.id,
         currentPosition: positionToUse!,
-        photoUrl: photoUrl ?? '',
+        photoUrl: photoUrl ?? '', // ✅ Empty string jika tidak ada foto
         device: requiresGps ? _selectedDevice : null,
         schedule: _currentSchedule,
         todayRecords: _todayAttendanceRecords,

@@ -578,23 +578,36 @@ class AttendanceService {
   }
 
   bool isWithinRadius(Position currentPosition, AttendanceDevice device) {
-    if (!device.hasValidCoordinates) {
-      return false;
-    }
-
-    double? distance = calculateDistance(
-      currentPosition.latitude,
-      currentPosition.longitude,
-      device.latitude,
-      device.longitude,
-    );
-
-    if (distance == null) {
-      return false;
-    }
-
-    return distance <= device.radiusMeters;
+  if (!device.hasValidCoordinates) {
+    return false;
   }
+
+  double? distance = calculateDistance(
+    currentPosition.latitude,
+    currentPosition.longitude,
+    device.latitude,
+    device.longitude,
+  );
+
+  if (distance == null) {
+    return false;
+  }
+
+  // ✅ PERBAIKAN: Prioritaskan max_distance dari configuration
+  final maxDistance = device.configuration?['max_distance'] as int? 
+      ?? device.radiusMeters;
+  
+  debugPrint('=== Radius Check ===');
+  debugPrint('Distance: ${distance.toStringAsFixed(2)}m');
+  debugPrint('Max Distance (config): ${device.configuration?['max_distance']}');
+  debugPrint('Radius (column): ${device.radiusMeters}m');
+  debugPrint('Using: ${maxDistance}m');
+  debugPrint('Within Radius: ${distance <= maxDistance}');
+
+  return distance <= maxDistance;
+}
+
+
 
   Future<String?> uploadPhoto(String imagePath) async {
     try {
@@ -875,14 +888,12 @@ Future<bool> requiresGpsValidation(String organizationMemberId) async {
     final normalizedLocation = workLocation.toLowerCase().replaceAll(' ', '');
     
     // ✅ FIELD WORKER: Cek apakah dimulai dengan "field"
-    // Contoh valid: field, Field, FIELD, field_, Field_Jakarta, fieldworker, field jakarta
     if (normalizedLocation.startsWith('field')) {
       debugPrint('Field worker detected: $workLocation - GPS not required');
       return false;
     }
     
     // ✅ OFFICE WORKER: Cek apakah dimulai dengan "office" 
-    // Contoh valid: office, Office, OFFICE, office_, Office_Jakarta, officeworker
     if (normalizedLocation.startsWith('office')) {
       debugPrint('Office worker detected: $workLocation - GPS required');
       return true;
@@ -896,6 +907,22 @@ Future<bool> requiresGpsValidation(String organizationMemberId) async {
     debugPrint('Error checking GPS requirement: $e');
     return true; // Default ke butuh GPS saat error
   }
+}
+
+// ✅ TAMBAHKAN METHOD BARU untuk check device configuration
+Future<bool> requiresLocationForDevice(AttendanceDevice? device) async {
+  if (device == null) return false;
+  
+  // ✅ Check device configuration
+  final deviceRequiresLocation = 
+      device.configuration?['require_location'] as bool? ?? true;
+  
+  debugPrint('=== Device Location Requirement ===');
+  debugPrint('Device: ${device.deviceName}');
+  debugPrint('Configuration require_location: ${device.configuration?['require_location']}');
+  debugPrint('Requires Location: $deviceRequiresLocation');
+  
+  return deviceRequiresLocation;
 }
 
 Future<String> getWorkLocationType(String organizationMemberId) async {
