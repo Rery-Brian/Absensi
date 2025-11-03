@@ -137,41 +137,73 @@ class _ProfilePageState extends State<ProfilePage> {
   // === LANGUAGE DIALOG ===
   Future<void> _showLanguageDialog() async {
     final currentLang = LocalizationHelper.currentLanguage;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final horizontalPadding = screenWidth * 0.06;
     
     await showDialog(
       context: context,
       builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: primaryColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(Icons.language, color: primaryColor, size: 20),
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          insetPadding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 400),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [primaryColor, primaryColor.withOpacity(0.7)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.language, color: Colors.white, size: 24),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              LocalizationHelper.getText('language'),
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              LocalizationHelper.currentLanguage == 'en'
+                                  ? 'Choose your preferred language'
+                                  : 'Pilih bahasa yang Anda inginkan',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  _buildLanguageOption('en', 'English', '🇬🇧', currentLang == 'en'),
+                  const SizedBox(height: 12),
+                  _buildLanguageOption('id', 'Indonesia', '🇮🇩', currentLang == 'id'),
+                ],
               ),
-              const SizedBox(width: 12),
-              Text(LocalizationHelper.getText('language')),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildLanguageOption('id', 'Indonesia', '🇮🇩', currentLang == 'id'),
-              const SizedBox(height: 12),
-              _buildLanguageOption('en', 'English', '🇬🇧', currentLang == 'en'),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(LocalizationHelper.getText('cancel')),
             ),
-          ],
+          ),
         );
       },
     );

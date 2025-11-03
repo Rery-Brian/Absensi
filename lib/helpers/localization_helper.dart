@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class LocalizationHelper {
   static const String _languageKey = 'selected_language';
-  static const String defaultLanguage = 'id'; // Indonesian sebagai default
+  static const String defaultLanguage = 'en'; // English sebagai default
 
   static String _currentLanguage = defaultLanguage;
 
