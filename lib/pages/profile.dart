@@ -1,4 +1,4 @@
-// screens/profile_page.dart
+// screens/profile_page.dart - Updated with work schedule selection
 import 'package:absensiwajah/pages/login.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -7,7 +7,7 @@ import 'dart:io';
 import '../models/attendance_model.dart';
 import '../services/attendance_service.dart';
 import '../helpers/flushbar_helper.dart';
-import '../helpers/localization_helper.dart'; // ADD THIS
+import '../helpers/localization_helper.dart';
 import 'profile_skeleton_widgets.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -28,7 +28,11 @@ class _ProfilePageState extends State<ProfilePage> {
   UserProfile? _userProfile;
   OrganizationMember? _organizationMember;
   Organization? _organization;
+  MemberSchedule? _currentSchedule;
+  List<WorkSchedule> _availableSchedules = [];
+  WorkSchedule? _selectedSchedule;
   bool _isLoading = true;
+  bool _isLoadingSchedules = false;
 
   // Form controllers for editing
   final _formKey = GlobalKey<FormState>();
@@ -90,6 +94,7 @@ class _ProfilePageState extends State<ProfilePage> {
         
         if (_organizationMember != null) {
           await _loadOrganizationInfo();
+          await _loadCurrentSchedule();
         }
       }
     } catch (e) {
@@ -134,7 +139,334 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  // === LANGUAGE DIALOG ===
+  Future<void> _loadCurrentSchedule() async {
+    if (_organizationMember == null) return;
+
+    try {
+      _currentSchedule = await _attendanceService.loadCurrentSchedule(
+        _organizationMember!.id
+      );
+      
+      if (_currentSchedule?.workScheduleId != null) {
+        _selectedSchedule = _currentSchedule!.workSchedule;
+      }
+      
+      setState(() {});
+    } catch (e) {
+      debugPrint('Error loading current schedule: $e');
+    }
+  }
+
+  Future<void> _loadAvailableSchedules() async {
+    if (_organizationMember == null) return;
+
+    setState(() {
+      _isLoadingSchedules = true;
+    });
+
+    try {
+      final response = await Supabase.instance.client
+          .from('work_schedules')
+          .select('*')
+          .eq('organization_id', _organizationMember!.organizationId)
+          .eq('is_active', true)
+          .order('name');
+
+      if (response != null) {
+        _availableSchedules = (response as List)
+            .map((json) => WorkSchedule.fromJson(json))
+            .toList();
+      }
+    } catch (e) {
+      debugPrint('Error loading schedules: $e');
+      if (mounted) {
+        FlushbarHelper.showError(
+          context,
+          LocalizationHelper.currentLanguage == 'id'
+              ? 'Gagal memuat jadwal kerja'
+              : 'Failed to load work schedules',
+        );
+      }
+    } finally {
+      setState(() {
+        _isLoadingSchedules = false;
+      });
+    }
+  }
+
+  Future<void> _showScheduleSelectionDialog() async {
+    await _loadAvailableSchedules();
+
+    if (_availableSchedules.isEmpty) {
+      FlushbarHelper.showError(
+        context,
+        LocalizationHelper.currentLanguage == 'id'
+            ? 'Tidak ada jadwal kerja tersedia'
+            : 'No work schedules available',
+      );
+      return;
+    }
+
+    final screenWidth = MediaQuery.of(context).size.width;
+    final horizontalPadding = screenWidth * 0.06;
+
+    await showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          insetPadding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 400),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [primaryColor, primaryColor.withOpacity(0.7)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(Icons.schedule, color: Colors.white, size: 24),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              LocalizationHelper.currentLanguage == 'id'
+                                  ? 'Pilih Jadwal Kerja'
+                                  : 'Select Work Schedule',
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              LocalizationHelper.currentLanguage == 'id'
+                                  ? 'Pilih jadwal kerja Anda'
+                                  : 'Choose your work schedule',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  if (_isLoadingSchedules)
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(20),
+                        child: CircularProgressIndicator(),
+                      ),
+                    )
+                  else
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: MediaQuery.of(context).size.height * 0.5,
+                      ),
+                      child: SingleChildScrollView(
+                        child: Column(
+                          children: _availableSchedules.map((schedule) {
+                            final isSelected = _selectedSchedule?.id == schedule.id;
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: _buildScheduleOption(
+                                schedule,
+                                isSelected,
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildScheduleOption(WorkSchedule schedule, bool isSelected) {
+    return InkWell(
+      onTap: () async {
+        await _updateMemberSchedule(schedule);
+        if (mounted) {
+          Navigator.pop(context);
+        }
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: isSelected ? primaryColor : Colors.grey.shade300,
+            width: isSelected ? 2 : 1,
+          ),
+          borderRadius: BorderRadius.circular(12),
+          color: isSelected ? primaryColor.withOpacity(0.05) : null,
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: isSelected 
+                    ? primaryColor.withOpacity(0.2)
+                    : Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                Icons.calendar_today,
+                color: isSelected ? primaryColor : Colors.grey.shade600,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    schedule.name,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                      color: isSelected ? primaryColor : Colors.black87,
+                    ),
+                  ),
+                  if (schedule.description != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      schedule.description!,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.grey[600],
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.assignment,
+                        size: 12,
+                        color: Colors.grey[500],
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        schedule.code,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[500],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            if (isSelected)
+              Icon(Icons.check_circle, color: primaryColor, size: 24),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _updateMemberSchedule(WorkSchedule schedule) async {
+    if (_organizationMember == null) return;
+
+    try {
+      setState(() {
+        _isSaving = true;
+      });
+
+      final today = DateTime.now().toIso8601String().split('T')[0];
+
+      // Check if there's an existing active schedule
+      if (_currentSchedule != null && _currentSchedule!.id != 'default') {
+        // End the current schedule
+        await Supabase.instance.client
+            .from('member_schedules')
+            .update({
+              'end_date': today,
+              'is_active': false,
+            })
+            .eq('id', _currentSchedule!.id);
+      }
+
+      // Insert new schedule
+      await Supabase.instance.client
+          .from('member_schedules')
+          .insert({
+            'organization_member_id': _organizationMember!.id,
+            'work_schedule_id': schedule.id,
+            'effective_date': today,
+            'is_active': true,
+          });
+
+      // Reload schedule
+      await _loadCurrentSchedule();
+
+      if (mounted) {
+        setState(() {
+          _selectedSchedule = schedule;
+        });
+
+        FlushbarHelper.showSuccess(
+          context,
+          LocalizationHelper.currentLanguage == 'id'
+              ? 'Jadwal kerja berhasil diperbarui'
+              : 'Work schedule updated successfully',
+        );
+
+        if (widget.onProfileUpdated != null) {
+          widget.onProfileUpdated!();
+        }
+      }
+    } catch (e) {
+      debugPrint('Error updating schedule: $e');
+      if (mounted) {
+        FlushbarHelper.showError(
+          context,
+          LocalizationHelper.currentLanguage == 'id'
+              ? 'Gagal memperbarui jadwal kerja'
+              : 'Failed to update work schedule',
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
+    }
+  }
+
+  // ... (keep all existing methods: _showLanguageDialog, _pickImage, _uploadProfileImage, etc.)
+  
   Future<void> _showLanguageDialog() async {
     final currentLang = LocalizationHelper.currentLanguage;
     final screenWidth = MediaQuery.of(context).size.width;
@@ -215,7 +547,7 @@ class _ProfilePageState extends State<ProfilePage> {
         await LocalizationHelper.setLanguage(code);
         if (mounted) {
           Navigator.pop(context);
-          setState(() {}); // Rebuild with new language
+          setState(() {});
           FlushbarHelper.showSuccess(
             context,
             'Language changed to $name',
@@ -619,56 +951,54 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   @override
-Widget build(BuildContext context) {
-  // Loading state - tampilkan full page skeleton
-  if (_isLoading) {
-    return ProfileSkeletonWidgets.buildFullPageSkeleton();
-  }
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return ProfileSkeletonWidgets.buildFullPageSkeleton();
+    }
 
-  // Saving state - tampilkan edit mode skeleton
-  if (_isSaving) {
+    if (_isSaving) {
+      return Scaffold(
+        backgroundColor: Colors.grey.shade100,
+        body: SingleChildScrollView(
+          physics: const NeverScrollableScrollPhysics(),
+          child: Column(
+            children: [
+              ProfileSkeletonWidgets.buildSkeletonHeader(),
+              ProfileSkeletonWidgets.buildSkeletonEditMode(),
+              const SizedBox(height: 24),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final user = Supabase.instance.client.auth.currentUser;
+    final displayName = _userProfile?.displayName ?? _userProfile?.fullName ?? user?.email?.split('@')[0] ?? 'User';
+    final email = user?.email ?? 'No email';
+
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
-      body: SingleChildScrollView(
-        physics: const NeverScrollableScrollPhysics(),
-        child: Column(
-          children: [
-            ProfileSkeletonWidgets.buildSkeletonHeader(),
-            ProfileSkeletonWidgets.buildSkeletonEditMode(),
-            const SizedBox(height: 24),
-          ],
+      body: RefreshIndicator(
+        onRefresh: _loadUserData,
+        color: primaryColor,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Column(
+            children: [
+              _buildHeader(displayName, email),
+              _buildProfileInfo(context),
+              if (!_isEditMode) ...[
+                _buildScheduleSection(context),
+                _buildAccountSection(context),
+                _buildLogoutSection(context),
+              ],
+              const SizedBox(height: 24),
+            ],
+          ),
         ),
       ),
     );
   }
-
-  // Konten utama
-  final user = Supabase.instance.client.auth.currentUser;
-  final displayName = _userProfile?.displayName ?? _userProfile?.fullName ?? user?.email?.split('@')[0] ?? 'User';
-  final email = user?.email ?? 'No email';
-
-  return Scaffold(
-    backgroundColor: Colors.grey.shade100,
-    body: RefreshIndicator(
-      onRefresh: _loadUserData,
-      color: primaryColor,
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        child: Column(
-          children: [
-            _buildHeader(displayName, email),
-            _buildProfileInfo(context),
-            if (!_isEditMode) ...[
-              _buildAccountSection(context),
-              _buildLogoutSection(context),
-            ],
-            const SizedBox(height: 24),
-          ],
-        ),
-      ),
-    ),
-  );
-}
 
   Widget _buildHeader(String displayName, String email) {
     return Container(
@@ -687,14 +1017,6 @@ Widget build(BuildContext context) {
       ),
       child: Column(
         children: [
-          Text(
-            LocalizationHelper.getText('profile'),
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-              color: Colors.white,
-            ),
-          ),
           const SizedBox(height: 20),
           Stack(
             children: [
@@ -984,6 +1306,88 @@ Widget build(BuildContext context) {
     );
   }
 
+  Widget _buildScheduleSection(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            child: Text(
+              LocalizationHelper.currentLanguage == 'id'
+                  ? 'Jadwal Kerja'
+                  : 'Work Schedule',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+          ),
+          _buildScheduleMenuItem(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScheduleMenuItem() {
+    final scheduleName = _selectedSchedule?.name ?? 
+        (_currentSchedule?.shift?.name ?? 
+        (LocalizationHelper.currentLanguage == 'id' ? 'Belum diatur' : 'Not set'));
+    
+    final scheduleSubtitle = _selectedSchedule?.description ?? 
+        (LocalizationHelper.currentLanguage == 'id' 
+            ? 'Ketuk untuk memilih jadwal kerja'
+            : 'Tap to select work schedule');
+
+    return InkWell(
+      onTap: _showScheduleSelectionDialog,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: primaryColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.calendar_today, color: primaryColor, size: 20),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    scheduleName,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    scheduleSubtitle,
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey.shade400),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildGenderField() {
     final canEdit = _isEditMode;
     final genderDisplay = _selectedGender == 'male' 
@@ -1265,43 +1669,11 @@ Widget build(BuildContext context) {
     );
   }
 
-  void _showComingSoon(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: primaryColor.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(Icons.schedule, color: primaryColor, size: 20),
-            ),
-            const SizedBox(width: 12),
-            Text(LocalizationHelper.getText('coming_soon')),
-          ],
-        ),
-        content: Text(LocalizationHelper.getText('feature_under_development')),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(LocalizationHelper.getText('ok')),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _showAboutDialog(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
     
-    // Responsive padding dan font size
-    final horizontalPadding = screenWidth * 0.06; // 6% dari lebar layar
+    final horizontalPadding = screenWidth * 0.06;
     final titleFontSize = screenWidth < 360 ? 16.0 : 18.0;
     final contentFontSize = screenWidth < 360 ? 14.0 : 16.0;
     final descriptionFontSize = screenWidth < 360 ? 13.0 : 14.0;
@@ -1316,8 +1688,8 @@ Widget build(BuildContext context) {
         ),
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            maxWidth: 500, // Max width untuk tablet
-            maxHeight: screenHeight * 0.7, // Max 70% tinggi layar
+            maxWidth: 500,
+            maxHeight: screenHeight * 0.7,
           ),
           child: SingleChildScrollView(
             child: Padding(
@@ -1325,7 +1697,6 @@ Widget build(BuildContext context) {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Title dengan icon
                   Row(
                     children: [
                       Container(
@@ -1354,8 +1725,6 @@ Widget build(BuildContext context) {
                     ],
                   ),
                   SizedBox(height: screenWidth < 360 ? 16 : 20),
-                  
-                  // App Icon/Logo (opsional)
                   Container(
                     width: screenWidth < 360 ? 60 : 70,
                     height: screenWidth < 360 ? 60 : 70,
@@ -1370,8 +1739,6 @@ Widget build(BuildContext context) {
                     ),
                   ),
                   SizedBox(height: screenWidth < 360 ? 12 : 16),
-                  
-                  // App Version
                   Text(
                     LocalizationHelper.getText('attendance_app_version'),
                     textAlign: TextAlign.center,
@@ -1381,8 +1748,6 @@ Widget build(BuildContext context) {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  
-                  // Version number dengan badge
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
@@ -1402,8 +1767,6 @@ Widget build(BuildContext context) {
                     ),
                   ),
                   SizedBox(height: screenWidth < 360 ? 16 : 20),
-                  
-                  // Description
                   Text(
                     LocalizationHelper.getText('app_description'),
                     textAlign: TextAlign.center,
@@ -1414,8 +1777,6 @@ Widget build(BuildContext context) {
                     ),
                   ),
                   SizedBox(height: screenWidth < 360 ? 20 : 24),
-                  
-                  // Close Button - Full width
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
