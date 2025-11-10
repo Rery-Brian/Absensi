@@ -101,6 +101,7 @@ class _DashboardContentState extends State<_DashboardContent> {
   final List<TimelineItem> _timelineItems = [];
 
   Timer? _breakIndicatorTimer;
+  Timer? _breakCountdownTimer; // ✅ Timer terpisah untuk countdown (1 detik)
   Offset _indicatorPosition = const Offset(20, 100);
   bool _isDragging = false;
 
@@ -135,19 +136,17 @@ class _DashboardContentState extends State<_DashboardContent> {
     _debounceTimer?.cancel();
     _periodicLocationTimer?.cancel();
     _breakIndicatorTimer?.cancel();
+    _breakCountdownTimer?.cancel(); // ✅ Cancel countdown timer
     super.dispose();
   }
 
   void _startBreakMonitoring() {
     _breakIndicatorTimer?.cancel();
-    // ✅ OPTIMIZATION: Kurangi frequency dari 1 detik ke 5 detik untuk mengurangi setState calls
+    // ✅ OPTIMIZATION: Timer untuk monitoring break info (5 detik)
     _breakIndicatorTimer = Timer.periodic(const Duration(seconds: 5), (
       timer,
     ) async {
       if (!mounted) return;
-      
-      // ✅ OPTIMIZATION: Hanya update UI jika ada break aktif
-      final wasOnBreak = _breakInfo != null && _breakInfo!['is_currently_on_break'] == true;
       
       // ✅ FIX: Skip break monitoring jika break baru saja dihentikan
       if (_breakJustStopped) {
@@ -169,17 +168,45 @@ class _DashboardContentState extends State<_DashboardContent> {
         }
       }
       
-      // ✅ OPTIMIZATION: Hanya setState jika status break berubah atau sedang break (untuk timer)
+      // ✅ Hanya update UI jika status break berubah (bukan untuk countdown)
       final isNowOnBreak = _breakInfo != null && _breakInfo!['is_currently_on_break'] == true;
-      if (mounted) {
-        if (wasOnBreak != isNowOnBreak) {
-          // Status break berubah - perlu update UI
-          setState(() {});
-        } else if (isNowOnBreak) {
-          // ✅ Update UI setiap 5 detik hanya jika sedang break (untuk countdown timer)
-          // Hanya update jika widget masih mounted dan break masih aktif
-          setState(() {});
-        }
+      if (mounted && isNowOnBreak) {
+        // Start countdown timer jika belum ada
+        _startBreakCountdownTimer();
+      } else if (mounted && !isNowOnBreak) {
+        // Stop countdown timer jika break sudah selesai
+        _breakCountdownTimer?.cancel();
+        _breakCountdownTimer = null;
+        setState(() {}); // Update UI untuk hide break indicator
+      }
+    });
+    
+    // ✅ Start countdown timer jika sudah ada break aktif
+    if (_breakInfo != null && _breakInfo!['is_currently_on_break'] == true) {
+      _startBreakCountdownTimer();
+    }
+  }
+  
+  // ✅ Timer terpisah untuk countdown break (1 detik) - smooth update
+  void _startBreakCountdownTimer() {
+    if (_breakCountdownTimer != null && _breakCountdownTimer!.isActive) {
+      return; // Timer sudah berjalan
+    }
+    
+    _breakCountdownTimer?.cancel();
+    _breakCountdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      
+      // ✅ Update UI setiap 1 detik untuk countdown yang smooth
+      if (_breakInfo != null && _breakInfo!['is_currently_on_break'] == true) {
+        setState(() {}); // Trigger rebuild untuk update countdown
+      } else {
+        // Break sudah selesai, stop timer
+        timer.cancel();
+        _breakCountdownTimer = null;
       }
     });
   }
@@ -829,10 +856,23 @@ Future<void> _loadRemainingDataInBackground() async {
       );
       
       // ✅ FIX: Update break info dan trigger setState untuk update UI
+      final wasOnBreak = _breakInfo != null && _breakInfo!['is_currently_on_break'] == true;
+      final isNowOnBreak = breakInfo['is_currently_on_break'] == true;
+      
       if (mounted) {
         setState(() {
           _breakInfo = breakInfo;
         });
+        
+        // ✅ Start/stop countdown timer berdasarkan status break
+        if (isNowOnBreak && !wasOnBreak) {
+          // Break baru dimulai - start countdown timer
+          _startBreakCountdownTimer();
+        } else if (!isNowOnBreak && wasOnBreak) {
+          // Break sudah selesai - stop countdown timer
+          _breakCountdownTimer?.cancel();
+          _breakCountdownTimer = null;
+        }
       }
       
       debugPrint('Break info loaded: is_currently_on_break=${breakInfo['is_currently_on_break']}');
@@ -1737,6 +1777,10 @@ Future<void> _loadRemainingDataInBackground() async {
         // ✅ Invalidate cache untuk memastikan data fresh
         _attendanceService.invalidateAttendanceCache(_organizationMember!.id);
         
+        // ✅ Stop countdown timer karena break sudah selesai
+        _breakCountdownTimer?.cancel();
+        _breakCountdownTimer = null;
+        
         // ✅ Clear break info immediately (break sudah dihentikan dari BreakPage)
         setState(() {
           _breakInfo = null;
@@ -1826,6 +1870,10 @@ Future<void> _loadRemainingDataInBackground() async {
       // Kita tahu break sudah berhenti karena break_in log sudah di-insert
       // Jangan reload break info dulu karena mungkin masih menggunakan cache/data lama
       if (mounted) {
+        // ✅ Stop countdown timer karena break sudah selesai
+        _breakCountdownTimer?.cancel();
+        _breakCountdownTimer = null;
+        
         setState(() {
           _breakInfo = null; // ✅ Clear break info - break indicator akan hilang
           _isLoading = false;
