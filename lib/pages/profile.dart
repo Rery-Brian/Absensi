@@ -80,17 +80,18 @@ class _ProfilePageState extends State<ProfilePage> {
     _selectedDateOfBirth = _userProfile?.dateOfBirth;
   }
 
-  Future<void> _loadUserData() async {
+  Future<void> _loadUserData({bool forceRefresh = false}) async {
     setState(() {
       _isLoading = true;
     });
 
     try {
-      _userProfile = await _attendanceService.loadUserProfile();
+      // ✅ OPTIMIZATION: Gunakan cache dari service, atau force refresh jika diperlukan
+      _userProfile = await _attendanceService.loadUserProfile(forceRefresh: forceRefresh);
       _populateControllers();
       
       if (_userProfile != null) {
-        _organizationMember = await _attendanceService.loadOrganizationMember();
+        _organizationMember = await _attendanceService.loadOrganizationMember(forceRefresh: forceRefresh);
         
         if (_organizationMember != null) {
           await _loadOrganizationInfo();
@@ -427,7 +428,10 @@ class _ProfilePageState extends State<ProfilePage> {
             'is_active': true,
           });
 
-      // Reload schedule
+      // ✅ OPTIMIZATION: Invalidate schedule cache setelah update
+      _attendanceService.invalidateScheduleCache(_organizationMember!.id);
+      
+      // Reload schedule dengan force refresh
       await _loadCurrentSchedule();
 
       if (mounted) {
@@ -737,17 +741,15 @@ class _ProfilePageState extends State<ProfilePage> {
         final imageUrl = await _uploadProfileImage(_selectedImage!);
         
         if (imageUrl != null) {
-          final user = Supabase.instance.client.auth.currentUser;
-          if (user != null) {
-            await Supabase.instance.client
-                .from('user_profiles')
-                .update({
-                  'profile_photo_url': imageUrl,
-                  'updated_at': DateTime.now().toIso8601String(),
-                })
-                .eq('id', user.id);
-            
-            await _loadUserData();
+          // ✅ OPTIMIZATION: Gunakan service method yang otomatis invalidate cache
+          final updatedProfile = await _attendanceService.updateUserProfile(
+            profilePhotoUrl: imageUrl,
+          );
+          
+          if (updatedProfile != null) {
+            setState(() {
+              _userProfile = updatedProfile;
+            });
             
             if (mounted) {
               FlushbarHelper.showSuccess(
@@ -799,37 +801,31 @@ class _ProfilePageState extends State<ProfilePage> {
     });
 
     try {
-      final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) {
-        throw Exception('User not authenticated');
-      }
+      // ✅ OPTIMIZATION: Gunakan service method yang otomatis invalidate cache
+      final updatedProfile = await _attendanceService.updateUserProfile(
+        displayName: _fullNameController.text.trim(),
+        phone: _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
+        gender: _selectedGender,
+        dateOfBirth: _selectedDateOfBirth,
+      );
 
-      await Supabase.instance.client
-          .from('user_profiles')
-          .update({
-            'display_name': _fullNameController.text.trim(),
-            'phone': _phoneController.text.trim(),
-            'gender': _selectedGender,
-            'date_of_birth': _selectedDateOfBirth?.toIso8601String().split('T')[0],
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('id', user.id);
+      if (updatedProfile != null) {
+        setState(() {
+          _userProfile = updatedProfile;
+          _populateControllers();
+          _isEditMode = false;
+        });
 
-      await _loadUserData();
-      
-      setState(() {
-        _isEditMode = false;
-      });
-
-      if (mounted) {
-        FlushbarHelper.showSuccess(
-          context,
-          LocalizationHelper.getText('profile_updated'),
-        );
-      }
-      
-      if (widget.onProfileUpdated != null) {
-        widget.onProfileUpdated!();
+        if (mounted) {
+          FlushbarHelper.showSuccess(
+            context,
+            LocalizationHelper.getText('profile_updated'),
+          );
+        }
+        
+        if (widget.onProfileUpdated != null) {
+          widget.onProfileUpdated!();
+        }
       }
     } catch (e) {
       debugPrint('Error saving profile: $e');
@@ -977,7 +973,7 @@ class _ProfilePageState extends State<ProfilePage> {
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
       body: RefreshIndicator(
-        onRefresh: _loadUserData,
+        onRefresh: () => _loadUserData(forceRefresh: true), // ✅ Force refresh saat pull to refresh
         color: primaryColor,
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),

@@ -8,12 +8,18 @@ class CameraService {
   static List<CameraDescription>? _cameras;
   static bool _isInitialized = false;
   static CameraController? _controller;
+  
+  // ✅ OPTIMIZATION: Cache permission status
+  static PermissionStatus? _cachedPermissionStatus;
+  static DateTime? _permissionCheckTime;
+  static const Duration _permissionCacheDuration = Duration(minutes: 5);
 
   // ================== INITIALIZATION ==================
 
-  /// Initialize cameras and get available camera descriptions
+  /// Initialize cameras with lazy initialization
   static Future<List<CameraDescription>> initializeCameras() async {
     if (_isInitialized && _cameras != null) {
+      print('Cameras already initialized - returning cached');
       return _cameras!;
     }
 
@@ -22,12 +28,7 @@ class CameraService {
       _cameras = await availableCameras();
       _isInitialized = true;
       
-      print('Cameras initialized successfully: ${_cameras!.length} cameras found');
-      for (int i = 0; i < _cameras!.length; i++) {
-        final camera = _cameras![i];
-        print('Camera $i: ${camera.name} - ${camera.lensDirection}');
-      }
-      
+      print('Cameras initialized: ${_cameras!.length} cameras found');
       return _cameras!;
     } catch (e) {
       print('Error initializing cameras: $e');
@@ -36,72 +37,55 @@ class CameraService {
     }
   }
 
-  /// Check if cameras are initialized
   static bool get isInitialized => _isInitialized && _cameras != null;
 
-  /// Get available cameras (must call initializeCameras first)
   static List<CameraDescription> get cameras {
     if (!isInitialized) {
-      throw CameraException('not_initialized', 'Cameras not initialized. Call initializeCameras() first.');
+      throw CameraException('not_initialized', 'Cameras not initialized');
     }
     return _cameras!;
   }
 
-  /// Reset initialization state
   static void reset() {
     _cameras = null;
     _isInitialized = false;
     _controller?.dispose();
     _controller = null;
+    _cachedPermissionStatus = null;
+    _permissionCheckTime = null;
     print('Camera service reset');
   }
 
   // ================== CAMERA INFORMATION ==================
 
-  /// Get camera count
-  static int get cameraCount {
-    if (!isInitialized) return 0;
-    return _cameras!.length;
-  }
-
-  /// Check if any cameras are available
+  static int get cameraCount => isInitialized ? _cameras!.length : 0;
   static bool get hasCameras => cameraCount > 0;
 
-  /// Get front camera if available
   static CameraDescription? get frontCamera {
     if (!isInitialized) return null;
-    
     try {
       return _cameras!.firstWhere(
         (camera) => camera.lensDirection == CameraLensDirection.front,
       );
     } catch (e) {
-      print('No front camera found');
       return null;
     }
   }
 
-  /// Get back camera if available
   static CameraDescription? get backCamera {
     if (!isInitialized) return null;
-    
     try {
       return _cameras!.firstWhere(
         (camera) => camera.lensDirection == CameraLensDirection.back,
       );
     } catch (e) {
-      print('No back camera found');
       return null;
     }
   }
 
-  /// Check if front camera is available
   static bool get hasFrontCamera => frontCamera != null;
-
-  /// Check if back camera is available
   static bool get hasBackCamera => backCamera != null;
 
-  /// Get camera description by index
   static CameraDescription? getCameraByIndex(int index) {
     if (!isInitialized || index < 0 || index >= _cameras!.length) {
       return null;
@@ -109,7 +93,6 @@ class CameraService {
     return _cameras![index];
   }
 
-  /// Get preferred camera index (front camera preferred for selfies)
   static int getPreferredCameraIndex() {
     if (!isInitialized || _cameras!.isEmpty) return 0;
     
@@ -120,7 +103,6 @@ class CameraService {
     return frontIndex >= 0 ? frontIndex : 0;
   }
 
-  /// Get camera index by lens direction
   static int? getCameraIndexByDirection(CameraLensDirection direction) {
     if (!isInitialized) return null;
     
@@ -133,11 +115,25 @@ class CameraService {
 
   // ================== PERMISSIONS ==================
 
-  /// Check current camera permission status
+  /// ✅ OPTIMIZATION: Check permission with caching
   static Future<PermissionStatus> checkCameraPermission() async {
     try {
+      // Return cached status if still valid
+      if (_cachedPermissionStatus != null && _permissionCheckTime != null) {
+        final elapsed = DateTime.now().difference(_permissionCheckTime!);
+        if (elapsed < _permissionCacheDuration) {
+          print('Returning cached permission status: $_cachedPermissionStatus');
+          return _cachedPermissionStatus!;
+        }
+      }
+
       final status = await Permission.camera.status;
-      print('Camera permission status: $status');
+      
+      // Update cache
+      _cachedPermissionStatus = status;
+      _permissionCheckTime = DateTime.now();
+      
+      print('Camera permission status: $status (cached)');
       return status;
     } catch (e) {
       print('Error checking camera permission: $e');
@@ -145,12 +141,15 @@ class CameraService {
     }
   }
 
-  /// Request camera permission
   static Future<bool> requestCameraPermission() async {
     try {
       print('Requesting camera permission...');
       final status = await Permission.camera.request();
       final granted = status == PermissionStatus.granted;
+      
+      // Update cache
+      _cachedPermissionStatus = status;
+      _permissionCheckTime = DateTime.now();
       
       print('Camera permission ${granted ? 'granted' : 'denied'}: $status');
       return granted;
@@ -160,24 +159,26 @@ class CameraService {
     }
   }
 
-  /// Check if camera permission is granted
   static Future<bool> hasPermission() async {
     final status = await checkCameraPermission();
     return status == PermissionStatus.granted;
   }
 
-  /// Ensure camera permission is granted
   static Future<bool> ensurePermission() async {
     if (await hasPermission()) {
       return true;
     }
-    
     return await requestCameraPermission();
+  }
+
+  /// ✅ OPTIMIZATION: Clear permission cache
+  static void clearPermissionCache() {
+    _cachedPermissionStatus = null;
+    _permissionCheckTime = null;
   }
 
   // ================== CAMERA CONTROLLER ==================
 
-  /// Create and initialize camera controller
   static Future<CameraController> createController(
     CameraDescription camera, {
     ResolutionPreset resolutionPreset = ResolutionPreset.medium,
@@ -194,7 +195,7 @@ class CameraService {
       );
 
       await controller.initialize();
-      print('Camera controller initialized successfully');
+      print('Camera controller initialized');
       
       return controller;
     } catch (e) {
@@ -203,7 +204,6 @@ class CameraService {
     }
   }
 
-  /// Get default camera controller (front camera preferred)
   static Future<CameraController> getDefaultController({
     ResolutionPreset resolutionPreset = ResolutionPreset.medium,
     bool enableAudio = false,
@@ -224,7 +224,6 @@ class CameraService {
 
   // ================== PHOTO OPERATIONS ==================
 
-  /// Take picture with given controller
   static Future<XFile> takePicture(CameraController controller) async {
     try {
       if (!controller.value.isInitialized) {
@@ -234,9 +233,7 @@ class CameraService {
       print('Taking picture...');
       final XFile photo = await controller.takePicture();
       
-      print('Picture taken successfully: ${photo.path}');
-      print('File size: ${await File(photo.path).length()} bytes');
-      
+      print('Picture taken: ${photo.path}');
       return photo;
     } catch (e) {
       print('Error taking picture: $e');
@@ -244,7 +241,6 @@ class CameraService {
     }
   }
 
-  /// Take picture and save to specific directory
   static Future<String> takePictureToPath(
     CameraController controller,
     String fileName,
@@ -252,23 +248,17 @@ class CameraService {
     try {
       final photo = await takePicture(controller);
       
-      // Get app documents directory
       final Directory appDocDir = await getApplicationDocumentsDirectory();
       final String dirPath = '${appDocDir.path}/attendance_photos';
       
-      // Create directory if not exists
       final Directory photoDir = Directory(dirPath);
       if (!await photoDir.exists()) {
         await photoDir.create(recursive: true);
       }
       
-      // Create file path
       final String filePath = '$dirPath/$fileName';
-      
-      // Copy file to new location
       await File(photo.path).copy(filePath);
       
-      // Delete original temp file
       try {
         await File(photo.path).delete();
       } catch (e) {
@@ -285,7 +275,6 @@ class CameraService {
 
   // ================== UTILITY METHODS ==================
 
-  /// Get available resolution presets for camera
   static List<ResolutionPreset> getAvailableResolutions() {
     return [
       ResolutionPreset.low,
@@ -297,18 +286,15 @@ class CameraService {
     ];
   }
 
-  /// Get recommended resolution preset for attendance photos
   static ResolutionPreset getRecommendedResolution() {
-    return ResolutionPreset.medium; // Good balance of quality and file size
+    return ResolutionPreset.medium;
   }
 
-  /// Generate unique filename for attendance photo
   static String generateAttendancePhotoName(String userId, String type) {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     return '${userId}_${type}_$timestamp.jpg';
   }
 
-  /// Validate camera configuration
   static bool validateCameraSetup() {
     if (!isInitialized) {
       print('Camera validation failed: Not initialized');
@@ -329,7 +315,6 @@ class CameraService {
     return true;
   }
 
-  /// Get camera info string for debugging
   static String getCameraInfoString() {
     if (!isInitialized) {
       return 'Cameras not initialized';
@@ -342,17 +327,11 @@ class CameraService {
     buffer.writeln('- Has back camera: $hasBackCamera');
     buffer.writeln('- Preferred index: ${getPreferredCameraIndex()}');
     
-    for (int i = 0; i < _cameras!.length; i++) {
-      final camera = _cameras![i];
-      buffer.writeln('- Camera $i: ${camera.name} (${camera.lensDirection})');
-    }
-    
     return buffer.toString();
   }
 
   // ================== ERROR HANDLING ==================
 
-  /// Handle camera exceptions
   static String getErrorMessage(dynamic error) {
     if (error is CameraException) {
       switch (error.code) {

@@ -28,19 +28,17 @@ class _MainDashboardState extends State<MainDashboard> {
   final GlobalKey<AttendancePageState> _attendanceKey =
       GlobalKey<AttendancePageState>();
 
-  late final PageController _pageController;
+  // ✅ OPTIMIZATION: Track which pages have been initialized (lazy loading)
+  final Set<int> _initializedPages = {0}; // Dashboard sudah initialized di awal
+  
+  // ✅ OPTIMIZATION: Debounce refresh calls
+  DateTime? _lastRefreshTime;
+  static const Duration _refreshDebounceTime = Duration(seconds: 3); // ✅ Increase debounce time
 
   @override
   void initState() {
     super.initState();
-    _pageController = PageController();
     _verifyOrganizationMembership();
-  }
-
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
   }
 
   Future<void> _verifyOrganizationMembership() async {
@@ -101,35 +99,68 @@ class _MainDashboardState extends State<MainDashboard> {
     );
   }
 
-  void _onBottomNavTap(int index) async {
-    if (_isAnimating || index == _currentIndex) return;
+  void _onBottomNavTap(int index) {
+    if (index == _currentIndex) return; // ✅ Skip jika sudah di halaman yang sama
     
     HapticFeedback.selectionClick();
     
+    // ✅ OPTIMIZATION: Direct navigation tanpa animasi (lebih cepat)
     setState(() {
-      _isAnimating = true;
+      _currentIndex = index;
+      _initializedPages.add(index); // ✅ Mark page as initialized
     });
     
-    await _pageController.animateToPage(
-      index,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeInOut,
-    );
-    
-    if (mounted) {
-      setState(() {
-        _currentIndex = index;
-        _isAnimating = false;
-      });
+    // ✅ OPTIMIZATION: Lazy initialize page data only when first accessed (delay untuk smooth transition)
+    if (!_initializedPages.contains(index) || _initializedPages.length == 1) {
+      Future.microtask(() => _lazyInitializePage(index));
+    }
+  }
+  
+  // ✅ OPTIMIZATION: Lazy initialize page data
+  void _lazyInitializePage(int index) {
+    // Initialize page-specific data only when first accessed
+    switch (index) {
+      case 0:
+        // Dashboard - already loaded in initState, no need to refresh
+        break;
+      case 1:
+        // Attendance - refresh only if not initialized (delay untuk performa)
+        Future.delayed(const Duration(milliseconds: 200), () {
+          if (mounted && _currentIndex == 1) {
+            _attendanceKey.currentState?.refreshData();
+          }
+        });
+        break;
+      case 2:
+        // Profile - no initialization needed
+        break;
     }
   }
 
   void _refreshDashboardProfile() {
+    // ✅ OPTIMIZATION: Debounce refresh calls
+    final now = DateTime.now();
+    if (_lastRefreshTime != null && 
+        now.difference(_lastRefreshTime!) < _refreshDebounceTime) {
+      debugPrint('MainDashboard: Refresh debounced');
+      return;
+    }
+    _lastRefreshTime = now;
+    
     debugPrint('MainDashboard: Refreshing dashboard profile');
     _dashboardKey.currentState?.refreshUserProfile();
   }
 
   void _refreshAttendance() {
+    // ✅ OPTIMIZATION: Debounce refresh calls
+    final now = DateTime.now();
+    if (_lastRefreshTime != null && 
+        now.difference(_lastRefreshTime!) < _refreshDebounceTime) {
+      debugPrint('MainDashboard: Refresh debounced');
+      return;
+    }
+    _lastRefreshTime = now;
+    
     debugPrint('MainDashboard: Refreshing attendance');
     _attendanceKey.currentState?.refreshData();
   }
@@ -164,26 +195,38 @@ class _MainDashboardState extends State<MainDashboard> {
     final bottomNavHeight = 70.0;
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
-    final pages = [
-      _buildSafeContent(
-        UserDashboard(key: _dashboardKey),
-        bottomNavHeight,
-        bottomPadding,
-      ),
-      _buildSafeContent(
-        AttendancePage(
-          key: _attendanceKey,
-          onAttendanceUpdated: _refreshAttendance,
-        ),
-        bottomNavHeight,
-        bottomPadding,
-      ),
-      _buildSafeContent(
-        ProfilePage(onProfileUpdated: _refreshDashboardProfile),
-        bottomNavHeight,
-        bottomPadding,
-      ),
-    ];
+    // ✅ OPTIMIZATION: Lazy build pages - hanya build yang visible atau sudah pernah diakses
+    final pages = List<Widget?>.generate(3, (index) {
+      // Build page jika: current page atau sudah pernah diakses
+      if (index == _currentIndex || _initializedPages.contains(index)) {
+        switch (index) {
+          case 0:
+            return _buildSafeContent(
+              UserDashboard(key: _dashboardKey),
+              bottomNavHeight,
+              bottomPadding,
+            );
+          case 1:
+            return _buildSafeContent(
+              AttendancePage(
+                key: _attendanceKey,
+                onAttendanceUpdated: _refreshAttendance,
+              ),
+              bottomNavHeight,
+              bottomPadding,
+            );
+          case 2:
+            return _buildSafeContent(
+              ProfilePage(onProfileUpdated: _refreshDashboardProfile),
+              bottomNavHeight,
+              bottomPadding,
+            );
+          default:
+            return null;
+        }
+      }
+      return null; // Placeholder untuk halaman yang belum di-load
+    });
 
     final icons = [
       Icons.home_outlined,
@@ -199,23 +242,15 @@ class _MainDashboardState extends State<MainDashboard> {
 
     return Scaffold(
       extendBody: true,
-      resizeToAvoidBottomInset: true,
-      body: PageView(
-        controller: _pageController,
-        physics: const NeverScrollableScrollPhysics(),
-        onPageChanged: (index) {
-          if (!_isAnimating) {
-            setState(() => _currentIndex = index);
-          }
-          
-          if (index == 0) {
-            _dashboardKey.currentState?.refreshUserProfile();
-          }
-          if (index == 1) {
-            _refreshAttendance();
-          }
-        },
-        children: pages,
+      resizeToAvoidBottomInset: false, // ✅ OPTIMIZATION: Disable resize untuk performa
+      body: IndexedStack(
+        index: _currentIndex,
+        children: [
+          // ✅ OPTIMIZATION: Build pages on-demand, gunakan SizedBox.shrink untuk placeholder
+          pages[0] ?? const SizedBox.shrink(),
+          pages[1] ?? const SizedBox.shrink(),
+          pages[2] ?? const SizedBox.shrink(),
+        ],
       ),
       bottomNavigationBar: Container(
         margin: const EdgeInsets.all(16),

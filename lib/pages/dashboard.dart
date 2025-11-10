@@ -65,18 +65,9 @@ class _DashboardContentState extends State<_DashboardContent> {
   static const Duration dataLoadTimeout = Duration(seconds: 10);
   static const int maxRetries = 2;
   
-  // Cache variables
-  static SimpleOrganization? _cachedOrganization;
-  static DateTime? _organizationCacheTime;
-  static const Duration cacheValidity = Duration(minutes: 5);
-
   SupabaseClient get _supabase => Supabase.instance.client;
 
   bool _isSecondaryDataLoading = false;
-
-static WorkScheduleDetails? _cachedScheduleDetails;
-static String? _cachedScheduleDetailsKey;
-static DateTime? _scheduleDetailsCacheTime;
 
   bool _isInitialLoading = true;
   bool _isRefreshing = false;
@@ -115,6 +106,9 @@ static DateTime? _scheduleDetailsCacheTime;
 
   Timer? _debounceTimer;
   Timer? _periodicLocationTimer;
+  
+  // ✅ FIX: Flag untuk mencegah break monitoring reload break info setelah stop break
+  bool _breakJustStopped = false;
 
   static const Color primaryColor = Color(0xFF6366F1);
   static const Color backgroundColor = Color(0xFF1F2937);
@@ -124,7 +118,8 @@ static DateTime? _scheduleDetailsCacheTime;
   static const double minGpsAccuracy = 20.0;
   static const int maxGpsRetries = 2;
   static const Duration gpsRetryDelay = Duration(seconds: 3);
-  static const Duration locationUpdateInterval = Duration(seconds: 30);
+  // ✅ OPTIMIZATION: Increase location update interval untuk mengurangi GPS usage
+  static const Duration locationUpdateInterval = Duration(seconds: 60);
 
   @override
   void initState() {
@@ -145,22 +140,45 @@ static DateTime? _scheduleDetailsCacheTime;
 
   void _startBreakMonitoring() {
     _breakIndicatorTimer?.cancel();
-    _breakIndicatorTimer = Timer.periodic(const Duration(seconds: 1), (
+    // ✅ OPTIMIZATION: Kurangi frequency dari 1 detik ke 5 detik untuk mengurangi setState calls
+    _breakIndicatorTimer = Timer.periodic(const Duration(seconds: 5), (
       timer,
     ) async {
-      if (mounted) {
-        if (_breakInfo != null &&
-            _breakInfo!['is_currently_on_break'] == true) {
-          setState(() {});
+      if (!mounted) return;
+      
+      // ✅ OPTIMIZATION: Hanya update UI jika ada break aktif
+      final wasOnBreak = _breakInfo != null && _breakInfo!['is_currently_on_break'] == true;
+      
+      // ✅ FIX: Skip break monitoring jika break baru saja dihentikan
+      if (_breakJustStopped) {
+        // Reset flag setelah 2 menit (24 ticks * 5 seconds)
+        if (timer.tick % 24 == 0) {
+          _breakJustStopped = false;
+          debugPrint('Break monitoring resumed after stop break');
         }
-
-        if (timer.tick % 30 == 0) {
-          try {
-            await _loadBreakInfo();
-            if (mounted) setState(() {});
-          } catch (e) {
-            debugPrint('Error monitoring break: $e');
-          }
+        return; // Skip monitoring untuk sementara
+      }
+      
+      // ✅ OPTIMIZATION: Check break info setiap 60 detik (12 ticks * 5 seconds)
+      if (timer.tick % 12 == 0) {
+        try {
+          // ✅ OPTIMIZATION: Tidak perlu force refresh, gunakan cache
+          await _loadBreakInfo(forceRefresh: false);
+        } catch (e) {
+          debugPrint('Error monitoring break: $e');
+        }
+      }
+      
+      // ✅ OPTIMIZATION: Hanya setState jika status break berubah atau sedang break (untuk timer)
+      final isNowOnBreak = _breakInfo != null && _breakInfo!['is_currently_on_break'] == true;
+      if (mounted) {
+        if (wasOnBreak != isNowOnBreak) {
+          // Status break berubah - perlu update UI
+          setState(() {});
+        } else if (isNowOnBreak) {
+          // ✅ Update UI setiap 5 detik hanya jika sedang break (untuk countdown timer)
+          // Hanya update jika widget masih mounted dan break masih aktif
+          setState(() {});
         }
       }
     });
@@ -484,11 +502,28 @@ static DateTime? _scheduleDetailsCacheTime;
   Future<void> refreshUserProfile() async {
     debugPrint('DashboardContent: refreshUserProfile called');
     try {
-      final updatedProfile = await _attendanceService.loadUserProfile();
+      // ✅ OPTIMIZATION: Gunakan cache jika available, hanya force refresh jika perlu
+      final updatedProfile = await _attendanceService.loadUserProfile(forceRefresh: false);
       if (updatedProfile != null && mounted) {
-        setState(() {
-          _userProfile = updatedProfile;
-        });
+        // ✅ OPTIMIZATION: Hanya setState jika data benar-benar berubah
+        if (_userProfile?.displayName != updatedProfile.displayName ||
+            _userProfile?.profilePhotoUrl != updatedProfile.profilePhotoUrl) {
+          setState(() {
+            _userProfile = updatedProfile;
+          });
+          debugPrint('✓ User profile refreshed in dashboard');
+        }
+        
+        // ✅ OPTIMIZATION: Load org member hanya jika belum ada atau perlu update
+        if (_organizationMember == null) {
+          final updatedOrgMember = await _attendanceService.loadOrganizationMember(forceRefresh: false);
+          if (updatedOrgMember != null && mounted) {
+            setState(() {
+              _organizationMember = updatedOrgMember;
+            });
+            debugPrint('✓ Organization member loaded in dashboard');
+          }
+        }
       }
     } catch (e) {
       debugPrint('Failed to refresh user profile: $e');
@@ -519,17 +554,18 @@ Future<void> _loadUserData() async {
   setState(() => _isInitialLoading = true);
 
   try {
-    // ✅ STEP 1: Load critical data
+    // ✅ STEP 1: Load critical data (gunakan cache dari service)
     final criticalData = await Future.wait([
-      _attendanceService.loadUserProfile(),
-      _attendanceService.loadOrganizationMember(),
+      _attendanceService.loadUserProfile(), // ✅ Service sudah handle caching
+      _attendanceService.loadOrganizationMember(), // ✅ Service sudah handle caching
     ]).timeout(
       const Duration(seconds: 6),
       onTimeout: () async {
-        debugPrint('⚠️ Critical data timeout, retrying...');
+        debugPrint('⚠️ Critical data timeout, using cached data');
+        // ✅ Return cached data jika timeout
         return Future.wait([
-          _attendanceService.loadUserProfile(),
-          _attendanceService.loadOrganizationMember(),
+          _attendanceService.loadUserProfile(), // Will return cached if available
+          _attendanceService.loadOrganizationMember(), // Will return cached if available
         ]);
       },
     );
@@ -584,14 +620,14 @@ Future<void> _loadUserData() async {
       return;
     }
 
-    // ✅ STEP 4: Load data untuk status card
+    // ✅ STEP 4: Load data untuk status card (gunakan cache dari service)
     await Future.wait([
-      _loadOrganizationData(),
-      _loadBreakInfo(),
+      _loadOrganizationData(forceRefresh: false), // ✅ Gunakan cache
+      _loadBreakInfo(forceRefresh: false), // ✅ Gunakan cache
     ]).timeout(
       const Duration(seconds: 5),
       onTimeout: () async {
-        debugPrint('⚠️ Organization data timeout');
+        debugPrint('⚠️ Organization data timeout, using cached data');
         return [];
       },
     );
@@ -782,14 +818,25 @@ Future<void> _loadRemainingDataInBackground() async {
   }
 }
 
-  Future<void> _loadBreakInfo() async {
+  Future<void> _loadBreakInfo({bool forceRefresh = false}) async {
     if (_organizationMember == null) return;
 
     try {
-      _breakInfo = await _attendanceService.getTodayBreakInfo(
+      // ✅ OPTIMIZATION: Service sudah handle caching
+      final breakInfo = await _attendanceService.getTodayBreakInfo(
         _organizationMember!.id,
+        forceRefresh: forceRefresh,
       );
-      debugPrint('Break info loaded: $_breakInfo');
+      
+      // ✅ FIX: Update break info dan trigger setState untuk update UI
+      if (mounted) {
+        setState(() {
+          _breakInfo = breakInfo;
+        });
+      }
+      
+      debugPrint('Break info loaded: is_currently_on_break=${breakInfo['is_currently_on_break']}');
+      debugPrint('Break info: $breakInfo');
     } catch (e) {
       debugPrint('Error loading break info: $e');
     }
@@ -945,13 +992,14 @@ Future<void> _loadRemainingDataInBackground() async {
     });
 
     try {
+      // ✅ OPTIMIZATION: Force refresh semua data setelah perubahan
       await _loadScheduleData();
       await Future.wait([
-        _loadOrganizationData(),
-        _loadBreakInfo(),
+        _loadOrganizationData(forceRefresh: true), // ✅ Force refresh
+        _loadBreakInfo(forceRefresh: true), // ✅ Force refresh
         _loadLocationInfo(),
       ]);
-      await _updateAttendanceStatus();
+      await _updateAttendanceStatus(forceRefresh: true); // ✅ Force refresh
       await _buildDynamicTimeline();
     } catch (e) {
       debugPrint('Error in force data reload: $e');
@@ -1045,200 +1093,199 @@ Future<void> _loadRemainingDataInBackground() async {
     }
   }
 
-  Future<void> _loadOrganizationInfo() async {
-  if (_organizationMember == null) return;
+  Future<void> _loadOrganizationInfo({bool forceRefresh = false}) async {
+    if (_organizationMember == null) return;
 
-  // ✅ Check cache first
-  if (_cachedOrganization != null && 
-      _organizationCacheTime != null &&
-      DateTime.now().difference(_organizationCacheTime!) < cacheValidity) {
-    setState(() {
-      _organization = _cachedOrganization;
-    });
-    debugPrint('✓ Using cached organization data');
-    return;
-  }
+    // ✅ OPTIMIZATION: Gunakan organization dari cached org member jika available
+    if (!forceRefresh && _organizationMember?.organization != null) {
+      final org = _organizationMember!.organization!;
+      if (mounted) {
+        setState(() {
+          _organization = SimpleOrganization(
+            id: org.id,
+            name: org.name,
+            logoUrl: org.logoUrl,
+          );
+        });
+        debugPrint('✓ Using organization from cached org member');
+        return;
+      }
+    }
 
-  try {
-    dynamic orgIdValue;
     try {
-      orgIdValue = int.parse(_organizationMember!.organizationId);
+      dynamic orgIdValue;
+      try {
+        orgIdValue = int.parse(_organizationMember!.organizationId);
+      } catch (e) {
+        orgIdValue = _organizationMember!.organizationId;
+      }
+
+      final response = await Supabase.instance.client
+          .from('organizations')
+          .select('id, name, logo_url')
+          .eq('id', orgIdValue)
+          .single()
+          .timeout(const Duration(seconds: 5));
+
+      if (response != null && mounted) {
+        final org = SimpleOrganization(
+          id: response['id'].toString(),
+          name: response['name'] ?? 'Unknown Organization',
+          logoUrl: response['logo_url'],
+        );
+        
+        setState(() {
+          _organization = org;
+        });
+        debugPrint('✓ Organization data loaded: ${org.name}, Logo: ${org.logoUrl}');
+      }
     } catch (e) {
-      orgIdValue = _organizationMember!.organizationId;
-    }
-
-    final response = await Supabase.instance.client
-        .from('organizations')
-        .select('id, name, logo_url')
-        .eq('id', orgIdValue)
-        .single()
-        .timeout(const Duration(seconds: 5));
-
-    if (response != null && mounted) {
-      final org = SimpleOrganization(
-        id: response['id'].toString(),
-        name: response['name'] ?? 'Unknown Organization',
-        logoUrl: response['logo_url'],
-      );
-      
-      setState(() {
-        _organization = org;
-        _cachedOrganization = org;
-        _organizationCacheTime = DateTime.now();
-      });
-      debugPrint('✓ Organization data loaded: ${org.name}, Logo: ${org.logoUrl}');
-    }
-  } catch (e) {
-    debugPrint('Error loading organization info: $e');
-    // Use cached data if available
-    if (_cachedOrganization != null && mounted) {
-      setState(() {
-        _organization = _cachedOrganization;
-      });
-      debugPrint('✓ Using cached organization data after error');
+      debugPrint('Error loading organization info: $e');
+      // ✅ OPTIMIZATION: Fallback ke organization dari cached org member
+      if (_organizationMember?.organization != null && mounted) {
+        final org = _organizationMember!.organization!;
+        setState(() {
+          _organization = SimpleOrganization(
+            id: org.id,
+            name: org.name,
+            logoUrl: org.logoUrl,
+          );
+        });
+        debugPrint('✓ Using organization from cached org member after error');
+      }
     }
   }
-}
 
   Future<void> _refreshData() async {
-  setState(() => _isRefreshing = true);
+    setState(() => _isRefreshing = true);
 
-  try {
-    // ✅ Refresh profile
-    _userProfile = await _attendanceService.loadUserProfile().timeout(
-      const Duration(seconds: 3),
-      onTimeout: () async {
-        debugPrint('⚠️ Profile refresh timeout, using cached');
-        return _userProfile;
-      },
-    );
-
-    if (_organizationMember != null) {
-      // ✅ Parallel refresh essential data (include organization info)
-      await Future.wait([
-        _loadScheduleData(),
-        _loadLocationInfo(),
-        _loadOrganizationData(),
-        _loadBreakInfo(),
-        _loadOrganizationInfo(), // ✅ Refresh organization info dengan logo
-      ]).timeout(
-        const Duration(seconds: 5),
+    try {
+      // ✅ OPTIMIZATION: Force refresh untuk mendapatkan data terbaru
+      _userProfile = await _attendanceService.loadUserProfile(forceRefresh: true).timeout(
+        const Duration(seconds: 3),
         onTimeout: () async {
-          debugPrint('⚠️ Refresh data timeout');
-          return [];
+          debugPrint('⚠️ Profile refresh timeout, using cached');
+          return _userProfile;
         },
       );
 
-      // ✅ Update status dan timeline
-      await _updateAttendanceStatus().timeout(
-        const Duration(seconds: 3),
-        onTimeout: () => Future.value(),
-      );
-      
-      await _buildDynamicTimeline().timeout(
-        const Duration(seconds: 2),
-        onTimeout: () => Future.value(),
-      );
+      if (_organizationMember != null) {
+        // ✅ OPTIMIZATION: Force refresh untuk data yang berubah sering
+        await Future.wait([
+          _loadScheduleData(),
+          _loadLocationInfo(),
+          _loadOrganizationData(forceRefresh: true), // ✅ Force refresh attendance data
+          _loadBreakInfo(forceRefresh: true), // ✅ Force refresh break info
+          _loadOrganizationInfo(),
+        ]).timeout(
+          const Duration(seconds: 5),
+          onTimeout: () async {
+            debugPrint('⚠️ Refresh data timeout');
+            return [];
+          },
+        );
+
+        // ✅ OPTIMIZATION: Force refresh status
+        await _updateAttendanceStatus(forceRefresh: true).timeout(
+          const Duration(seconds: 3),
+          onTimeout: () => Future.value(),
+        );
+        
+        await _buildDynamicTimeline().timeout(
+          const Duration(seconds: 2),
+          onTimeout: () => Future.value(),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error refreshing data: $e');
+      if (mounted) {
+        FlushbarHelper.showError(
+          context,
+          LocalizationHelper.getText('failed_to_refresh_data'),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isRefreshing = false);
     }
-  } catch (e) {
-    debugPrint('Error refreshing data: $e');
-    if (mounted) {
-      FlushbarHelper.showError(
-        context,
-        LocalizationHelper.getText('failed_to_refresh_data'),
-      );
-    }
-  } finally {
-    if (mounted) setState(() => _isRefreshing = false);
   }
-}
 
-  Future<void> _loadOrganizationData() async {
-  if (_organizationMember == null) return;
+  Future<void> _loadOrganizationData({bool forceRefresh = false}) async {
+    if (_organizationMember == null) return;
 
-  try {
-    // ✅ Load semua data sekaligus (1 call)
-    final data = await _attendanceService.loadDashboardData(_organizationMember!.id);
+    try {
+      // ✅ OPTIMIZATION: Service sudah handle caching, gunakan parameter forceRefresh
+      final data = await _attendanceService.loadDashboardData(
+        _organizationMember!.id,
+        forceRefresh: forceRefresh,
+      );
 
-    if (mounted) {
-      setState(() {
-        _todayAttendanceRecords = data['today_records'] as List<AttendanceRecord>;
-        _recentAttendanceRecords = data['recent_records'] as List<AttendanceRecord>;
-      });
+      if (mounted) {
+        setState(() {
+          _todayAttendanceRecords = data['today_records'] as List<AttendanceRecord>;
+          _recentAttendanceRecords = data['recent_records'] as List<AttendanceRecord>;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading organization data: $e');
     }
-  } catch (e) {
-    debugPrint('Error loading organization data: $e');
   }
-}
 
   Future<void> _loadScheduleData() async {
-  if (_organizationMember == null || !mounted) return; // ✅ CHECK di awal
+    if (_organizationMember == null || !mounted) return;
 
-  try {
-    _currentSchedule = await _attendanceService.loadCurrentSchedule(
-      _organizationMember!.id,
-    );
-
-    if (!mounted) return; // ✅ CHECK setelah async
-
-    if (_currentSchedule?.workScheduleId != null) {
-      final dayOfWeek = TimeHelper.getCurrentDayOfWeek();
-      final cacheKey = '${_currentSchedule!.workScheduleId}_$dayOfWeek';
-      
-      // Check cache...
-      if (_cachedScheduleDetails != null && 
-          _cachedScheduleDetailsKey == cacheKey &&
-          _scheduleDetailsCacheTime != null &&
-          DateTime.now().difference(_scheduleDetailsCacheTime!) < const Duration(hours: 1)) {
-        _todayScheduleDetails = _cachedScheduleDetails;
-        debugPrint('✓ Using cached schedule details');
-        return; // ✅ TIDAK perlu setState
-      }
-      
-      _todayScheduleDetails = await _attendanceService
-          .loadWorkScheduleDetails(
-            _currentSchedule!.workScheduleId!,
-            dayOfWeek,
-          );
-      
-      if (!mounted) return; // ✅ CHECK setelah async
-      
-      if (_todayScheduleDetails != null) {
-        _cachedScheduleDetails = _todayScheduleDetails;
-        _cachedScheduleDetailsKey = cacheKey;
-        _scheduleDetailsCacheTime = DateTime.now();
-        debugPrint('✓ Schedule details loaded and cached');
-      }
-    }
-
-    if (mounted) setState(() {}); // ✅ CHECK sebelum setState
-  } catch (e) {
-    debugPrint('Error loading schedule details: $e');
-  }
-}
-
-  Future<void> _updateAttendanceStatus() async {
-  if (_organizationMember == null) return;
-
-  try {
-    final results = await Future.wait([
-      _attendanceService.getCurrentAttendanceStatus(_organizationMember!.id),
-      // ✅ Pass existing data untuk avoid duplicate query
-      _attendanceService.getAvailableActions(
+    try {
+      // ✅ OPTIMIZATION: Service sudah handle caching, tidak perlu cache manual
+      _currentSchedule = await _attendanceService.loadCurrentSchedule(
         _organizationMember!.id,
-        existingSchedule: _currentSchedule,
-        existingScheduleDetails: _todayScheduleDetails,
-      ),
-    ]);
+      );
 
-    _currentStatus = results[0] as AttendanceStatus;
-    _availableActions = results[1] as List<AttendanceAction>;
+      if (!mounted) return;
 
-    if (mounted) setState(() {});
-  } catch (e) {
-    debugPrint('Error updating attendance status: $e');
+      if (_currentSchedule?.workScheduleId != null) {
+        final dayOfWeek = TimeHelper.getCurrentDayOfWeek();
+        
+        // ✅ OPTIMIZATION: Service sudah handle caching
+        _todayScheduleDetails = await _attendanceService
+            .loadWorkScheduleDetails(
+              _currentSchedule!.workScheduleId!,
+              dayOfWeek,
+            );
+        
+        if (!mounted) return;
+        debugPrint('✓ Schedule details loaded (cached by service)');
+      }
+
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('Error loading schedule details: $e');
+    }
   }
-}
+
+  Future<void> _updateAttendanceStatus({bool forceRefresh = false}) async {
+    if (_organizationMember == null) return;
+
+    try {
+      // ✅ OPTIMIZATION: Service sudah handle caching, pass existing data untuk avoid duplicate query
+      final results = await Future.wait([
+        _attendanceService.getCurrentAttendanceStatus(
+          _organizationMember!.id,
+          forceRefresh: forceRefresh,
+        ),
+        _attendanceService.getAvailableActions(
+          _organizationMember!.id,
+          existingSchedule: _currentSchedule,
+          existingScheduleDetails: _todayScheduleDetails,
+        ),
+      ]);
+
+      _currentStatus = results[0] as AttendanceStatus;
+      _availableActions = results[1] as List<AttendanceAction>;
+
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('Error updating attendance status: $e');
+    }
+  }
 
   Future<List<ScheduleItem>> _getScheduleItemsFromDatabase() async {
     List<ScheduleItem> items = [];
@@ -1685,7 +1732,33 @@ Future<void> _loadRemainingDataInBackground() async {
         ),
       );
 
-      if (result == true || mounted) {
+      // ✅ FIX: Jika break dihentikan dari BreakPage, clear break info dan refresh data
+      if (result == true && mounted) {
+        // ✅ Invalidate cache untuk memastikan data fresh
+        _attendanceService.invalidateAttendanceCache(_organizationMember!.id);
+        
+        // ✅ Clear break info immediately (break sudah dihentikan dari BreakPage)
+        setState(() {
+          _breakInfo = null;
+          _breakJustStopped = true; // Set flag untuk skip break monitoring sementara
+        });
+        
+        // ✅ Reload data dengan force refresh
+        await Future.wait([
+          _loadBreakInfo(forceRefresh: true),
+          _loadOrganizationData(forceRefresh: true),
+          _updateAttendanceStatus(forceRefresh: true),
+        ]);
+        
+        // ✅ Pastikan break info tidak menunjukkan break aktif
+        if (mounted && _breakInfo != null && _breakInfo!['is_currently_on_break'] == true) {
+          debugPrint('⚠️ Warning: Break info still shows break active after BreakPage. Force clearing...');
+          setState(() {
+            _breakInfo = null;
+          });
+        }
+      } else if (mounted) {
+        // ✅ Reload data jika tidak ada result (user mungkin hanya melihat break page)
         await _refreshData();
       }
     } catch (e) {
@@ -1729,6 +1802,10 @@ Future<void> _loadRemainingDataInBackground() async {
         throw Exception(LocalizationHelper.getText('invalid_member_id'));
       }
 
+      // ✅ FIX: Invalidate cache SEBELUM insert untuk memastikan data fresh
+      _attendanceService.invalidateAttendanceCache(_organizationMember!.id);
+      
+      // ✅ FIX: Insert break_in log
       await Supabase.instance.client.from('attendance_logs').insert({
         'organization_member_id': memberId,
         'event_type': 'break_in',
@@ -1739,14 +1816,22 @@ Future<void> _loadRemainingDataInBackground() async {
         'verification_method': 'manual',
       });
 
+      // ✅ FIX: Update break duration (akan invalidate cache lagi untuk memastikan)
       await _attendanceService.updateBreakDuration(
         memberId,
         actualBreakDuration.inMinutes,
       );
 
-      setState(() {
-        _breakInfo = null;
-      });
+      // ✅ FIX: Clear break info IMMEDIATELY - break sudah dihentikan
+      // Kita tahu break sudah berhenti karena break_in log sudah di-insert
+      // Jangan reload break info dulu karena mungkin masih menggunakan cache/data lama
+      if (mounted) {
+        setState(() {
+          _breakInfo = null; // ✅ Clear break info - break indicator akan hilang
+          _isLoading = false;
+          _breakJustStopped = true; // ✅ Set flag untuk skip break monitoring sementara
+        });
+      }
 
       if (mounted) {
         FlushbarHelper.showSuccess(
@@ -1755,18 +1840,42 @@ Future<void> _loadRemainingDataInBackground() async {
         );
       }
 
-      await _refreshData();
+      // ✅ FIX: Reload data lainnya di background (non-blocking)
+      // Break info akan di-reload oleh break monitoring timer atau saat diperlukan
+      Future.wait([
+        _loadBreakInfo(forceRefresh: true), // Reload break info untuk verifikasi (background)
+        _loadOrganizationData(forceRefresh: true), // Reload attendance records
+        _updateAttendanceStatus(forceRefresh: true), // Update status
+      ]).then((_) {
+        if (mounted) {
+          // ✅ FIX: Pastikan break info tidak menunjukkan break aktif setelah reload
+          if (_breakInfo != null && _breakInfo!['is_currently_on_break'] == true) {
+            debugPrint('⚠️ Warning: Break info still shows break active after stop. Force clearing...');
+            setState(() {
+              _breakInfo = null; // Force clear jika masih menunjukkan break aktif
+            });
+          } else {
+            setState(() {}); // Update UI dengan data terbaru
+          }
+        }
+      }).catchError((e) {
+        debugPrint('Error reloading data after break stop: $e');
+      });
+      
+      debugPrint('✓ Break stopped successfully. Duration: ${actualBreakDuration.inMinutes} minutes');
+      debugPrint('✓ Break info cleared. Break indicator should be hidden now.');
     } catch (e) {
-      debugPrint('Error ending break: $e');
+      debugPrint('❌ Error ending break: $e');
       if (mounted) {
         FlushbarHelper.showError(
           context,
           '${LocalizationHelper.getText('failed_to_end_break')}: ${e.toString()}',
         );
       }
-    } finally {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+        });
       }
     }
   }
@@ -2009,8 +2118,14 @@ Future<void> _loadRemainingDataInBackground() async {
         debugPrint('✓ Attendance saved successfully');
         if (mounted) await _showSuccessAttendancePopup(actionType);
 
-        await _loadBreakInfo();
-        unawaited(_refreshData());
+        // ✅ OPTIMIZATION: Service sudah invalidate cache, refresh data dengan forceRefresh
+        // Cache sudah di-invalidate oleh service, jadi kita force refresh untuk mendapatkan data terbaru
+        await Future.wait([
+          _loadBreakInfo(forceRefresh: true), // ✅ Force refresh break info
+          _updateAttendanceStatus(forceRefresh: true), // ✅ Force refresh status
+        ]);
+        unawaited(_loadOrganizationData(forceRefresh: true)); // ✅ Refresh attendance records di background
+        unawaited(_buildDynamicTimeline()); // ✅ Refresh timeline di background
         triggerAttendanceHistoryRefresh();
       }
     } catch (e) {
@@ -2693,7 +2808,31 @@ Future<void> _loadRemainingDataInBackground() async {
                                 width: 32,
                                 height: 32,
                                 fit: BoxFit.cover,
+                                loadingBuilder: (context, child, loadingProgress) {
+                                  if (loadingProgress == null) return child;
+                                  return Container(
+                                    width: 32,
+                                    height: 32,
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey.shade200,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Center(
+                                      child: SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          value: loadingProgress.expectedTotalBytes != null
+                                              ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                                              : null,
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
                                 errorBuilder: (context, error, stackTrace) {
+                                  debugPrint('Error loading organization logo: $error');
                                   return Icon(
                                     Icons.business,
                                     color: primaryColor,
@@ -2948,7 +3087,31 @@ void didChangeDependencies() {
                             width: 32,
                             height: 32,
                             fit: BoxFit.cover,
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return Container(
+                                width: 32,
+                                height: 32,
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade200,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Center(
+                                  child: SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      value: loadingProgress.expectedTotalBytes != null
+                                          ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                                          : null,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
                             errorBuilder: (context, error, stackTrace) {
+                              debugPrint('Error loading organization logo: $error');
                               return Container(
                                 width: 32,
                                 height: 32,

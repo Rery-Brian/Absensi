@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'helpers/localization_helper.dart';
+import 'helpers/cache_helper.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,6 +17,9 @@ Future<void> main() async {
   
   await initializeDateFormatting('id_ID', null);
   await LocalizationHelper.initialize();
+  
+  // ✅ OPTIMIZATION: Initialize cache helper
+  CacheHelper().initialize();
   
   runApp(const MyApp());
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
@@ -74,20 +75,25 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
   }
 
   Future<void> _initializeData() async {
-    if (!mounted) return;
+    if (!mounted || _isInitialized) return; // ✅ OPTIMIZATION: Prevent double initialization
     
     try {
       if (!TimezoneHelper.isInitialized) {
         TimezoneHelper.initialize('UTC');
       }
       
-      await _loadAllData();
+      // ✅ OPTIMIZATION: Load critical data first, then lazy load the rest
+      await _loadCriticalData();
       
       if (mounted) {
         setState(() {
           _isInitialized = true;
+          _isLoading = false;
         });
       }
+      
+      // ✅ OPTIMIZATION: Load attendance data in background (non-blocking)
+      _loadAttendanceDataInBackground();
     } catch (e) {
       debugPrint('Error initializing data: $e');
       if (mounted) {
@@ -98,6 +104,56 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
       }
     }
   }
+  
+  // ✅ OPTIMIZATION: Load only critical data for initial render
+  Future<void> _loadCriticalData() async {
+    if (!mounted) return;
+    
+    try {
+      // ✅ Load user profile and org member from cache (fast)
+      _organizationMember = await _attendanceService.loadOrganizationMember(forceRefresh: false);
+      
+      // ✅ Load user profile and org data in parallel
+      await Future.wait([
+        _loadUserProfile(),
+        _loadOrganizationData(),
+      ]).timeout(
+        const Duration(seconds: 3),
+        onTimeout: () {
+          debugPrint('Critical data load timeout');
+          return [];
+        },
+      );
+    } catch (e) {
+      debugPrint('Error loading critical data: $e');
+    }
+  }
+  
+  // ✅ OPTIMIZATION: Load attendance data in background
+  Future<void> _loadAttendanceDataInBackground() async {
+    if (!mounted || _organizationMember == null) return;
+    
+    try {
+      // ✅ Load attendance records and logs in parallel
+      await Future.wait([
+        _loadAttendanceRecords(),
+        _loadAttendanceLogs(),
+      ]).timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          debugPrint('Attendance data load timeout');
+          return [];
+        },
+      );
+      
+      if (mounted) {
+        _calculateMetrics();
+        setState(() {}); // ✅ Update UI dengan data baru
+      }
+    } catch (e) {
+      debugPrint('Error loading attendance data: $e');
+    }
+  }
 
   Future<void> _loadAllData() async {
     if (!mounted) return;
@@ -105,14 +161,23 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
     setState(() => _isLoading = true);
     
     try {
-      await _loadUserProfile();
-      await _loadOrganizationData();
+      // ✅ OPTIMIZATION: Load data in parallel dengan timeout
+      await Future.wait([
+        _loadUserProfile(),
+        _loadOrganizationData(),
+        _loadAttendanceRecords(),
+        _loadAttendanceLogs(),
+      ]).timeout(
+        const Duration(seconds: 8),
+        onTimeout: () {
+          debugPrint('Data load timeout');
+          return [];
+        },
+      );
       
-      _organizationMember = await _attendanceService.loadOrganizationMember();
+      _organizationMember ??= await _attendanceService.loadOrganizationMember(forceRefresh: false);
       
       if (_organizationMember != null) {
-        await _loadAttendanceRecords();
-        await _loadAttendanceLogs();
         _calculateMetrics();
       }
 
@@ -178,21 +243,24 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
     if (_organizationMember == null) return;
 
     try {
-      final startDate = DateTime(_selectedYear, 1, 1);
-      final endDate = DateTime(_selectedYear, 12, 31, 23, 59, 59);
+      // ✅ OPTIMIZATION: Load only selected month instead of entire year
+      final startDate = DateTime(_selectedYear, _selectedMonth, 1);
+      final endDate = DateTime(_selectedYear, _selectedMonth + 1, 0, 23, 59, 59);
 
       final response = await supabase
           .from('attendance_records')
           .select()
           .eq('organization_member_id', int.parse(_organizationMember!.id))
-          .gte('attendance_date', startDate.toIso8601String())
-          .lte('attendance_date', endDate.toIso8601String())
+          .gte('attendance_date', startDate.toIso8601String().split('T')[0])
+          .lte('attendance_date', endDate.toIso8601String().split('T')[0])
           .order('attendance_date', ascending: false);
 
       if (response != null) {
-        _attendanceRecords = (response as List)
-            .map((r) => AttendanceRecord.fromJson(r))
-            .toList();
+        setState(() {
+          _attendanceRecords = (response as List)
+              .map((r) => AttendanceRecord.fromJson(r))
+              .toList();
+        });
       }
     } catch (e) {
       debugPrint('Error loading attendance records: $e');
@@ -200,26 +268,37 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
   }
 
   Future<void> _loadAttendanceLogs() async {
-  if (_organizationMember == null) return;
-  if (!mounted) return; // ✅ TAMBAHKAN INI
+    if (_organizationMember == null) return;
+    if (!mounted) return;
 
-  try {
-    final memberId = int.parse(_organizationMember!.id);
-    
-    final response = await supabase
-        .from('attendance_logs')
-        .select('*')
-        .eq('organization_member_id', memberId)
-        .order('event_time', ascending: false);
+    try {
+      final memberId = int.parse(_organizationMember!.id);
+      
+      // ✅ OPTIMIZATION: Load only logs for selected month instead of all logs
+      final startDate = DateTime(_selectedYear, _selectedMonth, 1);
+      final endDate = DateTime(_selectedYear, _selectedMonth + 1, 0, 23, 59, 59);
+      final startDateStr = startDate.toIso8601String().split('T')[0];
+      final endDateStr = endDate.toIso8601String().split('T')[0];
+      
+      final response = await supabase
+          .from('attendance_logs')
+          .select('*')
+          .eq('organization_member_id', memberId)
+          .gte('event_time', '$startDateStr 00:00:00')
+          .lte('event_time', '$endDateStr 23:59:59')
+          .order('event_time', ascending: false)
+          .limit(500); // ✅ Limit untuk performance
 
-    if (!mounted) return; // ✅ CHECK SETELAH ASYNC
+      if (!mounted) return;
 
-    _allAttendanceLogs = List<Map<String, dynamic>>.from(response);
-    _processAttendanceLogs();
-  } catch (e) {
-    debugPrint('Error loading attendance logs: $e');
+      setState(() {
+        _allAttendanceLogs = List<Map<String, dynamic>>.from(response);
+        _processAttendanceLogs();
+      });
+    } catch (e) {
+      debugPrint('Error loading attendance logs: $e');
+    }
   }
-}
 
   void _processAttendanceLogs() {
     final Map<DateTime, List<Map<String, dynamic>>> groupedData = {};
@@ -498,9 +577,12 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
                         setState(() {
                           _selectedMonth = tempMonth;
                           _selectedYear = tempYear;
-                          _calculateMetrics();
                         });
                         Navigator.pop(context);
+                        // ✅ OPTIMIZATION: Reload data for selected month
+                        _loadAttendanceRecords();
+                        _loadAttendanceLogs();
+                        _calculateMetrics();
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: primaryColor,

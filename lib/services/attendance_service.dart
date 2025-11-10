@@ -5,9 +5,19 @@ import 'package:geolocator/geolocator.dart';
 import '../models/attendance_model.dart' hide Position;
 import '../helpers/timezone_helper.dart';
 import '../helpers/time_helper.dart';
+import '../helpers/cache_helper.dart';
 
 class AttendanceService {
   final SupabaseClient _supabase = Supabase.instance.client;
+  final CacheHelper _cache = CacheHelper();
+  
+  // Cache TTL durations
+  static const Duration _profileCacheTTL = Duration(minutes: 15);
+  static const Duration _orgMemberCacheTTL = Duration(minutes: 10);
+  static const Duration _scheduleCacheTTL = Duration(minutes: 5);
+  static const Duration _todayDataCacheTTL = Duration(minutes: 2);
+  static const Duration _deviceCacheTTL = Duration(minutes: 10);
+  static const Duration _statusCacheTTL = Duration(seconds: 30);
 
   // User-friendly error messages
   static const String _networkError = 'Please check your internet connection and try again.';
@@ -15,21 +25,33 @@ class AttendanceService {
   static const String _permissionError = 'You don\'t have permission to perform this action.';
   static const String _genericError = 'Something went wrong. Please try again in a moment.';
 
-  Future<UserProfile?> loadUserProfile() async {
+  Future<UserProfile?> loadUserProfile({bool forceRefresh = false}) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) {
+      throw _AuthException('Please log in to access your profile.');
+    }
+
+    final cacheKey = CacheKeys.userProfileKey(user.id);
+    
+    // Check cache first
+    if (!forceRefresh) {
+      final cached = _cache.get<UserProfile>(cacheKey);
+      if (cached != null) {
+        debugPrint('CacheHelper: User profile loaded from cache');
+        return cached;
+      }
+    }
+
     return _executeWithRetry(
       operation: () async {
         try {
-          final user = _supabase.auth.currentUser;
-          if (user == null) {
-            throw _AuthException('Please log in to access your profile.');
-          }
-
           final profileResponse = await _supabase
               .from('user_profiles')
               .select()
               .eq('id', user.id)
               .maybeSingle();
 
+          UserProfile? profile;
           if (profileResponse == null) {
             await _createUserProfile(user);
             
@@ -39,10 +61,17 @@ class AttendanceService {
                 .eq('id', user.id)
                 .maybeSingle();
                 
-            return newProfileResponse != null ? UserProfile.fromJson(newProfileResponse) : null;
+            profile = newProfileResponse != null ? UserProfile.fromJson(newProfileResponse) : null;
           } else {
-            return UserProfile.fromJson(profileResponse);
+            profile = UserProfile.fromJson(profileResponse);
           }
+          
+          // Cache the result
+          if (profile != null) {
+            _cache.set(cacheKey, profile, ttl: _profileCacheTTL);
+          }
+          
+          return profile;
         } on _AuthException {
           rethrow;
         } on SocketException {
@@ -86,13 +115,29 @@ class AttendanceService {
     }
   }
 
-  Future<OrganizationMember?> loadOrganizationMember() async {
-    try {
-      final user = _supabase.auth.currentUser;
-      if (user == null) {
-        throw _AuthException('Please log in to view your organization details.');
-      }
+  Future<OrganizationMember?> loadOrganizationMember({bool forceRefresh = false}) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) {
+      throw _AuthException('Please log in to view your organization details.');
+    }
 
+    final cacheKey = CacheKeys.orgMemberKey(user.id);
+    
+    // Check cache first
+    if (!forceRefresh) {
+      final cached = _cache.get<OrganizationMember>(cacheKey);
+      if (cached != null) {
+        debugPrint('CacheHelper: Organization member loaded from cache');
+        // Initialize timezone from cached org
+        if (cached.organization?.timezone != null) {
+          TimezoneHelper.initialize(cached.organization!.timezone);
+        }
+        return cached;
+      }
+    }
+
+    try {
+      // ✅ OPTIMIZATION: Load member and organization in parallel
       final memberResponse = await _supabase
           .from('organization_members')
           .select('*')
@@ -106,35 +151,39 @@ class AttendanceService {
         return null;
       }
 
-      Map<String, dynamic>? orgDetails;
-      Map<String, dynamic>? deptDetails;
-      Map<String, dynamic>? posDetails;
+      // ✅ OPTIMIZATION: Load all related data in parallel
+      final results = await Future.wait([
+        _supabase
+            .from('organizations')
+            .select('id, name, code, timezone, logo_url') // ✅ FIX: Tambahkan logo_url
+            .eq('id', memberResponse['organization_id'])
+            .single()
+            .catchError((e) => null),
+        memberResponse['department_id'] != null
+            ? _supabase
+                .from('departments')
+                .select('id, name, code')
+                .eq('id', memberResponse['department_id'])
+                .maybeSingle()
+                .catchError((e) => null)
+            : Future.value(null),
+        memberResponse['position_id'] != null
+            ? _supabase
+                .from('positions')
+                .select('id, title, code')
+                .eq('id', memberResponse['position_id'])
+                .maybeSingle()
+                .catchError((e) => null)
+            : Future.value(null),
+      ]);
 
-      orgDetails = await _supabase
-          .from('organizations')
-          .select('id, name, code, timezone')
-          .eq('id', memberResponse['organization_id'])
-          .single();
+      final orgDetails = results[0] as Map<String, dynamic>?;
+      final deptDetails = results[1] as Map<String, dynamic>?;
+      final posDetails = results[2] as Map<String, dynamic>?;
 
       if (orgDetails?['timezone'] != null) {
         TimezoneHelper.initialize(orgDetails!['timezone']);
         debugPrint('Organization timezone loaded: ${orgDetails['timezone']}');
-      }
-
-      if (memberResponse['department_id'] != null) {
-        deptDetails = await _supabase
-            .from('departments')
-            .select('id, name, code')
-            .eq('id', memberResponse['department_id'])
-            .maybeSingle();
-      }
-
-      if (memberResponse['position_id'] != null) {
-        posDetails = await _supabase
-            .from('positions')
-            .select('id, title, code')
-            .eq('id', memberResponse['position_id'])
-            .maybeSingle();
       }
 
       final combinedResponse = {
@@ -144,7 +193,12 @@ class AttendanceService {
         'positions': posDetails,
       };
 
-      return OrganizationMember.fromJson(combinedResponse);
+      final member = OrganizationMember.fromJson(combinedResponse);
+      
+      // Cache the result
+      _cache.set(cacheKey, member, ttl: _orgMemberCacheTTL);
+      
+      return member;
     } on _AuthException {
       rethrow;
     } on SocketException {
@@ -158,7 +212,18 @@ class AttendanceService {
     }
   }
 
-  Future<AttendanceDevice?> loadAttendanceDevice(String organizationId) async {
+  Future<AttendanceDevice?> loadAttendanceDevice(String organizationId, {bool forceRefresh = false}) async {
+    final cacheKey = CacheKeys.deviceKey(organizationId);
+    
+    // Check cache first
+    if (!forceRefresh) {
+      final cached = _cache.get<AttendanceDevice>(cacheKey);
+      if (cached != null) {
+        debugPrint('CacheHelper: Attendance device loaded from cache');
+        return cached;
+      }
+    }
+
     try {
       final deviceResponse = await _supabase
           .from('attendance_devices')
@@ -169,11 +234,14 @@ class AttendanceService {
           .limit(1)
           .maybeSingle();
 
+      AttendanceDevice? device;
       if (deviceResponse != null) {
-        return AttendanceDevice.fromJson(deviceResponse);
-      } else {
-        return null;
+        device = AttendanceDevice.fromJson(deviceResponse);
+        // Cache the result
+        _cache.set(cacheKey, device, ttl: _deviceCacheTTL);
       }
+      
+      return device;
     } on SocketException {
       throw _NetworkException(_networkError);
     } on PostgrestException catch (e) {
@@ -189,6 +257,15 @@ class AttendanceService {
     final user = _supabase.auth.currentUser;
     if (user == null) {
       throw _AuthException('Your session has expired. Please log in again.');
+    }
+
+    // ✅ OPTIMIZATION: Use cached org member untuk validasi jika available
+    final orgMemberCacheKey = CacheKeys.orgMemberKey(user.id);
+    final cachedOrgMember = _cache.get<OrganizationMember>(orgMemberCacheKey);
+    
+    if (cachedOrgMember != null && cachedOrgMember.id == organizationMemberId && cachedOrgMember.isActive) {
+      // Validasi dari cache - skip database query
+      return;
     }
 
     try {
@@ -211,7 +288,18 @@ class AttendanceService {
     }
   }
 
-  Future<List<AttendanceRecord>> loadTodayAttendanceRecords(String organizationMemberId) async {
+  Future<List<AttendanceRecord>> loadTodayAttendanceRecords(String organizationMemberId, {bool forceRefresh = false}) async {
+    final cacheKey = CacheKeys.todayRecordsKey(organizationMemberId);
+    
+    // Check cache first
+    if (!forceRefresh) {
+      final cached = _cache.get<List<AttendanceRecord>>(cacheKey);
+      if (cached != null) {
+        debugPrint('CacheHelper: Today records loaded from cache');
+        return cached;
+      }
+    }
+
     try {
       await _validateUserAccess(organizationMemberId);
       
@@ -230,6 +318,9 @@ class AttendanceService {
       final records = List<Map<String, dynamic>>.from(response)
           .map((json) => AttendanceRecord.fromJson(json))
           .toList();
+
+      // Cache the result
+      _cache.set(cacheKey, records, ttl: _todayDataCacheTTL);
 
       return records;
     } on _AuthException catch (e) {
@@ -281,7 +372,18 @@ class AttendanceService {
     }
   }
 
-  Future<List<AttendanceLog>> getTodayAttendanceLogs(String organizationMemberId) async {
+  Future<List<AttendanceLog>> getTodayAttendanceLogs(String organizationMemberId, {bool forceRefresh = false}) async {
+    final cacheKey = CacheKeys.todayLogsKey(organizationMemberId);
+    
+    // Check cache first
+    if (!forceRefresh) {
+      final cached = _cache.get<List<AttendanceLog>>(cacheKey);
+      if (cached != null) {
+        debugPrint('CacheHelper: Today logs loaded from cache');
+        return cached;
+      }
+    }
+
     try {
       await _validateUserAccess(organizationMemberId);
       
@@ -301,6 +403,9 @@ class AttendanceService {
           .map((json) => AttendanceLog.fromJson(json))
           .toList();
 
+      // Cache the result
+      _cache.set(cacheKey, logs, ttl: _todayDataCacheTTL);
+
       return logs;
     } on _AuthException catch (e) {
       throw e;
@@ -317,7 +422,18 @@ class AttendanceService {
     }
   }
 
-  Future<MemberSchedule?> loadCurrentSchedule(String organizationMemberId) async {
+  Future<MemberSchedule?> loadCurrentSchedule(String organizationMemberId, {bool forceRefresh = false}) async {
+    final cacheKey = CacheKeys.scheduleKey(organizationMemberId);
+    
+    // Check cache first
+    if (!forceRefresh) {
+      final cached = _cache.get<MemberSchedule>(cacheKey);
+      if (cached != null) {
+        debugPrint('CacheHelper: Current schedule loaded from cache');
+        return cached;
+      }
+    }
+
     try {
       final today = TimezoneHelper.getTodayDateString();
       final user = _supabase.auth.currentUser;
@@ -328,15 +444,24 @@ class AttendanceService {
 
       debugPrint('Loading schedule for member: $organizationMemberId, user: ${user.id}');
 
-      final memberVerification = await _supabase
-          .from('organization_members')
-          .select('id, user_id, organization_id')
-          .eq('id', organizationMemberId)
-          .eq('user_id', user.id)
-          .maybeSingle();
+      // ✅ OPTIMIZATION: Use cached org member if available instead of querying
+      final orgMemberCacheKey = CacheKeys.orgMemberKey(user.id);
+      String? orgId;
+      final cachedOrgMember = _cache.get<OrganizationMember>(orgMemberCacheKey);
+      if (cachedOrgMember != null && cachedOrgMember.id == organizationMemberId) {
+        orgId = cachedOrgMember.organizationId;
+      } else {
+        final memberVerification = await _supabase
+            .from('organization_members')
+            .select('id, user_id, organization_id')
+            .eq('id', organizationMemberId)
+            .eq('user_id', user.id)
+            .maybeSingle();
 
-      if (memberVerification == null) {
-        throw _PermissionException('You don\'t have access to this schedule.');
+        if (memberVerification == null) {
+          throw _PermissionException('You don\'t have access to this schedule.');
+        }
+        orgId = memberVerification['organization_id'].toString();
       }
 
       final scheduleResponse = await _supabase
@@ -354,16 +479,24 @@ class AttendanceService {
           .limit(1)
           .maybeSingle();
 
+      MemberSchedule? schedule;
       if (scheduleResponse != null) {
         debugPrint('Found schedule: ${scheduleResponse}');
-        return MemberSchedule.fromJson(scheduleResponse);
+        schedule = MemberSchedule.fromJson(scheduleResponse);
       } else {
         debugPrint('No active schedule found, trying to find default schedule');
-        return await _getDefaultScheduleForMember(
+        schedule = await _getDefaultScheduleForMember(
           organizationMemberId, 
-          memberVerification['organization_id'].toString()
+          orgId!
         );
       }
+      
+      // Cache the result
+      if (schedule != null) {
+        _cache.set(cacheKey, schedule, ttl: _scheduleCacheTTL);
+      }
+      
+      return schedule;
     } on _AuthException catch (e) {
       throw e;
     } on _PermissionException catch (e) {
@@ -443,7 +576,18 @@ class AttendanceService {
     }
   }
 
-  Future<WorkScheduleDetails?> loadWorkScheduleDetails(String workScheduleId, int dayOfWeek) async {
+  Future<WorkScheduleDetails?> loadWorkScheduleDetails(String workScheduleId, int dayOfWeek, {bool forceRefresh = false}) async {
+    final cacheKey = CacheKeys.scheduleDetailsKey(workScheduleId, dayOfWeek);
+    
+    // Check cache first
+    if (!forceRefresh) {
+      final cached = _cache.get<WorkScheduleDetails>(cacheKey);
+      if (cached != null) {
+        debugPrint('CacheHelper: Work schedule details loaded from cache');
+        return cached;
+      }
+    }
+
     try {
       final user = _supabase.auth.currentUser;
       if (user == null) {
@@ -452,26 +596,36 @@ class AttendanceService {
 
       debugPrint('Loading work schedule details for schedule: $workScheduleId, day: $dayOfWeek');
 
-      final hasAccess = await _supabase
-          .from('work_schedules')
-          .select('id, organization_id')
-          .eq('id', workScheduleId)
-          .single();
+      // ✅ OPTIMIZATION: Check cached org member first
+      final orgMemberCacheKey = CacheKeys.orgMemberKey(user.id);
+      final cachedOrgMember = _cache.get<OrganizationMember>(orgMemberCacheKey);
+      String? orgId;
+      
+      if (cachedOrgMember != null) {
+        orgId = cachedOrgMember.organizationId;
+      } else {
+        final hasAccess = await _supabase
+            .from('work_schedules')
+            .select('id, organization_id')
+            .eq('id', workScheduleId)
+            .single();
 
-      if (hasAccess == null) {
-        throw _DataException('Work schedule not found.');
-      }
+        if (hasAccess == null) {
+          throw _DataException('Work schedule not found.');
+        }
+        orgId = hasAccess['organization_id'].toString();
 
-      final memberCheck = await _supabase
-          .from('organization_members')
-          .select('id')
-          .eq('user_id', user.id)
-          .eq('organization_id', hasAccess['organization_id'])
-          .eq('is_active', true)
-          .maybeSingle();
+        final memberCheck = await _supabase
+            .from('organization_members')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('organization_id', orgId)
+            .eq('is_active', true)
+            .maybeSingle();
 
-      if (memberCheck == null) {
-        throw _PermissionException('You don\'t have access to this work schedule.');
+        if (memberCheck == null) {
+          throw _PermissionException('You don\'t have access to this work schedule.');
+        }
       }
 
       final response = await _supabase
@@ -481,13 +635,17 @@ class AttendanceService {
           .eq('day_of_week', dayOfWeek)
           .maybeSingle();
 
+      WorkScheduleDetails? details;
       if (response != null) {
         debugPrint('Found work schedule details: $response');
-        return WorkScheduleDetails.fromJson(response);
+        details = WorkScheduleDetails.fromJson(response);
+        // Cache the result
+        _cache.set(cacheKey, details, ttl: _scheduleCacheTTL);
       } else {
         debugPrint('No work schedule details found for day $dayOfWeek');
-        return null;
       }
+      
+      return details;
     } on _AuthException catch (e) {
       throw e;
     } on _PermissionException catch (e) {
@@ -671,32 +829,44 @@ class AttendanceService {
 
       await _validateAttendanceSequence(type, existingRecord, todayLogs, scheduleDetails);
 
+      bool success = false;
       switch (type) {
         case 'check_in':
-          return await _performCheckIn(
+          success = await _performCheckIn(
             organizationMemberId, today, now, currentPosition, photoUrl, 
             device, schedule, existingRecord, scheduleDetails
           );
+          break;
           
         case 'check_out':
-          return await _performCheckOut(
+          success = await _performCheckOut(
             organizationMemberId, now, currentPosition, photoUrl, 
             device, existingRecord!, scheduleDetails
           );
+          break;
           
         case 'break_out':
-          return await _performBreakOut(
+          success = await _performBreakOut(
             organizationMemberId, now, currentPosition, photoUrl, device
           );
+          break;
           
         case 'break_in':
-          return await _performBreakIn(
+          success = await _performBreakIn(
             organizationMemberId, now, currentPosition, photoUrl, device
           );
+          break;
           
         default:
           throw _ValidationException('Unknown attendance action. Please try again.');
       }
+      
+      // ✅ OPTIMIZATION: Invalidate cache setelah attendance berhasil
+      if (success) {
+        _invalidateAttendanceCache(organizationMemberId);
+      }
+      
+      return success;
     } on _ValidationException {
       rethrow;
     } on _AuthException {
@@ -712,6 +882,111 @@ class AttendanceService {
       debugPrint('Unexpected error performing attendance: $e');
       throw _GeneralException('Failed to record attendance. Please try again.');
     }
+  }
+  
+  /// Invalidate cache untuk attendance data setelah update
+  void _invalidateAttendanceCache(String organizationMemberId) {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return;
+    
+    // Clear today's data cache
+    _cache.remove(CacheKeys.todayRecordsKey(organizationMemberId));
+    _cache.remove(CacheKeys.todayLogsKey(organizationMemberId));
+    _cache.remove(CacheKeys.statusKey(organizationMemberId));
+    _cache.remove(CacheKeys.actionsKey(organizationMemberId));
+    _cache.remove(CacheKeys.breakInfoKey(organizationMemberId));
+    
+    debugPrint('CacheHelper: Invalidated attendance cache for member $organizationMemberId');
+  }
+  
+  /// Update user profile dan invalidate cache
+  Future<UserProfile?> updateUserProfile({
+    String? displayName,
+    String? phone,
+    String? mobile,
+    String? gender,
+    DateTime? dateOfBirth,
+    String? profilePhotoUrl,
+  }) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) {
+      throw _AuthException('Please log in to update your profile.');
+    }
+
+    try {
+      final updateData = <String, dynamic>{
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+      
+      if (displayName != null) {
+        // Parse display_name untuk first_name dan last_name
+        final nameParts = displayName.trim().split(' ');
+        if (nameParts.isNotEmpty) {
+          updateData['first_name'] = nameParts.first;
+          updateData['last_name'] = nameParts.length > 1 
+              ? nameParts.sublist(1).join(' ') 
+              : '';
+          updateData['display_name'] = displayName.trim();
+        }
+      }
+      
+      if (phone != null) updateData['phone'] = phone.trim().isEmpty ? null : phone.trim();
+      if (mobile != null) updateData['mobile'] = mobile.trim().isEmpty ? null : mobile.trim();
+      if (gender != null) updateData['gender'] = gender;
+      if (dateOfBirth != null) {
+        updateData['date_of_birth'] = dateOfBirth.toIso8601String().split('T')[0];
+      }
+      if (profilePhotoUrl != null) updateData['profile_photo_url'] = profilePhotoUrl;
+
+      await _supabase
+          .from('user_profiles')
+          .update(updateData)
+          .eq('id', user.id);
+
+      // ✅ OPTIMIZATION: Invalidate cache setelah update
+      _cache.remove(CacheKeys.userProfileKey(user.id));
+      debugPrint('CacheHelper: Invalidated user profile cache after update');
+
+      // ✅ Load fresh data setelah update
+      return await loadUserProfile(forceRefresh: true);
+    } on SocketException {
+      throw _NetworkException(_networkError);
+    } on PostgrestException catch (e) {
+      debugPrint('Database error updating profile: ${e.message}');
+      throw _DatabaseException('Unable to update your profile. Please try again.');
+    } catch (e) {
+      debugPrint('Unexpected error updating profile: $e');
+      throw _GeneralException('Failed to update profile. Please try again.');
+    }
+  }
+  
+  /// Invalidate user profile cache (public method untuk digunakan dari luar)
+  void invalidateUserProfileCache() {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return;
+    
+    _cache.remove(CacheKeys.userProfileKey(user.id));
+    debugPrint('CacheHelper: User profile cache invalidated');
+  }
+  
+  /// Invalidate organization member cache
+  void invalidateOrganizationMemberCache() {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return;
+    
+    _cache.remove(CacheKeys.orgMemberKey(user.id));
+    debugPrint('CacheHelper: Organization member cache invalidated');
+  }
+  
+  /// Invalidate schedule cache untuk member
+  void invalidateScheduleCache(String organizationMemberId) {
+    _cache.remove(CacheKeys.scheduleKey(organizationMemberId));
+    debugPrint('CacheHelper: Schedule cache invalidated for member $organizationMemberId');
+  }
+  
+  /// Invalidate attendance cache (public method untuk digunakan dari luar)
+  void invalidateAttendanceCache(String organizationMemberId) {
+    _invalidateAttendanceCache(organizationMemberId);
   }
 
 Future<Map<String, dynamic>> getTodayCycleSummary(String organizationMemberId) async {
@@ -1522,12 +1797,24 @@ Future<List<DateTime>> getTodayCheckInTimes(String organizationMemberId) async {
     return [];
   }
 }
- Future<AttendanceStatus> getCurrentAttendanceStatus(String organizationMemberId) async {
+ Future<AttendanceStatus> getCurrentAttendanceStatus(String organizationMemberId, {bool forceRefresh = false}) async {
+  final cacheKey = CacheKeys.statusKey(organizationMemberId);
+  
+  // Check cache first (short TTL karena status bisa berubah)
+  if (!forceRefresh) {
+    final cached = _cache.get<AttendanceStatus>(cacheKey);
+    if (cached != null) {
+      debugPrint('CacheHelper: Attendance status loaded from cache');
+      return cached;
+    }
+  }
+
   try {
     await _validateUserAccess(organizationMemberId);
     
-    final todayRecords = await loadTodayAttendanceRecords(organizationMemberId);
-    final todayLogs = await getTodayAttendanceLogs(organizationMemberId);
+    // ✅ OPTIMIZATION: Load from cache if available, otherwise load fresh
+    final todayRecords = await loadTodayAttendanceRecords(organizationMemberId, forceRefresh: forceRefresh);
+    final todayLogs = await getTodayAttendanceLogs(organizationMemberId, forceRefresh: forceRefresh);
     
     final existingRecord = todayRecords.isNotEmpty ? todayRecords.first : null;
     final lastLog = todayLogs.isNotEmpty ? todayLogs.last : null;
@@ -1536,24 +1823,28 @@ Future<List<DateTime>> getTodayCheckInTimes(String organizationMemberId) async {
     final checkInLogs = todayLogs.where((log) => log.eventType == 'check_in').toList();
     final checkOutLogs = todayLogs.where((log) => log.eventType == 'check_out').toList();
 
+    AttendanceStatus status;
     // Jika belum ada check-in sama sekali
     if (checkInLogs.isEmpty) {
-      return AttendanceStatus.notCheckedIn;
+      status = AttendanceStatus.notCheckedIn;
     }
-
     // Jika semua check-in sudah di-checkout (balanced)
-    if (checkOutLogs.length >= checkInLogs.length) {
-      return AttendanceStatus.notCheckedIn; // ✅ Ubah dari checkedOut ke notCheckedIn
+    else if (checkOutLogs.length >= checkInLogs.length) {
+      status = AttendanceStatus.notCheckedIn;
     }
-
     // Jika sedang break
-    if (lastLog?.eventType == 'break_out') {
-      return AttendanceStatus.onBreak;
+    else if (lastLog?.eventType == 'break_out') {
+      status = AttendanceStatus.onBreak;
     }
-
     // Jika ada check-in yang belum di-checkout
-    return AttendanceStatus.working;
+    else {
+      status = AttendanceStatus.working;
+    }
     
+    // Cache the result (short TTL)
+    _cache.set(cacheKey, status, ttl: _statusCacheTTL);
+    
+    return status;
   } catch (e) {
     debugPrint('Error getting attendance status: $e');
     return AttendanceStatus.unknown;
@@ -1791,6 +2082,9 @@ Future<List<AttendanceAction>> getAvailableActions(
             .eq('id', response['id']);
         
         debugPrint('Break duration updated: $currentDuration + $additionalMinutes = $newTotalDuration minutes');
+        
+        // ✅ FIX: Invalidate cache setelah update break duration
+        _invalidateAttendanceCache(organizationMemberId.toString());
       } else {
         // Create attendance record if it doesn't exist (edge case)
         debugPrint('Warning: No attendance record found for break duration update');
@@ -1812,54 +2106,79 @@ Future<List<AttendanceAction>> getAvailableActions(
       throw _GeneralException('Failed to update break duration. Please try again.');
     }
   }
- Future<Map<String, dynamic>> getTodayBreakInfo(String organizationMemberId) async {
+ Future<Map<String, dynamic>> getTodayBreakInfo(String organizationMemberId, {bool forceRefresh = false}) async {
+  final cacheKey = CacheKeys.breakInfoKey(organizationMemberId);
+  
+  // Check cache first
+  if (!forceRefresh) {
+    final cached = _cache.get<Map<String, dynamic>>(cacheKey);
+    if (cached != null) {
+      debugPrint('CacheHelper: Break info loaded from cache');
+      return cached;
+    }
+  }
+
   try {
     await _validateUserAccess(organizationMemberId);
     
     final today = TimezoneHelper.getTodayDateString();
     
-    final recordResponse = await _supabase
-        .from('attendance_records')
-        .select('break_duration_minutes')
-        .eq('organization_member_id', organizationMemberId)
-        .eq('attendance_date', today)
-        .maybeSingle();
+    // ✅ OPTIMIZATION: Use cached today records if available
+    final todayRecords = await loadTodayAttendanceRecords(organizationMemberId, forceRefresh: forceRefresh);
+    final totalBreakMinutes = todayRecords.isNotEmpty 
+        ? (todayRecords.first.breakDurationMinutes ?? 0)
+        : 0;
 
-    final totalBreakMinutes = recordResponse?['break_duration_minutes'] as int? ?? 0;
-
-    final logsResponse = await _supabase
-        .from('attendance_logs')
-        .select('event_type, event_time')
-        .eq('organization_member_id', organizationMemberId)
-        .gte('event_time', '${today}T00:00:00')
-        .lte('event_time', '${today}T23:59:59')
-        .inFilter('event_type', ['break_out', 'break_in'])
-        .order('event_time', ascending: true);
-
-    final logs = List<Map<String, dynamic>>.from(logsResponse);
+    // ✅ OPTIMIZATION: Use cached today logs if available
+    final todayLogs = await getTodayAttendanceLogs(organizationMemberId, forceRefresh: forceRefresh);
+    final breakLogs = todayLogs.where((log) => 
+      log.eventType == 'break_out' || log.eventType == 'break_in'
+    ).toList();
+    
     List<Map<String, dynamic>> breakSessions = [];
     DateTime? currentBreakStart;
     bool isCurrentlyOnBreak = false;
 
-    for (var log in logs) {
-      if (log['event_type'] == 'break_out') {
-        currentBreakStart = DateTime.parse(log['event_time']);
+    // ✅ FIX: Sort logs by event_time untuk memastikan urutan benar
+    breakLogs.sort((a, b) => a.eventTime.compareTo(b.eventTime));
+
+    for (var log in breakLogs) {
+      if (log.eventType == 'break_out') {
+        // ✅ FIX: Jika ada break_out, mulai break session baru
+        // Jika ada break session yang belum selesai, selesaikan dulu (edge case)
+        if (currentBreakStart != null && isCurrentlyOnBreak) {
+          // Break session sebelumnya belum selesai - ini tidak seharusnya terjadi, tapi handle it
+          debugPrint('⚠️ Warning: Multiple break_out without break_in. Closing previous break.');
+          breakSessions.add({
+            'start': currentBreakStart,
+            'end': log.eventTime, // Use next break_out time as end (edge case)
+            'duration': log.eventTime.difference(currentBreakStart).inMinutes,
+          });
+        }
+        currentBreakStart = log.eventTime;
         isCurrentlyOnBreak = true;
-      } else if (log['event_type'] == 'break_in' && currentBreakStart != null) {
-        final breakEnd = DateTime.parse(log['event_time']);
-        final duration = breakEnd.difference(currentBreakStart).inMinutes;
-        
-        breakSessions.add({
-          'start': currentBreakStart,
-          'end': breakEnd,
-          'duration': duration,
-        });
-        
-        currentBreakStart = null;
-        isCurrentlyOnBreak = false;
+      } else if (log.eventType == 'break_in') {
+        // ✅ FIX: Break_in harus selalu menutup break session jika ada
+        if (currentBreakStart != null && isCurrentlyOnBreak) {
+          final breakEnd = log.eventTime;
+          final duration = breakEnd.difference(currentBreakStart).inMinutes;
+          
+          breakSessions.add({
+            'start': currentBreakStart,
+            'end': breakEnd,
+            'duration': duration,
+          });
+          
+          currentBreakStart = null;
+          isCurrentlyOnBreak = false;
+        } else if (currentBreakStart == null) {
+          // ✅ FIX: Break_in tanpa break_out sebelumnya - ini error state, tapi handle gracefully
+          debugPrint('⚠️ Warning: break_in log found without matching break_out');
+        }
       }
     }
 
+    // ✅ FIX: Jika masih ada break session yang aktif, tambahkan ke sessions
     if (isCurrentlyOnBreak && currentBreakStart != null) {
       breakSessions.add({
         'start': currentBreakStart,
@@ -1868,13 +2187,18 @@ Future<List<AttendanceAction>> getAvailableActions(
       });
     }
 
-    return {
+    final result = {
       'total_break_minutes': totalBreakMinutes,
       'break_sessions': breakSessions,
       'is_currently_on_break': isCurrentlyOnBreak,
       'current_break_start': currentBreakStart?.toIso8601String(),
       'break_start_time': currentBreakStart?.toIso8601String(),
     };
+    
+    // Cache the result
+    _cache.set(cacheKey, result, ttl: _todayDataCacheTTL);
+    
+    return result;
   } catch (e) {
     debugPrint('Error getting break info: $e');
     rethrow;
@@ -2242,13 +2566,29 @@ Future<List<AttendanceAction>> getAvailableActions(
   }
 
   // ✅ TAMBAHKAN method baru untuk load data sekaligus
-Future<Map<String, dynamic>> loadDashboardData(String organizationMemberId) async {
+Future<Map<String, dynamic>> loadDashboardData(String organizationMemberId, {bool forceRefresh = false}) async {
+  // ✅ OPTIMIZATION: Try to use cached data first
+  if (!forceRefresh) {
+    final cachedTodayRecords = _cache.get<List<AttendanceRecord>>(CacheKeys.todayRecordsKey(organizationMemberId));
+    final cachedTodayLogs = _cache.get<List<AttendanceLog>>(CacheKeys.todayLogsKey(organizationMemberId));
+    final cachedRecentRecords = _cache.get<List<AttendanceRecord>>(CacheKeys.recentRecordsKey(organizationMemberId));
+    
+    if (cachedTodayRecords != null && cachedTodayLogs != null && cachedRecentRecords != null) {
+      debugPrint('CacheHelper: Dashboard data loaded from cache');
+      return {
+        'today_records': cachedTodayRecords,
+        'recent_records': cachedRecentRecords,
+        'today_logs': cachedTodayLogs,
+      };
+    }
+  }
+  
   try {
     await _validateUserAccess(organizationMemberId);
     
     final today = TimezoneHelper.getTodayDateString();
     
-    // ✅ Load semua data dalam 1 query dengan join
+    // ✅ OPTIMIZATION: Load semua data dalam parallel
     final results = await Future.wait([
       // Today records
       _supabase
@@ -2258,7 +2598,7 @@ Future<Map<String, dynamic>> loadDashboardData(String organizationMemberId) asyn
           .eq('attendance_date', today)
           .order('created_at'),
       
-      // Recent records (30 days)
+      // Recent records (30 days) - reduced from full year
       _supabase
           .from('attendance_records')
           .select('*, shifts(id, name, start_time, end_time)')
@@ -2276,16 +2616,25 @@ Future<Map<String, dynamic>> loadDashboardData(String organizationMemberId) asyn
           .order('event_time'),
     ]);
     
+    final todayRecords = List<Map<String, dynamic>>.from(results[0])
+        .map((json) => AttendanceRecord.fromJson(json))
+        .toList();
+    final recentRecords = List<Map<String, dynamic>>.from(results[1])
+        .map((json) => AttendanceRecord.fromJson(json))
+        .toList();
+    final todayLogs = List<Map<String, dynamic>>.from(results[2])
+        .map((json) => AttendanceLog.fromJson(json))
+        .toList();
+    
+    // ✅ Cache the results
+    _cache.set(CacheKeys.todayRecordsKey(organizationMemberId), todayRecords, ttl: _todayDataCacheTTL);
+    _cache.set(CacheKeys.todayLogsKey(organizationMemberId), todayLogs, ttl: _todayDataCacheTTL);
+    _cache.set(CacheKeys.recentRecordsKey(organizationMemberId), recentRecords, ttl: Duration(minutes: 10));
+    
     return {
-      'today_records': List<Map<String, dynamic>>.from(results[0])
-          .map((json) => AttendanceRecord.fromJson(json))
-          .toList(),
-      'recent_records': List<Map<String, dynamic>>.from(results[1])
-          .map((json) => AttendanceRecord.fromJson(json))
-          .toList(),
-      'today_logs': List<Map<String, dynamic>>.from(results[2])
-          .map((json) => AttendanceLog.fromJson(json))
-          .toList(),
+      'today_records': todayRecords,
+      'recent_records': recentRecords,
+      'today_logs': todayLogs,
     };
   } catch (e) {
     debugPrint('Error loading dashboard data: $e');

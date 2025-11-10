@@ -2,17 +2,31 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/foundation.dart';
 import '../models/attendance_model.dart';
+import '../helpers/cache_helper.dart';
 
 class DeviceService {
   final SupabaseClient _supabase = Supabase.instance.client;
+  final CacheHelper _cache = CacheHelper();
   AttendanceDevice? _selectedDevice;
 
   static const String _selectedDeviceKey = 'selected_device_id';
+  static const Duration _devicesCacheTTL = Duration(minutes: 10);
 
   AttendanceDevice? get selectedDevice => _selectedDevice;
 
   /// Load all devices for the given organization
-  Future<List<AttendanceDevice>> loadDevices(String organizationId) async {
+  Future<List<AttendanceDevice>> loadDevices(String organizationId, {bool forceRefresh = false}) async {
+    final cacheKey = 'devices_list_$organizationId';
+    
+    // Check cache first
+    if (!forceRefresh) {
+      final cached = _cache.get<List<AttendanceDevice>>(cacheKey);
+      if (cached != null) {
+        debugPrint('DeviceService: Devices loaded from cache');
+        return cached;
+      }
+    }
+    
     try {
       final response = await _supabase
           .from('attendance_devices')
@@ -28,6 +42,9 @@ class DeviceService {
           .map((json) => AttendanceDevice.fromJson(json))
           .toList();
 
+      // Cache the result
+      _cache.set(cacheKey, devices, ttl: _devicesCacheTTL);
+
       return devices;
     } catch (e) {
       throw Exception('Error loading devices: $e');
@@ -35,7 +52,18 @@ class DeviceService {
   }
 
   /// Load a specific device by ID
-  Future<AttendanceDevice?> loadDeviceById(String deviceId) async {
+  Future<AttendanceDevice?> loadDeviceById(String deviceId, {bool forceRefresh = false}) async {
+    final cacheKey = 'device_$deviceId';
+    
+    // Check cache first
+    if (!forceRefresh) {
+      final cached = _cache.get<AttendanceDevice>(cacheKey);
+      if (cached != null) {
+        debugPrint('DeviceService: Device loaded from cache');
+        return cached;
+      }
+    }
+    
     try {
       debugPrint('DeviceService: Loading device by ID: $deviceId');
       final response = await _supabase
@@ -51,6 +79,10 @@ class DeviceService {
       if (response != null) {
         final device = AttendanceDevice.fromJson(response);
         debugPrint('DeviceService: Device found: ${device.deviceName} (ID: ${device.id}, OrgID: ${device.organizationId})');
+        
+        // Cache the result
+        _cache.set(cacheKey, device, ttl: _devicesCacheTTL);
+        
         return device;
       }
       debugPrint('DeviceService: Device not found for ID: $deviceId');
@@ -135,10 +167,11 @@ class DeviceService {
   }
 
   /// Check if a device selection is required for the organization
-  Future<bool> isSelectionRequired(String organizationId) async {
+  Future<bool> isSelectionRequired(String organizationId, {bool forceRefresh = false}) async {
     try {
       debugPrint('DeviceService: Checking if selection required for org: $organizationId');
-      final devices = await loadDevices(organizationId);
+      // ✅ OPTIMIZATION: Use cached devices if available
+      final devices = await loadDevices(organizationId, forceRefresh: forceRefresh);
 
       debugPrint('DeviceService: Found ${devices.length} devices');
 

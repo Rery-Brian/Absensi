@@ -219,7 +219,26 @@ class _AttendanceMapWidgetState extends State<AttendanceMapWidget>
               ? Image.network(
                   widget.officePhotoUrl!,
                   fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => _buildDefaultOfficeIcon(),
+                  loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) return child;
+                    return Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          value: loadingProgress.expectedTotalBytes != null
+                              ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                              : null,
+                          strokeWidth: 2,
+                          color: const Color(0xFF10B981),
+                        ),
+                      ),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) {
+                    debugPrint('Error loading office photo: $error');
+                    return _buildDefaultOfficeIcon();
+                  },
                 )
               : _buildDefaultOfficeIcon(),
         ),
