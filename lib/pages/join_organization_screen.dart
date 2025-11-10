@@ -22,13 +22,13 @@ class _JoinOrganizationScreenState extends State<JoinOrganizationScreen> {
   final AttendanceService _attendanceService = AttendanceService();
 
   bool _isJoining = false;
-  bool _isInitializing = true; // ✅ SINGLE loading state
+  bool _isInitializing = true;
   UserProfile? _userProfile;
 
   @override
   void initState() {
     super.initState();
-    _initializeScreen(); // ✅ Single initialization method
+    _initializeScreen();
   }
 
   @override
@@ -37,7 +37,6 @@ class _JoinOrganizationScreenState extends State<JoinOrganizationScreen> {
     super.dispose();
   }
 
-  // ✅ FIXED: Gabungkan semua initialization dalam satu method
   Future<void> _initializeScreen() async {
     if (!mounted) return;
 
@@ -51,7 +50,7 @@ class _JoinOrganizationScreenState extends State<JoinOrganizationScreen> {
         _userProfile = profile;
       });
 
-      // Step 2: Check organization (langsung setelah profile loaded)
+      // Step 2: Check organization
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) {
         if (mounted) {
@@ -222,11 +221,12 @@ class _JoinOrganizationScreenState extends State<JoinOrganizationScreen> {
               .from('organization_members')
               .update({
                 'is_active': true,
+                'work_location': 'field', // ✅ SET work_location saat reactivate
                 'updated_at': DateTime.now().toIso8601String(),
               })
               .eq('id', existingMemberInOrg['id']);
 
-          debugPrint('✓ Re-activated existing membership');
+          debugPrint('✓ Re-activated existing membership with work_location: field');
         }
       } else {
         // STEP 4: Insert new member
@@ -236,10 +236,11 @@ class _JoinOrganizationScreenState extends State<JoinOrganizationScreen> {
           'user_id': user.id,
           'hire_date': DateTime.now().toIso8601String().split('T')[0],
           'employment_status': 'active',
+          'work_location': 'field', // ✅ SET work_location saat create new member
           'is_active': true,
         });
 
-        debugPrint('✓ Created new organization membership');
+        debugPrint('✓ Created new organization membership with work_location: field');
       }
 
       // STEP 5: Success - navigate to dashboard
@@ -366,7 +367,7 @@ class _JoinOrganizationScreenState extends State<JoinOrganizationScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        child: _isInitializing // ✅ Single loading check
+        child: _isInitializing
             ? Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
