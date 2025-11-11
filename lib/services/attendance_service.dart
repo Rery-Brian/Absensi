@@ -6,6 +6,7 @@ import '../models/attendance_model.dart' hide Position;
 import '../helpers/timezone_helper.dart';
 import '../helpers/time_helper.dart';
 import '../helpers/cache_helper.dart';
+import 'fake_gps_detector.dart';
 
 class AttendanceService {
   final SupabaseClient _supabase = Supabase.instance.client;
@@ -679,7 +680,7 @@ class AttendanceService {
     }
   }
 
-  Future<Position> getCurrentLocation() async {
+  Future<Position> getCurrentLocation({bool validateFakeGps = true}) async {
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
@@ -699,28 +700,49 @@ class AttendanceService {
       }
 
       // Try high accuracy first with longer timeout
+      Position? position;
       try {
-        final position = await Geolocator.getCurrentPosition(
+        position = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.high,
           timeLimit: const Duration(seconds: 30),
         );
         debugPrint('Got location with accuracy: ${position.accuracy}m');
-        return position;
       } catch (e) {
         debugPrint('High accuracy failed: $e, trying medium accuracy...');
         
         // Fallback to medium accuracy if high accuracy fails
-        final position = await Geolocator.getCurrentPosition(
+        position = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.medium,
           timeLimit: const Duration(seconds: 20),
         );
         debugPrint('Got location with medium accuracy: ${position.accuracy}m');
-        return position;
       }
+
+      // ✅ VALIDASI FAKE GPS
+      if (validateFakeGps && position != null) {
+        final isFake = await FakeGpsDetector.isFakeGps(position);
+        if (isFake) {
+          final validation = await FakeGpsDetector.validateGpsPosition(position);
+          final errorMessage = FakeGpsDetector.getFakeGpsErrorMessage(validation['warnings'] as List<String>);
+          throw _LocationException(errorMessage);
+        }
+        
+        // Log validation result untuk debugging
+        final validation = await FakeGpsDetector.validateGpsPosition(position);
+        debugPrint('GPS Validation: isValid=${validation['isValid']}, confidence=${validation['confidence']}');
+        if ((validation['warnings'] as List<String>).isNotEmpty) {
+          debugPrint('GPS Warnings: ${validation['warnings']}');
+        }
+      }
+
+      return position!;
     } on _LocationException {
       rethrow;
     } catch (e) {
       debugPrint('Location error: $e');
+      if (e is _LocationException) {
+        rethrow;
+      }
       if (e.toString().contains('timeout')) {
         throw _LocationException('Unable to get your location. Please wait a moment and try again in an open area.');
       }
@@ -820,6 +842,21 @@ class AttendanceService {
     List<AttendanceRecord>? todayRecords,
     WorkScheduleDetails? scheduleDetails,
   }) async {
+    // ✅ VALIDASI FAKE GPS sebelum perform attendance
+    try {
+      final isFake = await FakeGpsDetector.isFakeGps(currentPosition);
+      if (isFake) {
+        final validation = await FakeGpsDetector.validateGpsPosition(currentPosition);
+        final errorMessage = FakeGpsDetector.getFakeGpsErrorMessage(validation['warnings'] as List<String>);
+        throw _ValidationException(errorMessage);
+      }
+    } catch (e) {
+      if (e is _ValidationException) {
+        rethrow;
+      }
+      debugPrint('Error validating GPS: $e');
+      // Jika error validasi, tetap lanjutkan (jangan block attendance)
+    }
     try {
       final today = TimezoneHelper.getTodayDateString();
       final now = TimezoneHelper.nowInOrgTime();

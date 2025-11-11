@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../models/attendance_model.dart' hide Position;
 import '../services/attendance_service.dart';
 import '../services/camera_service.dart';
+import '../services/fake_gps_detector.dart';
 import '../pages/camera_selfie_screen.dart';
 import '../pages/break_page.dart';
 import '../services/device_service.dart';
@@ -1928,7 +1929,7 @@ Future<void> _loadRemainingDataInBackground() async {
     }
   }
 
-  Future<void> _performAttendance(String actionType) async {
+ Future<void> _performAttendance(String actionType) async {
     if (!mounted) return;
 
     if (actionType == 'break_out') {
@@ -1948,6 +1949,9 @@ Future<void> _loadRemainingDataInBackground() async {
     }
 
     setState(() => _isInitialLoading = true);
+
+    // ✅ Deklarasi positionToUse di luar try block agar bisa diakses dari catch block
+    Position? positionToUse;
 
     try {
       if (_organizationMember == null) {
@@ -1972,8 +1976,6 @@ Future<void> _loadRemainingDataInBackground() async {
       debugPrint('Work Location: ${locationDetails['location']}');
       debugPrint('Type: ${locationDetails['type']}');
       debugPrint('Requires GPS: $requiresGps');
-
-      Position? positionToUse;
 
       if (requiresGps) {
         // OFFICE WORKER - Harus pakai GPS dan dalam radius
@@ -2014,6 +2016,22 @@ Future<void> _loadRemainingDataInBackground() async {
             );
           }
           return;
+        }
+
+        // ✅ VALIDASI FAKE GPS sebelum validasi radius - SHOW POPUP INSTEAD OF FLUSHBAR
+        try {
+          final isFake = await FakeGpsDetector.isFakeGps(_gpsPosition!);
+          if (isFake) {
+            final validation = await FakeGpsDetector.validateGpsPosition(_gpsPosition!);
+            if (mounted) {
+              // ✅ GANTI: Show popup alert di tengah layar
+              await _showFakeGpsDialog(validation);
+            }
+            return;
+          }
+        } catch (e) {
+          debugPrint('Error validating fake GPS: $e');
+          // Jika error, tetap lanjutkan (jangan block attendance)
         }
 
         // Validasi radius
@@ -2179,25 +2197,520 @@ Future<void> _loadRemainingDataInBackground() async {
     } catch (e) {
       debugPrint('❌ Error performing attendance: $e');
       if (mounted) {
-        String errorMessage = LocalizationHelper.getText(
-          'failed_to_perform_attendance',
-        );
-
-        if (e.toString().contains('Location')) {
-          errorMessage =
-              '${LocalizationHelper.getText('location_error')}: ${e.toString()}';
-        } else if (e.toString().contains('schedule')) {
-          errorMessage =
-              '${LocalizationHelper.getText('schedule_error')}: ${e.toString()}';
+        // ✅ Cek apakah error terkait fake GPS
+        if (e.toString().contains('GPS tidak valid') || 
+            e.toString().contains('fake GPS') ||
+            e.toString().contains('mock location')) {
+          // Coba validasi ulang untuk mendapatkan detail warning
+          try {
+            if (positionToUse != null) {
+              final validation = await FakeGpsDetector.validateGpsPosition(positionToUse!);
+              await _showFakeGpsDialog(validation);
+            } else {
+              // Jika tidak ada position, tampilkan popup dengan pesan default
+              await _showFakeGpsDialogDefault();
+            }
+          } catch (validationError) {
+            // Jika error validasi, tampilkan popup dengan pesan default
+            await _showFakeGpsDialogDefault();
+          }
         } else {
-          errorMessage = e.toString();
-        }
+          String errorMessage = LocalizationHelper.getText(
+            'failed_to_perform_attendance',
+          );
 
-        FlushbarHelper.showError(context, errorMessage);
+          // ✅ Cek apakah error Location terkait fake GPS
+          if (e.toString().contains('Location') && 
+              (e.toString().contains('GPS tidak valid') || 
+               e.toString().contains('fake GPS') ||
+               e.toString().contains('mock location'))) {
+            // Tampilkan popup fake GPS
+            await _showFakeGpsDialogDefault();
+          } else if (e.toString().contains('Location')) {
+            errorMessage =
+                '${LocalizationHelper.getText('location_error')}: ${e.toString()}';
+            FlushbarHelper.showError(context, errorMessage);
+          } else if (e.toString().contains('schedule')) {
+            errorMessage =
+                '${LocalizationHelper.getText('schedule_error')}: ${e.toString()}';
+            FlushbarHelper.showError(context, errorMessage);
+          } else {
+            errorMessage = e.toString();
+            FlushbarHelper.showError(context, errorMessage);
+          }
+        }
       }
     } finally {
       if (mounted) setState(() => _isInitialLoading = false);
     }
+  }
+
+  /// Menampilkan popup fake GPS dengan validation data
+  Future<void> _showFakeGpsDialog(Map<String, dynamic> validation) async {
+    if (!mounted) return;
+
+    final warnings = validation['warnings'] as List<String>;
+    final confidence = validation['confidence'] as double;
+    final accuracy = validation['accuracy'] as double?;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black54,
+      builder: (BuildContext context) {
+        return Center(
+          child: Material(
+            type: MaterialType.transparency,
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 24),
+              constraints: const BoxConstraints(maxWidth: 400),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                // Icon Warning
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEF4444).withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.location_off,
+                    color: Color(0xFFEF4444),
+                    size: 40,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                
+                // Title
+                Text(
+                  'Fake GPS Terdeteksi',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1F2937),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                
+                // Description
+                Text(
+                  'Sistem mendeteksi penggunaan aplikasi fake GPS atau mock location. Absensi tidak dapat dilakukan dengan GPS palsu.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.grey.shade700,
+                    fontSize: 14,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                
+                // Warning Details
+                if (warnings.isNotEmpty) ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF2F2),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: const Color(0xFFEF4444).withOpacity(0.2),
+                        width: 1,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.warning_amber_rounded,
+                              color: const Color(0xFFEF4444),
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Alasan Deteksi:',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: const Color(0xFFEF4444),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        ...warnings.map((warning) => Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                margin: const EdgeInsets.only(top: 6, right: 8),
+                                width: 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFEF4444),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              Expanded(
+                                child: Text(
+                                  warning,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey.shade700,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        )),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                ],
+                
+                // Additional Info
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0F9FF),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xFF0EA5E9).withOpacity(0.2),
+                      width: 1,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            color: const Color(0xFF0EA5E9),
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Cara Memperbaiki:',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: const Color(0xFF0EA5E9),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      _buildInstructionItem('1. Matikan aplikasi fake GPS atau mock location'),
+                      _buildInstructionItem('2. Nonaktifkan "Allow mock locations" di Developer Options'),
+                      _buildInstructionItem('3. Pastikan GPS asli aktif di pengaturan perangkat'),
+                      _buildInstructionItem('4. Restart aplikasi dan coba lagi'),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                
+                // OK Button
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFEF4444),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Text(
+                      'Mengerti',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildInstructionItem(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            margin: const EdgeInsets.only(top: 6, right: 8),
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: const Color(0xFF0EA5E9),
+              shape: BoxShape.circle,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade700,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Menampilkan popup fake GPS dengan pesan default (ketika tidak ada position untuk validasi)
+  Future<void> _showFakeGpsDialogDefault() async {
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black54,
+      builder: (BuildContext context) {
+        return Center(
+          child: Material(
+            type: MaterialType.transparency,
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 24),
+              constraints: const BoxConstraints(maxWidth: 400),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 20,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                // Icon Warning
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEF4444).withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.location_off,
+                    color: Color(0xFFEF4444),
+                    size: 40,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                
+                // Title
+                Text(
+                  'Fake GPS Terdeteksi',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1F2937),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                
+                // Description
+                Text(
+                  'Sistem mendeteksi penggunaan aplikasi fake GPS atau mock location. Absensi tidak dapat dilakukan dengan GPS palsu.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.grey.shade700,
+                    fontSize: 14,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                
+                // Warning Details (Default)
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF2F2),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xFFEF4444).withOpacity(0.2),
+                      width: 1,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.warning_amber_rounded,
+                            color: const Color(0xFFEF4444),
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Alasan Deteksi:',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: const Color(0xFFEF4444),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      _buildWarningItem('Mock location terdeteksi'),
+                      _buildWarningItem('GPS tidak valid atau tidak dapat diverifikasi'),
+                      _buildWarningItem('Aplikasi fake GPS mungkin sedang aktif'),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                
+                // Additional Info
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0F9FF),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: const Color(0xFF0EA5E9).withOpacity(0.2),
+                      width: 1,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            color: const Color(0xFF0EA5E9),
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Cara Memperbaiki:',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: const Color(0xFF0EA5E9),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      _buildInstructionItem('1. Matikan aplikasi fake GPS atau mock location'),
+                      _buildInstructionItem('2. Nonaktifkan "Allow mock locations" di Developer Options'),
+                      _buildInstructionItem('3. Pastikan GPS asli aktif di pengaturan perangkat'),
+                      _buildInstructionItem('4. Restart aplikasi dan coba lagi'),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                
+                // OK Button
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFEF4444),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Text(
+                      'Mengerti',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildWarningItem(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            margin: const EdgeInsets.only(top: 6, right: 8),
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEF4444),
+              shape: BoxShape.circle,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade700,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<bool?> _showCheckoutConfirmation() async {
