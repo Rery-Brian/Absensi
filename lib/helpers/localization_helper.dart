@@ -412,6 +412,7 @@ class LocalizationHelper {
     'invalid_invitation_code': 'Kode undangan tidak valid',
     'already_member_of_organization':
         'Anda sudah menjadi anggota organisasi ini',
+    'already_member_of': 'Sudah menjadi anggota',
     'successfully_joined': 'Berhasil bergabung dengan',
     'failed_to_join_organization': 'Gagal bergabung dengan organisasi',
     'user_not_authenticated': 'Pengguna tidak terautentikasi',
@@ -528,11 +529,31 @@ class LocalizationHelper {
     'end_break_overdue': 'Akhiri Istirahat (Terlambat)',
     'end_break': 'Akhiri Istirahat',
     'todays_break_sessions': 'Sesi Istirahat Hari Ini',
-    'minutes_short': 'm',
-  };
+    'fake_gps_detected_title': 'Fake GPS Terdeteksi',
+    'fake_gps_detected_desc':
+        'Sistem mendeteksi penggunaan aplikasi fake GPS atau mock location. Absensi tidak dapat dilakukan dengan GPS palsu.',
+    'detection_reasons': 'Alasan Deteksi:',
+    'how_to_fix': 'Cara Memperbaiki:',
+    'fix_step_1': '1. Matikan aplikasi fake GPS atau mock location',
+    'fix_step_2': '2. Nonaktifkan "Allow mock locations" di Developer Options',
+    'fix_step_3': '3. Pastikan GPS asli aktif di pengaturan perangkat',
+    'fix_step_4': '4. Restart aplikasi dan coba lagi',
+    'ok_understood': 'Mengerti',
+    'warning_mock_location_detected': 'Mock location terdeteksi',
+    'warning_gps_invalid_or_unverifiable': 'GPS tidak valid atau tidak dapat diverifikasi',
+    'warning_fake_gps_app_may_be_active': 'Aplikasi fake GPS mungkin sedang aktif',
+    'warning_gps_accuracy_invalid': 'Akurasi GPS tidak valid',
+    'warning_gps_low_accuracy': 'Akurasi GPS rendah',
+    'warning_too_perfect_no_movement': 'Akurasi terlalu sempurna tanpa pergerakan',
+    'warning_gps_timestamp_mismatch': 'Timestamp GPS tidak sesuai',
+    'warning_gps_data_stale': 'Data GPS sudah lama',
+    'warning_impossible_location': 'Lokasi tidak mungkin',
+    'warning_unrealistic_speed': 'Kecepatan tidak realistis',
+    'warning_low_gps_confidence': 'Tingkat kepercayaan GPS rendah',
+};
 
-  // English translations
-  static final Map<String, String> _englishTranslations = {
+// English translations
+static final Map<String, String> _englishTranslations = {
     // Break Page - English
     'failed_to_load_break_data': 'Failed to load break data. Please try again.',
     'failed_to_check_break_status':
@@ -580,11 +601,27 @@ class LocalizationHelper {
     'end_break': 'End Break',
     'todays_break_sessions': "Today's Break Sessions",
     'minutes_short': 'm',
-
-    'registration_failed': 'Registration Failed',
-    'name_email_password_required': 'Name, email, and password are required',
-    'invalid_email_format': 'Invalid email format',
-    'password_min_6_characters': 'Password must be at least 6 characters',
+    'fake_gps_detected_title': 'Fake GPS Detected',
+    'fake_gps_detected_desc':
+        'The system detected the use of a fake GPS or mock location app. Attendance cannot be performed with spoofed GPS.',
+    'detection_reasons': 'Detection reasons:',
+    'how_to_fix': 'How to fix:',
+    'fix_step_1': '1. Turn off any fake GPS or mock location app',
+    'fix_step_2': '2. Disable "Allow mock locations" in Developer Options',
+    'fix_step_3': '3. Ensure real GPS is enabled in device settings',
+    'fix_step_4': '4. Restart the app and try again',
+    'ok_understood': 'Got it',
+    'warning_mock_location_detected': 'Mock location detected',
+    'warning_gps_invalid_or_unverifiable': 'GPS invalid or unverifiable',
+    'warning_fake_gps_app_may_be_active': 'A fake GPS app may be active',
+    'warning_gps_accuracy_invalid': 'GPS accuracy is invalid',
+    'warning_gps_low_accuracy': 'Low GPS accuracy',
+    'warning_too_perfect_no_movement': 'Too perfect accuracy without movement',
+    'warning_gps_timestamp_mismatch': 'GPS timestamp mismatch',
+    'warning_gps_data_stale': 'GPS data is stale',
+    'warning_impossible_location': 'Impossible location',
+    'warning_unrealistic_speed': 'Unrealistic speed',
+    'warning_low_gps_confidence': 'Low GPS confidence',
     'failed_create_account': 'Failed to create account',
     'email_already_registered': 'Email already registered',
     'password_too_weak': 'Password too weak',
@@ -664,6 +701,7 @@ class LocalizationHelper {
     'invalid_invitation_code': 'Invalid invitation code',
     'already_member_of_organization':
         'You are already a member of this organization',
+    'already_member_of': 'Already a member of',
     'successfully_joined': 'Successfully joined',
     'failed_to_join_organization': 'Failed to join organization',
     'user_not_authenticated': 'User not authenticated',

@@ -112,6 +112,10 @@ class _DashboardContentState extends State<_DashboardContent> {
   // ✅ FIX: Flag untuk mencegah break monitoring reload break info setelah stop break
   bool _breakJustStopped = false;
 
+  // ✅ Anti-spam dialog Fake GPS
+  DateTime? _lastFakeGpsDialogAt;
+  bool _isFakeGpsDialogVisible = false;
+
   static const Color primaryColor = Color(0xFF6366F1);
   static const Color backgroundColor = Color(0xFF1F2937);
   static const Color successColor = Color(0xFF10B981);
@@ -1093,6 +1097,26 @@ Future<void> _loadRemainingDataInBackground() async {
           }
           _isLocationUpdating = false;
         });
+
+        // ✅ Trigger Fake GPS dialog segera setelah update posisi (anti-spam 15s)
+        if (mounted && _gpsPosition != null) {
+          try {
+            final isFake = await FakeGpsDetector.isFakeGps(_gpsPosition!);
+            if (isFake) {
+              final now = DateTime.now();
+              final allowShow = !_isFakeGpsDialogVisible &&
+                  (_lastFakeGpsDialogAt == null ||
+                      now.difference(_lastFakeGpsDialogAt!).inSeconds > 15);
+              if (allowShow) {
+                final validation = await FakeGpsDetector.validateGpsPosition(_gpsPosition!);
+                _isFakeGpsDialogVisible = true;
+                await _showFakeGpsDialog(validation);
+                _lastFakeGpsDialogAt = DateTime.now();
+                _isFakeGpsDialogVisible = false;
+              }
+            }
+          } catch (_) {}
+        }
       } else if (retryCount < maxGpsRetries) {
         await Future.delayed(gpsRetryDelay);
         await _performGpsUpdate(retryCount + 1);
@@ -1113,8 +1137,42 @@ Future<void> _loadRemainingDataInBackground() async {
           }
           _isLocationUpdating = false;
         });
+
+        // ✅ Trigger Fake GPS dialog juga pada path else (akurasi tidak memenuhi setelah retry)
+        if (mounted && _gpsPosition != null) {
+          try {
+            final isFake = await FakeGpsDetector.isFakeGps(_gpsPosition!);
+            if (isFake) {
+              final now = DateTime.now();
+              final allowShow = !_isFakeGpsDialogVisible &&
+                  (_lastFakeGpsDialogAt == null ||
+                      now.difference(_lastFakeGpsDialogAt!).inSeconds > 15);
+              if (allowShow) {
+                final validation = await FakeGpsDetector.validateGpsPosition(_gpsPosition!);
+                _isFakeGpsDialogVisible = true;
+                await _showFakeGpsDialog(validation);
+                _lastFakeGpsDialogAt = DateTime.now();
+                _isFakeGpsDialogVisible = false;
+              }
+            }
+          } catch (_) {}
+        }
       }
     } catch (e) {
+      // Jika error kemungkinan terkait fake GPS, tampilkan dialog dan hentikan flushbar
+      final err = e.toString().toLowerCase();
+      final isFakeErr = err.contains('fake gps') || err.contains('mock location') || err.contains('gps tidak valid');
+      if (isFakeErr && mounted) {
+        try {
+          // Tampilkan default dialog jika tidak ada posisi valid untuk validasi detail
+          await _showFakeGpsDialogDefault();
+        } catch (_) {}
+        setState(() {
+          _isLocationUpdating = false;
+        });
+        return;
+      }
+
       if (retryCount < maxGpsRetries) {
         await Future.delayed(gpsRetryDelay);
         await _performGpsUpdate(retryCount + 1);
@@ -2020,11 +2078,20 @@ Future<void> _loadRemainingDataInBackground() async {
 
         // ✅ VALIDASI FAKE GPS sebelum validasi radius - SHOW POPUP INSTEAD OF FLUSHBAR
         try {
+          // Selalu refresh GPS tepat sebelum validasi fake GPS agar pakai data terbaru
+          debugPrint('Refreshing GPS before fake GPS validation...');
+          await _updateGpsPositionAndDistance(debounce: false, retryCount: 0);
+          if (_gpsPosition == null) {
+            debugPrint('GPS position still null after refresh; skipping fake GPS validation');
+          }
+
+          debugPrint('Running fake GPS validation on latest position...');
           final isFake = await FakeGpsDetector.isFakeGps(_gpsPosition!);
           if (isFake) {
             final validation = await FakeGpsDetector.validateGpsPosition(_gpsPosition!);
             if (mounted) {
               // ✅ GANTI: Show popup alert di tengah layar
+              debugPrint('Showing Fake GPS dialog (validation warnings: ${validation['warnings']})');
               await _showFakeGpsDialog(validation);
             }
             return;
@@ -2197,10 +2264,12 @@ Future<void> _loadRemainingDataInBackground() async {
     } catch (e) {
       debugPrint('❌ Error performing attendance: $e');
       if (mounted) {
-        // ✅ Cek apakah error terkait fake GPS
-        if (e.toString().contains('GPS tidak valid') || 
-            e.toString().contains('fake GPS') ||
-            e.toString().contains('mock location')) {
+        // ✅ Cek apakah error terkait fake GPS (case-insensitive)
+        final _err = e.toString();
+        final _errL = _err.toLowerCase();
+        if (_errL.contains('gps tidak valid') ||
+            _errL.contains('fake gps') ||
+            _errL.contains('mock location')) {
           // Coba validasi ulang untuk mendapatkan detail warning
           try {
             if (positionToUse != null) {
@@ -2219,11 +2288,12 @@ Future<void> _loadRemainingDataInBackground() async {
             'failed_to_perform_attendance',
           );
 
-          // ✅ Cek apakah error Location terkait fake GPS
-          if (e.toString().contains('Location') && 
-              (e.toString().contains('GPS tidak valid') || 
-               e.toString().contains('fake GPS') ||
-               e.toString().contains('mock location'))) {
+          // ✅ Cek apakah error Location terkait fake GPS (case-insensitive)
+          final _isLocation = _errL.contains('location');
+          if (_isLocation &&
+              (_errL.contains('gps tidak valid') ||
+               _errL.contains('fake gps') ||
+               _errL.contains('mock location'))) {
             // Tampilkan popup fake GPS
             await _showFakeGpsDialogDefault();
           } else if (e.toString().contains('Location')) {
@@ -2250,6 +2320,23 @@ Future<void> _loadRemainingDataInBackground() async {
     if (!mounted) return;
 
     final warnings = validation['warnings'] as List<String>;
+    String _mapWarningToKey(String w) {
+      final lw = w.toLowerCase();
+      if (lw.contains('mock location')) return 'warning_mock_location_detected';
+      if (lw.contains('akurasi gps tidak valid') || lw.contains('gps invalid')) return 'warning_gps_accuracy_invalid';
+      if (lw.contains('akurasi gps rendah') || lw.contains('low accuracy')) return 'warning_gps_low_accuracy';
+      if (lw.contains('terlalu sempurna') || lw.contains('too perfect')) return 'warning_too_perfect_no_movement';
+      if (lw.contains('timestamp gps tidak sesuai') || lw.contains('timestamp mismatch')) return 'warning_gps_timestamp_mismatch';
+      if (lw.contains('data gps sudah lama') || lw.contains('stale')) return 'warning_gps_data_stale';
+      if (lw.contains('lokasi tidak mungkin') || lw.contains('impossible location')) return 'warning_impossible_location';
+      if (lw.contains('kecepatan tidak realistis') || lw.contains('unrealistic speed')) return 'warning_unrealistic_speed';
+      if (lw.contains('tingkat kepercayaan gps rendah') || lw.contains('low confidence')) return 'warning_low_gps_confidence';
+      return w; // fallback show as-is
+    }
+    final localizedWarnings = warnings.map((w) {
+      final key = _mapWarningToKey(w);
+      return (key == w) ? w : LocalizationHelper.getText(key);
+    }).toList();
     final confidence = validation['confidence'] as double;
     final accuracy = validation['accuracy'] as double?;
 
@@ -2257,6 +2344,7 @@ Future<void> _loadRemainingDataInBackground() async {
       context: context,
       barrierDismissible: false,
       barrierColor: Colors.black54,
+      useRootNavigator: true,
       builder: (BuildContext context) {
         return Center(
           child: Material(
@@ -2299,7 +2387,7 @@ Future<void> _loadRemainingDataInBackground() async {
                 
                 // Title
                 Text(
-                  'Fake GPS Terdeteksi',
+                  LocalizationHelper.getText('fake_gps_detected_title'),
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontSize: 22,
@@ -2311,7 +2399,7 @@ Future<void> _loadRemainingDataInBackground() async {
                 
                 // Description
                 Text(
-                  'Sistem mendeteksi penggunaan aplikasi fake GPS atau mock location. Absensi tidak dapat dilakukan dengan GPS palsu.',
+                  LocalizationHelper.getText('fake_gps_detected_desc'),
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.grey.shade700,
@@ -2322,7 +2410,7 @@ Future<void> _loadRemainingDataInBackground() async {
                 const SizedBox(height: 24),
                 
                 // Warning Details
-                if (warnings.isNotEmpty) ...[
+                if (localizedWarnings.isNotEmpty) ...[
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -2345,7 +2433,7 @@ Future<void> _loadRemainingDataInBackground() async {
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              'Alasan Deteksi:',
+                              LocalizationHelper.getText('detection_reasons'),
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
@@ -2355,7 +2443,7 @@ Future<void> _loadRemainingDataInBackground() async {
                           ],
                         ),
                         const SizedBox(height: 12),
-                        ...warnings.map((warning) => Padding(
+                        ...localizedWarnings.map((warning) => Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -2411,7 +2499,7 @@ Future<void> _loadRemainingDataInBackground() async {
                           ),
                           const SizedBox(width: 8),
                           Text(
-                            'Cara Memperbaiki:',
+                            LocalizationHelper.getText('how_to_fix'),
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
@@ -2421,10 +2509,10 @@ Future<void> _loadRemainingDataInBackground() async {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      _buildInstructionItem('1. Matikan aplikasi fake GPS atau mock location'),
-                      _buildInstructionItem('2. Nonaktifkan "Allow mock locations" di Developer Options'),
-                      _buildInstructionItem('3. Pastikan GPS asli aktif di pengaturan perangkat'),
-                      _buildInstructionItem('4. Restart aplikasi dan coba lagi'),
+                      _buildInstructionItem(LocalizationHelper.getText('fix_step_1')),
+                      _buildInstructionItem(LocalizationHelper.getText('fix_step_2')),
+                      _buildInstructionItem(LocalizationHelper.getText('fix_step_3')),
+                      _buildInstructionItem(LocalizationHelper.getText('fix_step_4')),
                     ],
                   ),
                 ),
@@ -2443,9 +2531,9 @@ Future<void> _loadRemainingDataInBackground() async {
                       ),
                       elevation: 0,
                     ),
-                    child: const Text(
-                      'Mengerti',
-                      style: TextStyle(
+                    child: Text(
+                      LocalizationHelper.getText('ok_understood'),
+                      style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
                         color: Colors.white,
@@ -2502,6 +2590,7 @@ Future<void> _loadRemainingDataInBackground() async {
       context: context,
       barrierDismissible: false,
       barrierColor: Colors.black54,
+      useRootNavigator: true,
       builder: (BuildContext context) {
         return Center(
           child: Material(
@@ -2544,7 +2633,7 @@ Future<void> _loadRemainingDataInBackground() async {
                 
                 // Title
                 Text(
-                  'Fake GPS Terdeteksi',
+                  LocalizationHelper.getText('fake_gps_detected_title'),
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontSize: 22,
@@ -2556,7 +2645,7 @@ Future<void> _loadRemainingDataInBackground() async {
                 
                 // Description
                 Text(
-                  'Sistem mendeteksi penggunaan aplikasi fake GPS atau mock location. Absensi tidak dapat dilakukan dengan GPS palsu.',
+                  LocalizationHelper.getText('fake_gps_detected_desc'),
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.grey.shade700,
@@ -2589,7 +2678,7 @@ Future<void> _loadRemainingDataInBackground() async {
                           ),
                           const SizedBox(width: 8),
                           Text(
-                            'Alasan Deteksi:',
+                            LocalizationHelper.getText('detection_reasons'),
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
@@ -2599,9 +2688,9 @@ Future<void> _loadRemainingDataInBackground() async {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      _buildWarningItem('Mock location terdeteksi'),
-                      _buildWarningItem('GPS tidak valid atau tidak dapat diverifikasi'),
-                      _buildWarningItem('Aplikasi fake GPS mungkin sedang aktif'),
+                      _buildWarningItem(LocalizationHelper.getText('warning_mock_location_detected')),
+                      _buildWarningItem(LocalizationHelper.getText('warning_gps_invalid_or_unverifiable')),
+                      _buildWarningItem(LocalizationHelper.getText('warning_fake_gps_app_may_be_active')),
                     ],
                   ),
                 ),
@@ -2630,7 +2719,7 @@ Future<void> _loadRemainingDataInBackground() async {
                           ),
                           const SizedBox(width: 8),
                           Text(
-                            'Cara Memperbaiki:',
+                            LocalizationHelper.getText('how_to_fix'),
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
@@ -2640,10 +2729,10 @@ Future<void> _loadRemainingDataInBackground() async {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      _buildInstructionItem('1. Matikan aplikasi fake GPS atau mock location'),
-                      _buildInstructionItem('2. Nonaktifkan "Allow mock locations" di Developer Options'),
-                      _buildInstructionItem('3. Pastikan GPS asli aktif di pengaturan perangkat'),
-                      _buildInstructionItem('4. Restart aplikasi dan coba lagi'),
+                      _buildInstructionItem(LocalizationHelper.getText('fix_step_1')),
+                      _buildInstructionItem(LocalizationHelper.getText('fix_step_2')),
+                      _buildInstructionItem(LocalizationHelper.getText('fix_step_3')),
+                      _buildInstructionItem(LocalizationHelper.getText('fix_step_4')),
                     ],
                   ),
                 ),
@@ -2662,9 +2751,9 @@ Future<void> _loadRemainingDataInBackground() async {
                       ),
                       elevation: 0,
                     ),
-                    child: const Text(
-                      'Mengerti',
-                      style: TextStyle(
+                    child: Text(
+                      LocalizationHelper.getText('ok_understood'),
+                      style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
                         color: Colors.white,
