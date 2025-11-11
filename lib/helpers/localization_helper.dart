@@ -371,7 +371,7 @@ class LocalizationHelper {
     'something_went_wrong': 'Terjadi kesalahan',
     'no_internet_connection': 'Tidak ada koneksi internet',
     'unable_to_get_precise_location':
-        'Tidak dapat mendapatkan lokasi yang presisi.',
+        'Gagal memuat lokasi. Terdeteksi Fake Gps',
     'enable_gps_and_try_again': 'Silakan aktifkan GPS dan coba lagi',
     'out_of_range': 'Di luar jangkauan',
     'locating': 'Menemukan lokasi...',
@@ -928,7 +928,7 @@ class LocalizationHelper {
     'please_try_again': 'Please try again',
     'something_went_wrong': 'Something went wrong',
     'no_internet_connection': 'No internet connection',
-    'unable_to_get_precise_location': 'Unable to get precise location.',
+    'unable_to_get_precise_location': 'Unable to load location. Fake GPS detected.',
     'enable_gps_and_try_again': 'Please enable GPS and try again',
     'out_of_range': 'Out of range',
     'locating': 'Locating...',
