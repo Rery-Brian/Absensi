@@ -47,6 +47,13 @@ class UserDashboardState extends State<UserDashboard> {
     }
   }
 
+  Future<void> refreshAfterScheduleChange() async {
+    debugPrint('UserDashboard: refreshAfterScheduleChange called');
+    if (_dashboardContentKey.currentState != null) {
+      await _dashboardContentKey.currentState!.refreshAfterScheduleChange();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(body: _DashboardContent(key: _dashboardContentKey));
@@ -559,6 +566,21 @@ class _DashboardContentState extends State<_DashboardContent> {
       }
     } catch (e) {
       debugPrint('Failed to refresh user profile: $e');
+    }
+  }
+
+  Future<void> refreshAfterScheduleChange() async {
+    debugPrint('DashboardContent: refreshAfterScheduleChange called');
+    if (!mounted) return;
+    try {
+      await _loadScheduleData().timeout(const Duration(seconds: 5), onTimeout: () => Future.value());
+      if (!mounted) return;
+      await _updateAttendanceStatus().timeout(const Duration(seconds: 5), onTimeout: () => Future.value());
+      if (!mounted) return;
+      await _buildDynamicTimeline().timeout(const Duration(seconds: 3), onTimeout: () => Future.value());
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('DashboardContent: refreshAfterScheduleChange error: $e');
     }
   }
 
@@ -2412,7 +2434,7 @@ Future<void> _loadRemainingDataInBackground() async {
                 // Warning Details
                 if (localizedWarnings.isNotEmpty) ...[
                   Container(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: const Color(0xFFFEF2F2),
                       borderRadius: BorderRadius.circular(12),
@@ -2596,29 +2618,29 @@ Future<void> _loadRemainingDataInBackground() async {
           child: Material(
             type: MaterialType.transparency,
             child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 24),
-              constraints: const BoxConstraints(maxWidth: 400),
+              margin: const EdgeInsets.symmetric(horizontal: 20),
+              constraints: const BoxConstraints(maxWidth: 260),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
+                borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.2),
-                    blurRadius: 20,
-                    offset: const Offset(0, 10),
+                    color: Colors.black.withOpacity(0.15),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
                   ),
                 ],
               ),
               child: SingleChildScrollView(
                 child: Padding(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(16),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                 // Icon Warning
                 Container(
-                  width: 80,
-                  height: 80,
+                  width: 40,
+                  height: 40,
                   decoration: BoxDecoration(
                     color: const Color(0xFFEF4444).withOpacity(0.1),
                     shape: BoxShape.circle,
@@ -2626,22 +2648,22 @@ Future<void> _loadRemainingDataInBackground() async {
                   child: const Icon(
                     Icons.location_off,
                     color: Color(0xFFEF4444),
-                    size: 40,
+                    size: 20,
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 10),
                 
                 // Title
                 Text(
                   LocalizationHelper.getText('fake_gps_detected_title'),
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                    fontSize: 22,
+                    fontSize: 15,
                     fontWeight: FontWeight.bold,
                     color: Color(0xFF1F2937),
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 4),
                 
                 // Description
                 Text(
@@ -2649,18 +2671,18 @@ Future<void> _loadRemainingDataInBackground() async {
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.grey.shade700,
-                    fontSize: 14,
-                    height: 1.5,
+                    fontSize: 11,
+                    height: 1.3,
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 10),
                 
                 // Warning Details (Default)
                 Container(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: const Color(0xFFFEF2F2),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(8),
                     border: Border.all(
                       color: const Color(0xFFEF4444).withOpacity(0.2),
                       width: 1,
@@ -2669,74 +2691,12 @@ Future<void> _loadRemainingDataInBackground() async {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.warning_amber_rounded,
-                            color: const Color(0xFFEF4444),
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            LocalizationHelper.getText('detection_reasons'),
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: const Color(0xFFEF4444),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
                       _buildWarningItem(LocalizationHelper.getText('warning_mock_location_detected')),
-                      _buildWarningItem(LocalizationHelper.getText('warning_gps_invalid_or_unverifiable')),
                       _buildWarningItem(LocalizationHelper.getText('warning_fake_gps_app_may_be_active')),
                     ],
                   ),
                 ),
-                const SizedBox(height: 20),
-                
-                // Additional Info
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF0F9FF),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: const Color(0xFF0EA5E9).withOpacity(0.2),
-                      width: 1,
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.info_outline,
-                            color: const Color(0xFF0EA5E9),
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            LocalizationHelper.getText('how_to_fix'),
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: const Color(0xFF0EA5E9),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      _buildInstructionItem(LocalizationHelper.getText('fix_step_1')),
-                      _buildInstructionItem(LocalizationHelper.getText('fix_step_2')),
-                      _buildInstructionItem(LocalizationHelper.getText('fix_step_3')),
-                      _buildInstructionItem(LocalizationHelper.getText('fix_step_4')),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 10),
                 
                 // OK Button
                 SizedBox(
@@ -2745,16 +2705,16 @@ Future<void> _loadRemainingDataInBackground() async {
                     onPressed: () => Navigator.of(context).pop(),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFFEF4444),
-                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(8),
                       ),
                       elevation: 0,
                     ),
                     child: Text(
                       LocalizationHelper.getText('ok_understood'),
                       style: const TextStyle(
-                        fontSize: 16,
+                        fontSize: 12,
                         fontWeight: FontWeight.w600,
                         color: Colors.white,
                       ),

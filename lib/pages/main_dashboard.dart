@@ -147,8 +147,11 @@ class _MainDashboardState extends State<MainDashboard> {
     }
     _lastRefreshTime = now;
     
-    debugPrint('MainDashboard: Refreshing dashboard profile');
+    debugPrint('MainDashboard: Refreshing dashboard after profile update (profile + schedule)');
+    // Refresh profile basics (name/photo)
     _dashboardKey.currentState?.refreshUserProfile();
+    // Refresh schedule-related parts (hours, status, timeline)
+    _dashboardKey.currentState?.refreshAfterScheduleChange();
   }
 
   void _refreshAttendance() {
