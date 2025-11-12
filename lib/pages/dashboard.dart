@@ -2420,15 +2420,6 @@ Future<void> _loadRemainingDataInBackground() async {
                 const SizedBox(height: 12),
                 
                 // Description
-                Text(
-                  LocalizationHelper.getText('fake_gps_detected_desc'),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.grey.shade700,
-                    fontSize: 14,
-                    height: 1.5,
-                  ),
-                ),
                 const SizedBox(height: 24),
                 
                 // Warning Details
@@ -2665,16 +2656,6 @@ Future<void> _loadRemainingDataInBackground() async {
                 ),
                 const SizedBox(height: 4),
                 
-                // Description
-                Text(
-                  LocalizationHelper.getText('fake_gps_detected_desc'),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.grey.shade700,
-                    fontSize: 11,
-                    height: 1.3,
-                  ),
-                ),
                 const SizedBox(height: 10),
                 
                 // Warning Details (Default)
