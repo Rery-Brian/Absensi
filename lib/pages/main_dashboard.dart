@@ -39,6 +39,21 @@ class _MainDashboardState extends State<MainDashboard> {
   void initState() {
     super.initState();
     _verifyOrganizationMembership();
+    // ✅ Listen perubahan bahasa untuk rebuild bottom navigation labels
+    LocalizationHelper.languageNotifier.addListener(_onLanguageChanged);
+  }
+  
+  @override
+  void dispose() {
+    LocalizationHelper.languageNotifier.removeListener(_onLanguageChanged);
+    super.dispose();
+  }
+  
+  // ✅ Handler untuk perubahan bahasa
+  void _onLanguageChanged() {
+    if (mounted) {
+      setState(() {}); // Rebuild untuk update bottom navigation labels
+    }
   }
 
   Future<void> _verifyOrganizationMembership() async {

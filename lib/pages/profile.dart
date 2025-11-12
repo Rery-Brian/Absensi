@@ -517,9 +517,7 @@ class _ProfilePageState extends State<ProfilePage> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              LocalizationHelper.currentLanguage == 'en'
-                                  ? 'Choose your preferred language'
-                                  : 'Pilih bahasa yang Anda inginkan',
+                              LocalizationHelper.getText('choose_your_preferred_language'),
                               style: TextStyle(
                                 fontSize: 13,
                                 color: Colors.grey[600],
@@ -549,10 +547,14 @@ class _ProfilePageState extends State<ProfilePage> {
         await LocalizationHelper.setLanguage(code);
         if (mounted) {
           Navigator.pop(context);
-          setState(() {});
+          setState(() {}); // ✅ Rebuild profile page
+          // ✅ Notify callback untuk refresh halaman lain (dashboard)
+          if (widget.onProfileUpdated != null) {
+            widget.onProfileUpdated!();
+          }
           FlushbarHelper.showSuccess(
             context,
-            'Language changed to $name',
+            LocalizationHelper.getText('language_changed_successfully'),
           );
         }
       },
@@ -680,7 +682,7 @@ class _ProfilePageState extends State<ProfilePage> {
                               color: primaryColor,
                             ),
                             const SizedBox(height: 8),
-                            Text(LocalizationHelper.currentLanguage == 'id' ? 'Kamera' : 'Camera'),
+                            Text(LocalizationHelper.getText('camera')),
                           ],
                         ),
                       ),
@@ -705,7 +707,7 @@ class _ProfilePageState extends State<ProfilePage> {
                               color: primaryColor,
                             ),
                             const SizedBox(height: 8),
-                            Text(LocalizationHelper.currentLanguage == 'id' ? 'Galeri' : 'Gallery'),
+                            Text(LocalizationHelper.getText('gallery')),
                           ],
                         ),
                       ),
@@ -1333,12 +1335,10 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _buildScheduleMenuItem() {
     final scheduleName = _selectedSchedule?.name ?? 
         (_currentSchedule?.shift?.name ?? 
-        (LocalizationHelper.currentLanguage == 'id' ? 'Belum diatur' : 'Not set'));
+        LocalizationHelper.getText('not_set'));
     
     final scheduleSubtitle = _selectedSchedule?.description ?? 
-        (LocalizationHelper.currentLanguage == 'id' 
-            ? 'Ketuk untuk memilih jadwal kerja'
-            : 'Tap to select work schedule');
+        LocalizationHelper.getText('tap_to_select_work_schedule');
 
     return InkWell(
       onTap: _showScheduleSelectionDialog,
@@ -1581,8 +1581,8 @@ class _ProfilePageState extends State<ProfilePage> {
             icon: Icons.language_outlined,
             title: LocalizationHelper.getText('language'),
             subtitle: LocalizationHelper.currentLanguage == 'en' 
-                ? 'English' 
-                : 'Indonesia',
+                ? LocalizationHelper.getText('english')
+                : LocalizationHelper.getText('indonesian'),
             onTap: () => _showLanguageDialog(),
           ),
           _buildMenuItem(

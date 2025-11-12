@@ -12,6 +12,7 @@ import '../pages/camera_selfie_screen.dart';
 import '../pages/break_page.dart';
 import '../services/device_service.dart';
 import '../pages/device_selection_screen.dart';
+import '../pages/work_schedule_selection_modal.dart';
 import 'login.dart';
 import '../helpers/timezone_helper.dart';
 import '../helpers/time_helper.dart';
@@ -141,6 +142,9 @@ class _DashboardContentState extends State<_DashboardContent> {
     _loadUserData();
     _startPeriodicLocationUpdates();
     _startBreakMonitoring();
+    
+    // ✅ Listen perubahan bahasa dan rebuild timeline
+    LocalizationHelper.languageNotifier.addListener(_onLanguageChanged);
   }
 
   @override
@@ -149,7 +153,18 @@ class _DashboardContentState extends State<_DashboardContent> {
     _periodicLocationTimer?.cancel();
     _breakIndicatorTimer?.cancel();
     _breakCountdownTimer?.cancel(); // ✅ Cancel countdown timer
+    LocalizationHelper.languageNotifier.removeListener(_onLanguageChanged); // ✅ Remove listener
     super.dispose();
+  }
+  
+  // ✅ Handler untuk perubahan bahasa
+  void _onLanguageChanged() {
+    if (mounted) {
+      // Rebuild timeline dengan bahasa baru
+      _buildDynamicTimeline();
+      // Rebuild semua UI
+      setState(() {});
+    }
   }
 
   void _startBreakMonitoring() {
@@ -653,10 +668,23 @@ Future<void> _loadUserData() async {
       debugPrint('✓ Organization set from member data: ${_organization?.name}');
     }
 
-    // ✅ STEP 3: Load organization info lengkap dengan logo (parallel dengan data lain)
+    // ✅ STEP 3: Check device selection FIRST (location dulu)
+    await _checkDeviceSelection();
+
+    if (!mounted) return; // ✅ CHECK #6: Setelah async
+
+    if (_needsDeviceSelection) {
+      if (mounted) setState(() => _isInitialLoading = false); // ✅ CHECK #7
+      return;
+    }
+
+    // ✅ STEP 4: Load schedule data AFTER location is selected (jadwal kerja setelah location)
+    await _loadScheduleData();
+
+    if (!mounted) return;
+
+    // ✅ STEP 5: Load organization info dan location info (parallel)
     await Future.wait([
-      _checkDeviceSelection(),
-      _loadScheduleData(),
       _loadLocationInfo(),
       _loadOrganizationInfo(), // ✅ Load organization info lengkap di sini
     ]).timeout(
@@ -667,14 +695,9 @@ Future<void> _loadUserData() async {
       },
     );
 
-    if (!mounted) return; // ✅ CHECK #6: Setelah async
+    if (!mounted) return;
 
-    if (_needsDeviceSelection) {
-      if (mounted) setState(() => _isInitialLoading = false); // ✅ CHECK #7
-      return;
-    }
-
-    // ✅ STEP 4: Load data untuk status card (gunakan cache dari service)
+    // ✅ STEP 6: Load data untuk status card (gunakan cache dari service)
     await Future.wait([
       _loadOrganizationData(forceRefresh: false), // ✅ Gunakan cache
       _loadBreakInfo(forceRefresh: false), // ✅ Gunakan cache
@@ -1043,6 +1066,41 @@ Future<void> _loadRemainingDataInBackground() async {
     }
   }
 
+  Future<void> _showWorkScheduleSelectionModal({bool isRequired = false}) async {
+    if (_organizationMember == null) return;
+
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      barrierDismissible: !isRequired,
+      builder: (context) => WorkScheduleSelectionModal(
+        organizationId: _organizationMember!.organizationId,
+        organizationName:
+            _organization?.name ?? LocalizationHelper.getText('organization'),
+        isRequired: isRequired,
+      ),
+    );
+
+    if (result != null && result['success'] == true) {
+      // Invalidate schedule cache
+      _attendanceService.invalidateScheduleCache(_organizationMember!.id);
+      
+      // Reload schedule data
+      await _loadScheduleData();
+      
+      // Update attendance status and timeline
+      await _updateAttendanceStatus(forceRefresh: true);
+      await _buildDynamicTimeline();
+      
+      if (mounted) {
+        setState(() {});
+        FlushbarHelper.showSuccess(
+          context,
+          LocalizationHelper.getText('work_schedule_selected_successfully'),
+        );
+      }
+    }
+  }
+
   Future<void> _forceDataReload() async {
     setState(() {
       _isInitialLoading = true;
@@ -1358,9 +1416,22 @@ Future<void> _loadRemainingDataInBackground() async {
       // ✅ OPTIMIZATION: Service sudah handle caching, tidak perlu cache manual
       _currentSchedule = await _attendanceService.loadCurrentSchedule(
         _organizationMember!.id,
+        forceRefresh: false,
       );
 
       if (!mounted) return;
+
+      // ✅ Check if schedule is null (no cache, no default) - show selection modal
+      if (_currentSchedule == null) {
+        debugPrint('No schedule found - showing selection modal');
+        await _showWorkScheduleSelectionModal(isRequired: true);
+        // Reload schedule after selection
+        _currentSchedule = await _attendanceService.loadCurrentSchedule(
+          _organizationMember!.id,
+          forceRefresh: true,
+        );
+        if (!mounted) return;
+      }
 
       if (_currentSchedule?.workScheduleId != null) {
         final dayOfWeek = TimeHelper.getCurrentDayOfWeek();
@@ -1379,6 +1450,10 @@ Future<void> _loadRemainingDataInBackground() async {
       if (mounted) setState(() {});
     } catch (e) {
       debugPrint('Error loading schedule details: $e');
+      // If error and no schedule, show selection modal
+      if (_currentSchedule == null && mounted) {
+        await _showWorkScheduleSelectionModal(isRequired: true);
+      }
     }
   }
 
@@ -1479,36 +1554,91 @@ Future<void> _loadRemainingDataInBackground() async {
     List<ScheduleItem> items = [];
 
     try {
-      dynamic shiftIdValue;
-      try {
-        shiftIdValue = int.parse(_currentSchedule!.shiftId!);
-      } catch (e) {
-        shiftIdValue = _currentSchedule!.shiftId!;
-      }
+      // ✅ OPTIMIZATION: Use shift data from _currentSchedule if available
+      Shift? shift = _currentSchedule?.shift;
+      
+      if (shift == null && _currentSchedule?.shiftId != null) {
+        // If shift not loaded, fetch from database
+        dynamic shiftIdValue;
+        try {
+          shiftIdValue = int.parse(_currentSchedule!.shiftId!);
+        } catch (e) {
+          shiftIdValue = _currentSchedule!.shiftId!;
+        }
 
-      final shiftResponse = await Supabase.instance.client
-          .from('shifts')
-          .select('start_time, end_time, break_duration_minutes')
-          .eq('id', shiftIdValue)
-          .single();
+        final shiftResponse = await Supabase.instance.client
+            .from('shifts')
+            .select('start_time, end_time, break_duration_minutes')
+            .eq('id', shiftIdValue)
+            .single();
 
-      if (shiftResponse != null) {
+        if (shiftResponse != null) {
+          // Use the shift data to create items
+          final startTime = shiftResponse['start_time']?.toString() ?? '';
+          final endTime = shiftResponse['end_time']?.toString() ?? '';
+          final breakDurationMinutes = shiftResponse['break_duration_minutes'] ?? 0;
+
+          items.add(
+            ScheduleItem(
+              time: _formatTimeFromDatabase(startTime),
+              label: LocalizationHelper.getText('check_in'),
+              type: AttendanceActionType.checkIn,
+              subtitle: LocalizationHelper.getText('start_work_day'),
+            ),
+          );
+
+          if (breakDurationMinutes > 0) {
+            final startTimeParsed = TimeHelper.parseTimeString(
+              _formatTimeFromDatabase(startTime),
+            );
+            final endTimeParsed = TimeHelper.parseTimeString(
+              _formatTimeFromDatabase(endTime),
+            );
+
+            final totalMinutes =
+                TimeHelper.timeToMinutes(endTimeParsed) -
+                TimeHelper.timeToMinutes(startTimeParsed);
+            final breakStartMinutes =
+                TimeHelper.timeToMinutes(startTimeParsed) + (totalMinutes ~/ 2);
+
+            items.add(
+              ScheduleItem(
+                time: TimeHelper.formatTimeOfDay(
+                  TimeHelper.minutesToTime(breakStartMinutes),
+                ),
+                label: LocalizationHelper.getText('break'),
+                type: AttendanceActionType.breakOut,
+                subtitle: LocalizationHelper.getText('take_a_break'),
+              ),
+            );
+          }
+
+          items.add(
+            ScheduleItem(
+              time: _formatTimeFromDatabase(endTime),
+              label: LocalizationHelper.getText('check_out'),
+              type: AttendanceActionType.checkOut,
+              subtitle: LocalizationHelper.getText('end_work_day'),
+            ),
+          );
+        }
+      } else if (shift != null) {
+        // Use shift data from _currentSchedule
         items.add(
           ScheduleItem(
-            time: _formatTimeFromDatabase(shiftResponse['start_time']),
+            time: _formatTimeFromDatabase(shift.startTime),
             label: LocalizationHelper.getText('check_in'),
             type: AttendanceActionType.checkIn,
             subtitle: LocalizationHelper.getText('start_work_day'),
           ),
         );
 
-        if (shiftResponse['break_duration_minutes'] != null &&
-            shiftResponse['break_duration_minutes'] > 0) {
+        if (shift.breakDurationMinutes > 0) {
           final startTime = TimeHelper.parseTimeString(
-            _formatTimeFromDatabase(shiftResponse['start_time']),
+            _formatTimeFromDatabase(shift.startTime),
           );
           final endTime = TimeHelper.parseTimeString(
-            _formatTimeFromDatabase(shiftResponse['end_time']),
+            _formatTimeFromDatabase(shift.endTime),
           );
 
           final totalMinutes =
@@ -1531,7 +1661,7 @@ Future<void> _loadRemainingDataInBackground() async {
 
         items.add(
           ScheduleItem(
-            time: _formatTimeFromDatabase(shiftResponse['end_time']),
+            time: _formatTimeFromDatabase(shift.endTime),
             label: LocalizationHelper.getText('check_out'),
             type: AttendanceActionType.checkOut,
             subtitle: LocalizationHelper.getText('end_work_day'),
@@ -3971,9 +4101,7 @@ void didChangeDependencies() {
                                                       ?.isNotEmpty ==
                                                   true
                                               ? '${LocalizationHelper.getText('field_work_in')} ${_workLocationDetails['city']}'
-                                              : LocalizationHelper.getText(
-                                                  'field_work_mode',
-                                                )),
+                                              : LocalizationHelper.getText('field_work_mode')),
                                     style: TextStyle(
                                       fontSize: 13,
                                       color: Colors.grey.shade700,

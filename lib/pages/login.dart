@@ -230,6 +230,86 @@ Future<bool> _ensureUserProfile(String userId, String email, {String? googleName
     }
   }
 
+  // ✅ Helper function untuk parse AuthApiException dan convert ke pesan user-friendly
+  String _parseAuthError(dynamic error) {
+    try {
+      String errorString = '';
+      
+      // ✅ Check jika error adalah AuthException dari Supabase
+      if (error is AuthException) {
+        // AuthException memiliki property: message
+        final message = error.message?.toLowerCase() ?? '';
+        errorString = message;
+        
+        // Check untuk invalid credentials
+        if (message.contains('invalid login credentials') ||
+            message.contains('invalid_credentials')) {
+          return LocalizationHelper.getText('incorrect_email_or_password');
+        }
+        
+        // Check untuk email tidak terdaftar
+        if (message.contains('email not confirmed') ||
+            message.contains('email_not_confirmed')) {
+          return LocalizationHelper.getText('email_not_confirmed');
+        }
+        
+        // Check untuk user tidak ditemukan
+        if (message.contains('user not found') ||
+            message.contains('user_not_found')) {
+          return LocalizationHelper.getText('user_not_found');
+        }
+        
+        // Check untuk terlalu banyak percobaan
+        if (message.contains('too many requests') ||
+            message.contains('too_many_requests')) {
+          return LocalizationHelper.getText('too_many_login_attempts');
+        }
+      }
+      
+      // ✅ Fallback: parse dari string error
+      errorString = error.toString().toLowerCase();
+      
+      // Check untuk invalid credentials
+      if (errorString.contains('invalid_credentials') || 
+          errorString.contains('invalid login credentials')) {
+        return LocalizationHelper.getText('incorrect_email_or_password');
+      }
+      
+      // Check untuk email tidak terdaftar
+      if (errorString.contains('email_not_confirmed') ||
+          errorString.contains('email not confirmed')) {
+        return LocalizationHelper.getText('email_not_confirmed');
+      }
+      
+      // Check untuk user tidak ditemukan
+      if (errorString.contains('user_not_found') ||
+          errorString.contains('user not found')) {
+        return LocalizationHelper.getText('user_not_found');
+      }
+      
+      // Check untuk terlalu banyak percobaan
+      if (errorString.contains('too_many_requests') ||
+          errorString.contains('too many requests')) {
+        return LocalizationHelper.getText('too_many_login_attempts');
+      }
+      
+      // Check untuk network error
+      if (errorString.contains('network') ||
+          errorString.contains('connection') ||
+          errorString.contains('timeout') ||
+          errorString.contains('socket')) {
+        return LocalizationHelper.getText('network_error');
+      }
+      
+      // Default: tampilkan pesan generic
+      return LocalizationHelper.getText('login_error_occurred');
+    } catch (e) {
+      // Fallback jika parsing error gagal
+      debugPrint('Error parsing auth error: $e');
+      return LocalizationHelper.getText('login_error_occurred');
+    }
+  }
+
   // Function untuk navigate ke halaman yang sesuai
   Future<void> _navigateAfterLogin(BuildContext context, String userId) async {
     if (!mounted) return;
@@ -435,9 +515,13 @@ Future<bool> _ensureUserProfile(String userId, String email, {String? googleName
       }
     } catch (e) {
       if (!mounted) return;
+      
+      // ✅ Parse error dan tampilkan pesan yang user-friendly
+      final errorMessage = _parseAuthError(e);
+      
       _showDialog(
-        title: LocalizationHelper.getText('error'), 
-        message: e.toString(), 
+        title: LocalizationHelper.getText('login_failed'), 
+        message: errorMessage, 
         isSuccess: false
       );
     } finally {

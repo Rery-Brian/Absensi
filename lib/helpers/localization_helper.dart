@@ -7,6 +7,9 @@ class LocalizationHelper {
   static const String defaultLanguage = 'en'; // English sebagai default
 
   static String _currentLanguage = defaultLanguage;
+  
+  // ✅ ValueNotifier untuk notify perubahan bahasa ke semua halaman
+  static final ValueNotifier<String> languageNotifier = ValueNotifier<String>(defaultLanguage);
 
   static String get currentLanguage => _currentLanguage;
 
@@ -15,10 +18,12 @@ class LocalizationHelper {
     try {
       final prefs = await SharedPreferences.getInstance();
       _currentLanguage = prefs.getString(_languageKey) ?? defaultLanguage;
+      languageNotifier.value = _currentLanguage; // ✅ Set initial value
       debugPrint('Language initialized: $_currentLanguage');
     } catch (e) {
       debugPrint('Error initializing language: $e');
       _currentLanguage = defaultLanguage;
+      languageNotifier.value = defaultLanguage;
     }
   }
 
@@ -28,6 +33,7 @@ class LocalizationHelper {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_languageKey, languageCode);
       _currentLanguage = languageCode;
+      languageNotifier.value = languageCode; // ✅ Notify semua listener
       debugPrint('Language changed to: $languageCode');
     } catch (e) {
       debugPrint('Error saving language: $e');
@@ -212,6 +218,7 @@ class LocalizationHelper {
     'please_move_closer': 'Silakan bergerak lebih dekat ke lokasi absensi.',
     'unknown_distance': 'Jarak tidak diketahui',
     'within_radius': 'dalam radius',
+    'field_work_mode': 'Mode pekerja lapangan',
 
     // NEW: Checkout Confirmation
     'confirm_check_out': 'Konfirmasi Check-out',
@@ -283,6 +290,8 @@ class LocalizationHelper {
     'security': 'Keamanan',
     'notifications': 'Notifikasi',
     'language': 'Bahasa',
+    'language_changed_successfully': 'Bahasa berhasil diubah',
+    'choose_your_preferred_language': 'Pilih bahasa yang Anda inginkan',
     'appearance': 'Tampilan',
     'support_information': 'Dukungan & Informasi',
     'help_center': 'Pusat Bantuan',
@@ -296,6 +305,7 @@ class LocalizationHelper {
     'password_and_authentication': 'Kata sandi dan autentikasi',
     'manage_notification_preferences': 'Kelola preferensi notifikasi Anda',
     'english_default': 'Inggris (Default)',
+    'english': 'English',
     'indonesian': 'Indonesia',
     'theme_and_display': 'Tema dan tampilan',
     'get_help_and_answers': 'Dapatkan bantuan dan temukan jawaban',
@@ -336,8 +346,21 @@ class LocalizationHelper {
     'location_detected': 'Lokasi terdeteksi',
     'location_not_available': 'Lokasi tidak tersedia',
     'search_location': 'Cari lokasi...',
+    'search': 'Cari...',
     'no_locations_found': 'Lokasi tidak ditemukan',
     'try_different_search': 'Coba istilah pencarian lain',
+    'no_schedules_available': 'Tidak ada jadwal kerja tersedia',
+    'change_schedule_anytime': 'Anda dapat mengubah jadwal kerja kapan saja',
+    'work_schedule': 'Jadwal Kerja',
+    'shift': 'Shift',
+    'select_work_schedule': 'Pilih Jadwal Kerja',
+    'choose_your_work_schedule': 'Pilih jadwal kerja Anda',
+    'work_schedule_selected_successfully': 'Jadwal kerja berhasil dipilih',
+    'failed_to_load_work_schedules': 'Gagal memuat jadwal kerja',
+    'camera': 'Kamera',
+    'gallery': 'Galeri',
+    'not_set': 'Belum diatur',
+    'tap_to_select_work_schedule': 'Ketuk untuk memilih jadwal kerja',
     'no_locations_available': 'Tidak Ada Lokasi Tersedia',
     'no_locations_configured':
         'Belum ada lokasi absensi yang dikonfigurasi untuk organisasi Anda.',
@@ -480,6 +503,11 @@ class LocalizationHelper {
     'login_failed': 'Login Gagal',
     'email_password_required': 'Email dan kata sandi wajib diisi',
     'incorrect_email_or_password': 'Email atau kata sandi salah',
+    'email_not_confirmed': 'Email belum dikonfirmasi. Silakan cek email Anda untuk verifikasi.',
+    'user_not_found': 'Pengguna tidak ditemukan. Pastikan email yang Anda masukkan benar.',
+    'too_many_login_attempts': 'Terlalu banyak percobaan login. Silakan coba lagi nanti.',
+    'network_error': 'Terjadi kesalahan koneksi. Pastikan internet Anda terhubung dan coba lagi.',
+    'login_error_occurred': 'Terjadi kesalahan saat login. Silakan coba lagi.',
 
     // Break Page - Indonesian
     'failed_to_load_break_data':
@@ -628,6 +656,11 @@ static final Map<String, String> _englishTranslations = {
     'login_failed': 'Login Failed',
     'email_password_required': 'Email and password are required',
     'incorrect_email_or_password': 'Incorrect email or password',
+    'email_not_confirmed': 'Email not confirmed. Please check your email for verification.',
+    'user_not_found': 'User not found. Please make sure the email you entered is correct.',
+    'too_many_login_attempts': 'Too many login attempts. Please try again later.',
+    'network_error': 'Connection error occurred. Please make sure you are connected to the internet and try again.',
+    'login_error_occurred': 'An error occurred during login. Please try again.',
     // Main Dashboard
     'verifying_organization': 'Verifying organization...',
     'home': 'Home',
@@ -879,6 +912,8 @@ static final Map<String, String> _englishTranslations = {
     'security': 'Security',
     'notifications': 'Notifications',
     'language': 'Language',
+    'language_changed_successfully': 'Language changed successfully',
+    'choose_your_preferred_language': 'Choose your preferred language',
     'appearance': 'Appearance',
     'support_information': 'Support & Information',
     'help_center': 'Help Center',
@@ -892,6 +927,7 @@ static final Map<String, String> _englishTranslations = {
     'password_and_authentication': 'Password and authentication',
     'manage_notification_preferences': 'Manage your notification preferences',
     'english_default': 'English (Default)',
+    'english': 'English',
     'indonesian': 'Indonesian',
     'theme_and_display': 'Theme and display settings',
     'get_help_and_answers': 'Get help and find answers',
@@ -932,8 +968,22 @@ static final Map<String, String> _englishTranslations = {
     'location_detected': 'Location detected',
     'location_not_available': 'Location not available',
     'search_location': 'Search location...',
+    'search': 'Search...',
     'no_locations_found': 'No locations found',
     'try_different_search': 'Try a different search term',
+    'no_schedules_available': 'No work schedules available',
+    'change_schedule_anytime': 'You can change your work schedule anytime',
+    'work_schedule': 'Work Schedule',
+    'shift': 'Shift',
+    'select_work_schedule': 'Select Work Schedule',
+    'choose_your_work_schedule': 'Choose your work schedule',
+    'work_schedule_selected_successfully': 'Work schedule selected successfully',
+    'failed_to_load_work_schedules': 'Failed to load work schedules',
+    'camera': 'Camera',
+    'gallery': 'Gallery',
+    'not_set': 'Not set',
+    'tap_to_select_work_schedule': 'Tap to select work schedule',
+    'field_work_mode': 'Field work mode',
     'no_locations_available': 'No Locations Available',
     'no_locations_configured':
         'No attendance locations have been configured for your organization yet.',
