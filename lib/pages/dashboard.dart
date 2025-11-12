@@ -25,7 +25,9 @@ import 'package:shimmer/shimmer.dart';
 import 'package:lottie/lottie.dart';
 
 class UserDashboard extends StatefulWidget {
-  const UserDashboard({super.key});
+  final VoidCallback? onAttendanceUpdated;
+
+  const UserDashboard({super.key, this.onAttendanceUpdated});
 
   @override
   State<UserDashboard> createState() => UserDashboardState();
@@ -57,12 +59,19 @@ class UserDashboardState extends State<UserDashboard> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(body: _DashboardContent(key: _dashboardContentKey));
+    return Scaffold(
+      body: _DashboardContent(
+        key: _dashboardContentKey,
+        onAttendanceUpdated: widget.onAttendanceUpdated,
+      ),
+    );
   }
 }
 
 class _DashboardContent extends StatefulWidget {
-  const _DashboardContent({super.key});
+  final VoidCallback? onAttendanceUpdated;
+
+  const _DashboardContent({super.key, this.onAttendanceUpdated});
 
   @override
   State<_DashboardContent> createState() => _DashboardContentState();
@@ -601,6 +610,7 @@ class _DashboardContentState extends State<_DashboardContent> {
 
   void triggerAttendanceHistoryRefresh() {
     debugPrint('Dashboard: Attendance completed - should refresh history');
+    widget.onAttendanceUpdated?.call();
   }
 
   Future<void> _initializeServices() async {

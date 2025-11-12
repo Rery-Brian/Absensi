@@ -623,6 +623,7 @@ class AttendancePageState extends State<AttendancePage> with SingleTickerProvide
         onRefresh: refreshData,
         color: primaryColor,
         child: NestedScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
           headerSliverBuilder: (context, innerBoxIsScrolled) {
             return [
               SliverToBoxAdapter(child: _buildHeader()),

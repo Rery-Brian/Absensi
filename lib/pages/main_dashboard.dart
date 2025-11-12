@@ -220,7 +220,10 @@ class _MainDashboardState extends State<MainDashboard> {
         switch (index) {
           case 0:
             return _buildSafeContent(
-              UserDashboard(key: _dashboardKey),
+              UserDashboard(
+                key: _dashboardKey,
+                onAttendanceUpdated: _refreshAttendance,
+              ),
               bottomNavHeight,
               bottomPadding,
             );

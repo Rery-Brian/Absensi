@@ -2,6 +2,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
+import 'package:image/image.dart' as img;
 import '../services/camera_service.dart';
 import '../helpers/flushbar_helper.dart';
 
@@ -100,6 +101,8 @@ debugPrint('Foto resolusi: ${size?.width} x ${size?.height}');
       return;
     }
 
+    final currentCamera = widget.cameras[_selectedCameraIndex];
+
     setState(() {
       _isCapturing = true;
     });
@@ -113,6 +116,16 @@ debugPrint('Foto resolusi: ${size?.width} x ${size?.height}');
       
       // Save to specific path
       final savedPath = await CameraService.takePictureToPath(_controller!, fileName);
+
+      // Flip image horizontally if using front camera (to avoid mirror effect)
+      if (currentCamera.lensDirection == CameraLensDirection.front) {
+        await _flipImageHorizontally(savedPath);
+      }
+
+      // Log file size for monitoring
+      final fileSizeBytes = await File(savedPath).length();
+      final fileSizeKb = (fileSizeBytes / 1024).toStringAsFixed(0);
+      debugPrint('Attendance photo saved: $savedPath ($fileSizeKb KB)');
       
       if (mounted) {
         Navigator.pop(context, savedPath);
@@ -181,6 +194,23 @@ debugPrint('Foto resolusi: ${size?.width} x ${size?.height}');
         ),
       ),
     );
+  }
+
+  Future<void> _flipImageHorizontally(String path) async {
+    try {
+      final file = File(path);
+      if (!await file.exists()) return;
+
+      final bytes = await file.readAsBytes();
+      final image = img.decodeImage(bytes);
+      if (image == null) return;
+
+      final flipped = img.flipHorizontal(image);
+      final encoded = img.encodeJpg(flipped, quality: 90);
+      await file.writeAsBytes(encoded, flush: true);
+    } catch (e) {
+      debugPrint('Failed to flip selfie image: $e');
+    }
   }
 
   @override
