@@ -3,6 +3,7 @@ import 'package:absensiwajah/pages/main_dashboard.dart';
 import 'package:absensiwajah/pages/join_organization_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:lottie/lottie.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'helpers/localization_helper.dart';
 import 'helpers/cache_helper.dart';
@@ -48,18 +49,11 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
+class _SplashScreenState extends State<SplashScreen> {
 
   @override
   void initState() {
     super.initState();
-    
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    )..repeat();
-    
     _navigateToNextScreen();
   }
 
@@ -125,12 +119,6 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   }
 
   @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
@@ -138,19 +126,12 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Hourglass animation
-            AnimatedBuilder(
-              animation: _controller,
-              builder: (context, child) {
-                return Transform.rotate(
-                  angle: _controller.value * 3.14159,
-                  child: Icon(
-                    Icons.hourglass_empty,
-                    size: 80,
-                    color: Colors.teal,
-                  ),
-                );
-              },
+            // Splash animation
+            Lottie.asset(
+              'assets/lottie/clock_time.json',
+              width: 200,
+              height: 200,
+              fit: BoxFit.contain,
             ),
             
             const SizedBox(height: 24),
